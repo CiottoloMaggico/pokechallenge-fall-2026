@@ -157,6 +157,10 @@ def _report(action: str, column: str, scores: Scores, current: Sequence[str]) ->
     )
 
 
+def _progress(done: int, total: int, seconds: float) -> None:
+    print(f"  fold {done}/{total} ({seconds:.0f} s)", flush=True)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--train", type=Path, default=DEFAULT_TRAIN)
@@ -197,9 +201,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         RepeatedGroupFolds(args.folds, seeds),
         train.duplicate_groups(),
         unlabeled,
-        progress=lambda done, total, s: print(f"  fold {done}/{total} ({s:.0f} s)"),
+        progress=_progress,
     )
-    print(f"pool tables ready in {time.perf_counter() - began:.0f} s")
+    print(f"pool tables ready in {time.perf_counter() - began:.0f} s", flush=True)
     selector = Selector(folds, args.model)
     missing = set(start) - set(selector.columns)
     if missing:

@@ -29,6 +29,8 @@ Sets:
   ``snorlax_diff`` and ``switch_excess_all`` (19)
 * ``compact_v3`` compact_v2 with ``p2_hidden_ko_det`` (the learned
   detector's expected knockouts) in place of ``p2_hidden_ko_soft`` (19)
+* ``compact_v4`` compact_v3 + ``p2_hidden_ko_unsure``, the only change
+  kept by ``selection.py`` on the detector-repaired replay (20)
 * ``selection_pool`` compact_v3 plus every other candidate (37 columns),
   the starting pool of ``selection.py``
 """
@@ -216,6 +218,15 @@ def compact_v3(turn: int | None = None) -> FeatureSet[BattleContext]:
     return _feature_set("compact_v3", turn, _compact_v3_features(turn))
 
 
+def compact_v4(turn: int | None = None) -> FeatureSet[BattleContext]:
+    """compact_v3 plus the knockouts the repair left unmarked (20)."""
+    features = [
+        *_compact_v3_features(turn),
+        AtTurn("p2_hidden_ko_unsure", unsure_hidden_knockouts, turn),
+    ]
+    return _feature_set("compact_v4", turn, features)
+
+
 def selection_pool(turn: int | None = None) -> FeatureSet[BattleContext]:
     """compact_v3 and the other candidate features, for ``selection.py``.
 
@@ -294,6 +305,7 @@ FEATURE_SETS: dict[str, Builder] = {
     "compact_ko": compact_ko,
     "compact_v2": compact_v2,
     "compact_v3": compact_v3,
+    "compact_v4": compact_v4,
     "selection_pool": selection_pool,
 }
 

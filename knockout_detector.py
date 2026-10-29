@@ -26,6 +26,7 @@ from typing import Any
 
 import numpy as np
 from sklearn.ensemble import HistGradientBoostingClassifier
+from threadpoolctl import threadpool_limits
 
 from data import load_records
 from domain.knockouts import FEATURES, SpeciesLookup, Transition, transitions
@@ -67,6 +68,7 @@ class KnockoutDetector:
         self.threshold = threshold
         self._new_classifier = classifier
         self.model: Classifier | None = None
+        self._cache: dict[tuple[Any, ...], dict[int, float]] = {}
 
     def fit(self, timelines: Iterable[Sequence[Turn]]) -> KnockoutDetector:
         """Learn from P1's final switches (leaver never seen again)."""
@@ -79,6 +81,7 @@ class KnockoutDetector:
         if not rows or len(set(labels)) < 2:
             raise ValueError("no P1 faints and switches to learn from")
         self.model = self._new_classifier().fit(np.array(rows), np.array(labels))
+        self._cache.clear()
         return self
 
     def probabilities(
@@ -89,10 +92,24 @@ class KnockoutDetector:
         """Turn index -> probability that P2's leaver fainted unseen.
 
         Only switches whose leaver never comes back and that are not
-        recorded faints are scored.
+        recorded faints are scored. Results are cached by the timeline's
+        content: the repair and the detector features ask for the same
+        battles again in every fold.
         """
         if self.model is None:
             raise RuntimeError("fit the detector first")
+        key = _fingerprint(timeline)
+        cached = self._cache.get(key)
+        if cached is None:
+            cached = self._score(timeline, species)
+            self._cache[key] = cached
+        return dict(cached)
+
+    def _score(
+        self,
+        timeline: Sequence[Turn],
+        species: Callable[[str], PokemonGen2] | None,
+    ) -> dict[int, float]:
         lookup = _safe(species) if species is not None else self.species
         candidates = [
             t
@@ -102,7 +119,9 @@ class KnockoutDetector:
         if not candidates:
             return {}
         x = np.array([_vector(t) for t in candidates])
-        p = self.model.predict_proba(x)[:, 1]
+        # a handful of rows: extra threads only add overhead
+        with threadpool_limits(limits=1):
+            p = self.model.predict_proba(x)[:, 1]
         return {t.index: float(v) for t, v in zip(candidates, p, strict=True)}
 
     def __call__(
@@ -124,6 +143,25 @@ def detector_from_files(
     records = [r for path in paths if path is not None for r in load_records(path)]
     detector = KnockoutDetector(pokedex.find, chart)
     return detector.fit(record["battle_timeline"] for record in records)
+
+
+def _fingerprint(timeline: Sequence[Turn]) -> tuple[Any, ...]:
+    """What identifies a timeline: every row's actives, HP, status, moves."""
+    return tuple(
+        (
+            turn["turn"],
+            *(
+                (
+                    turn[f"{side}_pokemon_state"]["name"],
+                    turn[f"{side}_pokemon_state"]["hp_pct"],
+                    turn[f"{side}_pokemon_state"]["status"],
+                    (turn[f"{side}_move_details"] or {}).get("name"),
+                )
+                for side in ("p1", "p2")
+            ),
+        )
+        for turn in timeline
+    )
 
 
 def _vector(transition: Transition) -> list[float]:
