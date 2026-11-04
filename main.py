@@ -235,11 +235,13 @@ def _repair(args: argparse.Namespace) -> Repair:
 
     Always applied, in every command, so that training and prediction see
     the same corrected battles. The detector is learned without labels on
-    the training battles plus the test battles when given (``predict``
-    uses the default training file).
+    the training battles only (``predict`` uses the default training file):
+    the test battles are only predicted, never used to fit anything, and a
+    detector fitted on train + test at prediction time would differ from
+    the one the saved model was trained with.
     """
     train = getattr(args, "train", None) or DEFAULT_TRAIN
-    return _detector(Path(args.pokedex), Path(train), getattr(args, "test", None))
+    return _detector(Path(args.pokedex), Path(train), None)
 
 
 @cache

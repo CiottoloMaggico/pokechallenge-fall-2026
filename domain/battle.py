@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 from domain.damage import STAGE_MULTIPLIER
 from domain.moves import Move
@@ -86,6 +86,7 @@ PROTECTED = "protect"
 PARALYSIS_SPEED = 4
 MAX_STAGE = 6
 
+T = TypeVar("T")
 Timeline = Sequence[Mapping[str, Any]]
 Species = Callable[[str], PokemonGen2]
 Repair = Callable[[Timeline, Species], Mapping[int, str]]
@@ -662,6 +663,7 @@ class BattleContext:
     _truncated: dict[int, BattleContext] = field(
         default_factory=dict, repr=False, compare=False
     )
+    _memo: dict[Hashable, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @classmethod
     def from_record(
@@ -738,6 +740,16 @@ class BattleContext:
             self._truncated.clear()
             self._truncated[turn] = cached
         return cached
+
+    def cached(self, key: Hashable, compute: Callable[[], T]) -> T:
+        """``compute()`` once per replay, then the remembered value.
+
+        For values derived only from this battle (stateless features):
+        cross-validation asks for the same battle in every fold.
+        """
+        if key not in self._memo:
+            self._memo[key] = compute()
+        return self._memo[key]
 
     @property
     def last(self) -> TurnSnapshot:

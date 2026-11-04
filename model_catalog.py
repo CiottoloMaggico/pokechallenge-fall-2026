@@ -13,6 +13,10 @@
 * ``ensemble``  average of other catalog models (default logreg + hgb)
 * ``ensemble_boost``  logreg + lightgbm + xgboost + catboost
 * ``ensemble_all``    logreg + hgb + lightgbm + xgboost + catboost
+* ``gb_lr`` / ``catboost_lr`` / ``lightgbm_lr`` / ``xgboost_lr``
+                gradient boosting that starts from the logistic regression's
+                log-odds and learns only a correction (``models/from_logreg.py``)
+* ``ensemble_from_lr`` gb_lr + catboost_lr + lightgbm_lr + xgboost_lr
 
 Keyword arguments override a model's default parameters.
 """
@@ -26,6 +30,7 @@ from typing import Any
 from model import Model
 from models import (
     catboost_model,
+    from_logreg,
     hgb,
     lightgbm_model,
     logreg,
@@ -60,6 +65,7 @@ def ensemble(
 ENSEMBLES: dict[str, tuple[str, ...]] = {
     "ensemble_boost": ("logreg", "lightgbm", "xgboost", "catboost"),
     "ensemble_all": ("logreg", "hgb", "lightgbm", "xgboost", "catboost"),
+    "ensemble_from_lr": ("gb_lr", "catboost_lr", "lightgbm_lr", "xgboost_lr"),
 }
 
 
@@ -76,6 +82,10 @@ BUILDERS: dict[str, Callable[..., Model]] = {
     "lightgbm": lightgbm_model.build,
     "xgboost": xgboost_model.build,
     "catboost": catboost_model.build,
+    "gb_lr": from_logreg.build_sklearn,
+    "catboost_lr": from_logreg.build_catboost,
+    "lightgbm_lr": from_logreg.build_lightgbm,
+    "xgboost_lr": from_logreg.build_xgboost,
     "ensemble": ensemble,
     **{key: _named_ensemble(key) for key in ENSEMBLES},
 }
@@ -87,6 +97,10 @@ SEARCH_SPACES: dict[str, Callable[[Trial], dict[str, Any]]] = {
     "lightgbm": lightgbm_model.search_space,
     "xgboost": xgboost_model.search_space,
     "catboost": catboost_model.search_space,
+    "gb_lr": from_logreg.search_space_sklearn,
+    "catboost_lr": from_logreg.search_space_catboost,
+    "lightgbm_lr": from_logreg.search_space_lightgbm,
+    "xgboost_lr": from_logreg.search_space_xgboost,
 }
 
 # model name -> optional library it needs
@@ -94,6 +108,9 @@ REQUIRED_MODULE = {
     "lightgbm": lightgbm_model.LIBRARY,
     "xgboost": xgboost_model.LIBRARY,
     "catboost": catboost_model.LIBRARY,
+    "catboost_lr": catboost_model.LIBRARY,
+    "lightgbm_lr": lightgbm_model.LIBRARY,
+    "xgboost_lr": xgboost_model.LIBRARY,
 }
 
 

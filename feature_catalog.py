@@ -31,6 +31,11 @@ Sets:
   detector's expected knockouts) in place of ``p2_hidden_ko_soft`` (19)
 * ``compact_v4`` compact_v3 + ``p2_hidden_ko_unsure``, the only change
   kept by ``selection.py`` on the detector-repaired replay (20)
+* ``compact_v5`` compact_v4 re-selected with logistic regression after
+  adding the team-pool features (``features.pool_features``): team
+  ratings ``tr_p1`` / ``tr_p2`` in place of ``te_p1_team``, ``phpw_spd``
+  in place of ``hpw_spd``, plus ``smat_hp``, ``hpw_spd_t20``,
+  ``b_stat_diff``, ``alive_gain_10_30``, ``p2_fainted`` (26)
 * ``selection_pool`` compact_v3 plus every other candidate (37 columns),
   the starting pool of ``selection.py``
 """
@@ -73,6 +78,15 @@ from features.material_features import (
     statused_share,
 )
 from features.move_features import move_features
+from features.pool_features import (
+    PairEncoding,
+    PoolBulk,
+    TeamRating,
+    alive_gain_10_30,
+    p2_fainted,
+    soft_material_hp,
+    status_move_share_diff,
+)
 from features.simulation_features import BattleSimulation
 from features.switch_features import (
     NextSwitchProbability,
@@ -227,6 +241,39 @@ def compact_v4(turn: int | None = None) -> FeatureSet[BattleContext]:
     return _feature_set("compact_v4", turn, features)
 
 
+def compact_v5(turn: int | None = None) -> FeatureSet[BattleContext]:
+    """compact_v4 re-selected with logistic regression on the pool features (26)."""
+    chart = type_chart()
+    hpw_turn = 20 if turn is None else min(20, turn)
+    features: list[Feature[BattleContext]] = [
+        AtTurn("material_hp", side_difference(hp_share), turn),
+        AtTurn("material_healthy", side_difference(healthy_share), turn),
+        AtTurn("spikes_on_field", spikes_on_field, turn),
+        AtTurn("bst_sum", boost_sum, turn),
+        AtTurn("eff_substitute", substitute_up, turn),
+        AtTurn("eff_trapped", trapped, turn),
+        AtTurn("hp_healed", hp_healed, turn),
+        AtTurn("act_duel", active_duel(chart), turn),
+        AtTurn("ghost_ko_50", ghost_knockouts, turn),
+        AtTurn("snorlax_diff", snorlax_diff, turn),
+        AtTurn("p2_hidden_ko_det", expected_hidden_knockouts, turn),
+        *move_features(chart, turn),
+        SwitchPressure(turn, outputs=("p_switch_diff", "switch_excess_all")),
+        HiddenTeamStrength(turn),
+        PairEncoding(turn),
+        BattleSimulation(chart, turn, outputs=("sim_seen_left",)),
+        AtTurn("p2_hidden_ko_unsure", unsure_hidden_knockouts, turn),
+        TeamRating(turn),
+        PoolBulk(turn),
+        AtTurn("hpw_spd_t20", hpw_spd, hpw_turn),
+        AtTurn("smat_hp", soft_material_hp, turn),
+        AtTurn("b_stat_diff", status_move_share_diff, turn),
+        AtTurn("alive_gain_10_30", alive_gain_10_30, turn),
+        AtTurn("p2_fainted", p2_fainted, turn),
+    ]
+    return _feature_set("compact_v5", turn, features)
+
+
 def selection_pool(turn: int | None = None) -> FeatureSet[BattleContext]:
     """compact_v3 and the other candidate features, for ``selection.py``.
 
@@ -306,6 +353,7 @@ FEATURE_SETS: dict[str, Builder] = {
     "compact_v2": compact_v2,
     "compact_v3": compact_v3,
     "compact_v4": compact_v4,
+    "compact_v5": compact_v5,
     "selection_pool": selection_pool,
 }
 

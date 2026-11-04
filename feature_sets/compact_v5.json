@@ -1,0 +1,25 @@
+{
+  "pool": "selection_pool_v5",
+  "columns": [
+    "material_hp",
+    "material_healthy",
+    "spikes_on_field",
+    "bst_sum",
+    "hpw_spd",
+    "eff_substitute",
+    "eff_trapped",
+    "hp_healed",
+    "act_duel",
+    "snorlax_diff",
+    "mv_res",
+    "p_switch_diff",
+    "switch_excess_all",
+    "hidden_bst",
+    "te_p1_team",
+    "te_pair_mean",
+    "sim_seen_left",
+    "p2_hidden_ko_unsure",
+    "tm_team",
+    "bag_logit"
+  ]
+}

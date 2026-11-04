@@ -31,7 +31,12 @@ def check_turn(turn: int | None) -> int | None:
 
 
 class AtTurn(Feature[BattleContext]):
-    """A one-column feature computed on the battle truncated at ``turn``."""
+    """A one-column feature computed on the battle truncated at ``turn``.
+
+    The value depends only on the battle, so it is remembered in the
+    replayed battle (``BattleContext.cached``) and reused by every fold
+    and by every copy of the feature set.
+    """
 
     def __init__(self, name: str, fn: ContextValue, turn: int | None = None) -> None:
         super().__init__(name)
@@ -44,7 +49,10 @@ class AtTurn(Feature[BattleContext]):
         return (self._name,)
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        return {self._name: float(self._fn(battle.upto(self.turn)))}
+        context = battle.upto(self.turn)
+        key = (self._name, self._fn)  # the function survives set copies
+        value = context.cached(key, lambda: float(self._fn(context)))
+        return {self._name: value}
 
 
 def side_difference(per_side: SideValue, bad: bool = False) -> ContextValue:

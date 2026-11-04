@@ -29,7 +29,6 @@ Leakage rules enforced here:
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import logging
 import random
@@ -43,6 +42,7 @@ import numpy as np
 
 from domain.battle import LABEL_KEY, BattleContext, Repair
 from domain.pokedex import PLACEHOLDER_TYPES, STATS, Pokedex, PokemonGen2
+from domain.team_knowledge import battle_fingerprint
 
 Record = dict[str, Any]
 
@@ -269,10 +269,7 @@ class Dataset:
         keys: dict[str, int] = {}
         groups = []
         for context in self.contexts:
-            content = {k: v for k, v in context.record.items() if k != "battle_id"}
-            digest = hashlib.sha1(
-                json.dumps(content, sort_keys=True).encode()
-            ).hexdigest()
+            digest = battle_fingerprint(context)
             groups.append(keys.setdefault(digest, len(keys)))
         return np.asarray(groups, dtype=int)
 

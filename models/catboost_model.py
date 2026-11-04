@@ -35,7 +35,7 @@ def search_space(trial: Trial) -> dict[str, Any]:
     return {
         "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.2, log=True),
         "iterations": trial.suggest_int("iterations", 100, 2000, log=True),
-        "depth": trial.suggest_int("depth", 3, 8),
+        "depth": trial.suggest_int("depth", 2, 8),
         "l2_leaf_reg": trial.suggest_float("l2_leaf_reg", 1.0, 30.0, log=True),
         "rsm": trial.suggest_float("rsm", 0.2, 1.0),
     }

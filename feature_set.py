@@ -487,6 +487,34 @@ class FeatureSet(Generic[BattleT]):
             subset._entries[fid] = self._entries[fid]
         return subset
 
+    def restrict(self, columns: Iterable[str], name: str) -> FeatureSet[BattleT]:
+        """Return a new set producing exactly ``columns``.
+
+        Keeps the features that produce at least one of them (in this
+        set's order); a feature with other outputs too is wrapped so that
+        only the wanted ones are returned. Every feature must declare its
+        outputs, and every column must be produced by some feature.
+        """
+        wanted = list(columns)
+        subset = self._empty_copy(name)
+        found: set[str] = set()
+        for fid, entry in self._entries.items():
+            outputs = entry.output_names
+            if outputs is None:
+                raise ValueError(f"feature {fid!r} does not declare its outputs")
+            kept = tuple(c for c in outputs if c in wanted)
+            if not kept:
+                continue
+            found.update(kept)
+            feature = entry.feature
+            if kept != tuple(outputs):
+                feature = ColumnSubset(feature, kept)
+            subset._entries[fid] = _Entry(feature, entry.prefix)
+        missing = [c for c in wanted if c not in found]
+        if missing:
+            raise KeyError(f"columns not produced by {self._name!r}: {missing}")
+        return subset
+
     def merge(
         self, other: FeatureSet[BattleT], name: str | None = None
     ) -> FeatureSet[BattleT]:
@@ -655,6 +683,28 @@ class _Renamed(Feature[BattleT]):
 
     def compute(self, battle: BattleT) -> Mapping[str, float]:
         return self._inner.compute(battle)
+
+
+class ColumnSubset(_Renamed[BattleT]):
+    """A Feature returning only some of the outputs of another one.
+
+    The inner feature still computes everything; only the columns change.
+    """
+
+    def __init__(self, inner: Feature[BattleT], columns: Sequence[str]) -> None:
+        super().__init__(inner, inner.feature_id)
+        declared = inner.output_names
+        if declared is not None and set(columns) - set(declared):
+            raise ValueError(f"{inner.feature_id!r} does not produce {columns}")
+        self._columns = tuple(columns)
+
+    @property
+    def output_names(self) -> tuple[str, ...]:
+        return self._columns
+
+    def compute(self, battle: BattleT) -> Mapping[str, float]:
+        values = self._inner.compute(battle)
+        return {c: values[c] for c in self._columns}
 
 
 # ----------------------------------------------------------------------
