@@ -17,6 +17,7 @@ PARAMS: dict[str, Any] = {
     "l1_ratio": 1.0,
     "solver": "liblinear",
     "max_iter": 5000,
+    "random_state": 0,  # liblinear shuffles its coordinates
 }
 
 
