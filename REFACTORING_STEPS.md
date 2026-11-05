@@ -5,6 +5,8 @@ Give the agent one step at a time, in a new session, with this preamble:
 > Read `CLAUDE.md`, `REFACTORING.md` and this step of `REFACTORING_STEPS.md`.
 > Do only this step. Before finishing run the checks listed under
 > "Acceptance" and paste their output. If a golden check fails, stop and report.
+> If they pass, commit as `CLAUDE.md` says (explicit paths, no push) and end the
+> report with `git log --oneline -3` and `git status`.
 
 "Model" says where a smaller model is enough (mechanical work with a tight
 check) and where a stronger one is safer (design decisions across many files).
@@ -54,6 +56,12 @@ on the new modules.
 
 ## Step 2 – Pokédex from train only (model: strong) — planned result change
 
+**Before (separate session, ~30 min, no code change)** – on the step 1 commit
+run the full regression (3 seeds) and write the numbers and the run folder in
+`CLAUDE.md` as "Baseline of step 1"; commit only `CLAUDE.md`
+(`docs: regression baseline of step 1`). This keeps the logreg seed fix out of
+the Pokédex comparison.
+
 **Goal** – REFACTORING.md §3.3: `PokedexBuilder` from competition-format
 records only, `for_battle(record)`, policies `Strict` and `Missing`; remove the
 manual species file and the random replacement; `python -m domain build-pokedex`.
@@ -68,15 +76,17 @@ manual species file and the random replacement; `python -m domain build-pokedex`
 - Golden check: report the differences (expected in `species.csv` and in the
   rows of battles with those species); everything else must match.
 - Full regression (3 seeds): report the numbers and the paired difference with
-  the corrected t-test against the previous run. Stop here: the user decides
-  and re-exports `results/golden/reference`.
+  the corrected t-test against the baseline run of step 1 (folder in
+  `CLAUDE.md`, same seeds). Stop here, without committing: the user decides;
+  then commit, re-export `results/golden/reference` (twice, checked) and
+  update the expected numbers in `CLAUDE.md`.
 
 ---
 
 ## Step 3 – Replay, addon and repair ports, transitions (model: strong)
 
 **Goal** – §3.5–§3.7: `BattleReplay` / `BattleContext` / `TurnState`,
-`Addon` + `AddonManifest`, `TimelineRepair`, `NoRepair`,
+`TimelineRepair` (with `describe()`), `NoRepair`,
 `TransitionExtractor` (the switch description moved out of
 `domain/knockouts.py`), `python -m domain replay | check`.
 
@@ -98,7 +108,11 @@ on `domain/`.
 **4a** – `interfaces.py` (Feature with `prepare`, `inner_oof`; FeatureSet with
 `without`), `registry.py` (`@feature_set`, `@model`, `@ensemble`, `@t<N>`
 parsing), `artifacts.py` (`TrainedRun` save / load, storing the repair
-manifest). Contract test parametrised over every registered feature.
+manifest). Contract test parametrised over every registered feature. The
+contract test also runs each feature in two subprocesses with different
+`PYTHONHASHSEED` and requires identical output; fix the features that fail
+(`TeamKnowledgeFeatures` and any other set / frozenset iteration) by sorting.
+If a compact_v5 column changes, report it like the Pokédex change of step 2.
 
 **4b** – Move every feature to `features/core/<family>.py` (field_features.py
 included) and every feature set to its own file with its history in the
@@ -126,9 +140,9 @@ libraries are installed; `--params` files of `results/tuning/` still load.
 
 ---
 
-## Step 6 – Tasks, gym, statistics, storage, settings, CLI (model: strong)
+## Step 6 – Gym, statistics, storage, settings, CLI (model: strong)
 
-**Goal** – §6: `Task` (`BattleOutcomeTask` now), `FoldPlan`, generic `Gym`
+**Goal** – §6: `FoldPlan`, `Gym` on any rows / labels / groups
 (evaluate, train, fold tables cached), `GymResult` with seeds and corrected
 paired tests, `statistics.py`, `ResultsLayout` (everything under `results/`),
 `Settings`, thin `main.py` with the same commands and options.
@@ -146,11 +160,11 @@ the step (`diff` of the CSVs is empty).
 
 ## Step 7 – Knockout detector as a task and a versioned addon (model: strong)
 
-**Goal** – §3.8: `HiddenFaintTask` with its probes (symmetry estimate,
+**Goal** – §3.8: `detector.py` (table of P1 switches) with its checks (symmetry estimate,
 adversarial AUC P1 vs P2, agreement with a reference artifact),
 `features/transitions/ko_raw50.py` and `ko_domain30.py`, model `hgb_ko`,
 commands `detector evaluate | train | tune`, artifact
-`results/addons/knockouts/<version>/` with `manifest.json`,
+`results/addons/knockouts/<version>/` with `info.json`,
 `addons/knockouts_model.py` (`ModelKnockoutRepair`) and
 `addons/knockouts_rule.py` (deterministic), `--repair none | rule | model=<path>`.
 Delete `knockout_detector.py` and the column lists of `domain/knockouts.py`.
@@ -158,7 +172,8 @@ Delete `knockout_detector.py` and the column lists of `domain/knockouts.py`.
 **Acceptance**
 - `detector evaluate --features ko_domain30 --models hgb_ko --seeds 42 1 2`
   (GroupKFold on battles, as the old experiments) gives log loss ≈ 0.0988,
-  AUC ≈ 0.9918; the symmetry probe reports ≈ 10,130 repaired P2 switches.
+  AUC ≈ 0.9918; the symmetry probe reports ≈ 10,130 repaired P2 switches
+  (all three: re-measure after step 2 (10,109 repairs)).
 - `detector train --version v3`, then golden check with
   `--repair model=results/addons/knockouts/v3`: `repairs_p2.csv` and every
   other file identical to the reference.
@@ -171,7 +186,9 @@ Delete `knockout_detector.py` and the column lists of `domain/knockouts.py`.
 **Goal** – `tuning/tuner.py`, `tuning/params.py`, `selection.py`
 (`backward` with corrected one-sided p, `forward`) on the generic gym; delete
 `exp/`, `tools/` except `tools/golden.py`, `selection.log`, old scripts; the v11
-bridge is not carried over.
+bridge is not carried over. The v11 bridge and `tools/blend_from_saved.py` are
+needed to reproduce `submission_blend_step2.csv`, so deleting them is the user's
+decision.
 
 **Acceptance** – golden check passes; `tune --trials 3` and
 `select --repeats 1` run end to end on the fixtures.

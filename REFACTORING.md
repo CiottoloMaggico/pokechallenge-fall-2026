@@ -5,7 +5,7 @@ reorganised in layers with explicit interfaces, so that every part can be
 tested alone and replaced without touching the others. Behaviour and results
 must not change, with one deliberate exception: the Pokédex loses its manual
 species file (§3.3), so the baseline is re-measured once after that step.
-Otherwise the refactoring is done when `evaluate --seeds 33 66 99` on
+Otherwise the refactoring is done when `evaluate --seeds 33 66 133` on
 `compact_v5` reproduces the current numbers (ensemble_from_lr 72.02 % /
 0.5401, logreg 71.86 % / 0.5425) to the fourth decimal.
 
@@ -717,9 +717,10 @@ Commands (unchanged names and options): `check`, `evaluate` (`--n-seeds`,
   `gym`; `models` never imports `domain`; `addons` never import `gym`, `tuning`
   or the CLI).
 - Regression: `evaluate --features compact_v5 --models logreg ensemble_from_lr
-  --seeds 33 66 99` must match the numbers in the goal above (after step 2,
+  --seeds 33 66 133` must match the numbers in the goal above (after step 2,
   the re-measured baseline); `detector evaluate` on `ko_domain30` must match
-  today's out-of-fold numbers (log loss 0.0988, AUC 0.9918, 10,130 P2 repairs).
+  the out-of-fold numbers (log loss 0.0988, AUC 0.9918, 10,130 P2 repairs:
+  re-measure after step 2 (10,109 repairs)).
 - Comments: English, only where the code is not self-explanatory; no separator
   comments; every public class and function has a docstring.
 
