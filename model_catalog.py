@@ -17,6 +17,9 @@
                 gradient boosting that starts from the logistic regression's
                 log-odds and learns only a correction (``models/from_logreg.py``)
 * ``ensemble_from_lr`` gb_lr + catboost_lr + lightgbm_lr + xgboost_lr
+* ``blend_v11``  logit blend of a catalog model (default ensemble_from_lr)
+                with the ``v11_proba`` column of the ``*_v11`` feature sets
+                (``models/logit_blend.py``; w from ``tools/v11_blend_weight.py``)
 
 Keyword arguments override a model's default parameters.
 """
@@ -33,6 +36,7 @@ from models import (
     from_logreg,
     hgb,
     lightgbm_model,
+    logit_blend,
     logreg,
     xgboost_model,
 )
@@ -86,6 +90,7 @@ BUILDERS: dict[str, Callable[..., Model]] = {
     "catboost_lr": from_logreg.build_catboost,
     "lightgbm_lr": from_logreg.build_lightgbm,
     "xgboost_lr": from_logreg.build_xgboost,
+    "blend_v11": logit_blend.build,
     "ensemble": ensemble,
     **{key: _named_ensemble(key) for key in ENSEMBLES},
 }

@@ -27,6 +27,13 @@ parameters to ``runs/tuning/<set>__<model>.json``; ``--params`` (one or
 more files) then builds those models with them, also inside ensembles
 (named ``<model>-tuned``).
 
+``evaluate --n-seeds 5 --jobs 2`` repeats the cross-validation on five
+fold assignments (seeds 42..46; ``--seeds 1 7 99`` picks them,
+``--random-seeds`` draws them) and adds ``accuracy_seed_std`` and
+``log_loss_seed_std``, how much the result moves with the luck of the
+folds, plus an accuracy-by-seed table; the seeds are in ``meta.json`` and
+in the ``seed`` column of ``folds.csv`` and ``predictions.csv``.
+
 ``--turns`` samples every feature set at each given turn (sets named
 ``core@t5``, ``core@t10``, ...); ``evaluate`` then also prints and
 exports ``accuracy_by_turn.csv``, ready for an accuracy-vs-turn plot.
@@ -36,7 +43,10 @@ from __future__ import annotations
 
 import argparse
 import logging
+import multiprocessing as mp
+import random
 import sys
+import time
 from collections.abc import Sequence
 from functools import cache
 from pathlib import Path
@@ -50,7 +60,7 @@ from data import Dataset, Repair
 from domain.battle import BattleContext
 from domain.pokedex import Pokedex
 from feature_set import FeatureSet
-from gym import FoldData, Gym, TrainedRun, prepare_folds, save_runs
+from gym import FoldData, Gym, GymResult, TrainedRun, prepare_folds, save_runs, seed_table
 from knockout_detector import KnockoutDetector, detector_from_files
 from model import Model
 from models.ensemble import DEFAULT_MEMBERS
@@ -64,6 +74,7 @@ DEFAULT_SEED = 42
 TUNE_SEED = 2027  # tuning folds differ from evaluation folds
 STUDY_DB = "optuna.db"
 SUBMISSION_COLUMNS = ("battle_id", "player_won")
+MAX_SEED_COLUMNS = 10  # more seeds: the accuracy-by-seed table is only exported
 
 logger = logging.getLogger("main")
 
@@ -92,33 +103,108 @@ def check(args: argparse.Namespace) -> int:
 
 
 def evaluate(args: argparse.Namespace) -> int:
-    """Cross-validate every feature set with every model and export."""
+    """Cross-validate every feature set with every model and export.
+
+    With several seeds (``--n-seeds``, ``--seeds`` or ``--random-seeds``)
+    the whole cross-validation is repeated on fold assignments drawn with
+    each seed (``--jobs`` of them in parallel); the table then reports,
+    besides the fold std, the std across seeds of accuracy and log loss.
+    """
     pokedex = Pokedex.from_json(args.pokedex)
     train = Dataset.from_jsonl(args.train, pokedex, repair=_repair(args))
     unlabeled = _unlabeled(args, pokedex)
-    splitter = StratifiedGroupKFold(
-        n_splits=args.folds, shuffle=True, random_state=args.seed
-    )
+    seeds = _seeds(args)
+    print(f"seeds: {seeds}", flush=True)
     feature_sets = _feature_sets(args.features, args.turns)
-    gym = Gym(_models(args.models, args.params), feature_sets, splitter)
-    result = gym.evaluate(
-        train.contexts,
-        train.labels,
-        ids=train.ids,
-        groups=train.duplicate_groups(),
-        unlabeled=unlabeled,
-    )
+    models = _models(args.models, args.params)
+    data = (train.contexts, train.labels, train.ids, train.duplicate_groups(), unlabeled)
+    if args.jobs > 1 and len(seeds) > 1 and "fork" in mp.get_all_start_methods():
+        # forked workers share the replayed battles (copy on write) instead
+        # of receiving a pickled copy each, which would multiply the memory
+        _SHARED["job"] = (models, feature_sets, args.folds, data)
+        with mp.get_context("fork").Pool(min(args.jobs, len(seeds))) as pool:
+            runs = pool.map(_evaluate_shared, seeds, chunksize=1)
+    else:
+        runs = [_evaluate_seed(models, feature_sets, args.folds, s, data) for s in seeds]
+    result = runs[0] if len(seeds) == 1 else GymResult.combine(dict(zip(seeds, runs, strict=True)))
     summary = result.summary().sort_values("accuracy_mean", ascending=False)
     print(summary.to_string(index=False, float_format="{:.4f}".format))
+    by_seed = None
+    if len(seeds) > 1:
+        by_seed = seed_table(result).set_index(["feature_set", "model"]).loc[
+            list(zip(summary["feature_set"], summary["model"], strict=True))
+        ]
+        if len(seeds) <= MAX_SEED_COLUMNS:
+            print("\naccuracy by seed (mean over the folds):")
+            print(by_seed.to_string(float_format="{:.4f}".format))
+    paired = None
+    if args.reference:
+        reference = tuple(args.reference.split("/", 1))
+        paired = pd.concat(
+            [
+                result.paired(reference, metric).assign(metric=metric)
+                for metric in ("accuracy", "log_loss")
+            ],
+            ignore_index=True,
+        )
+        paired = paired[
+            ~((paired["feature_set"] == reference[0]) & (paired["model"] == reference[1]))
+        ]
+        print(f"\npaired vs {args.reference} (seed x fold, corrected t-test):")
+        print(paired.to_string(index=False, float_format="{:.4f}".format))
     by_turn = _accuracy_by_turn(summary) if args.turns else None
     if by_turn is not None:
         print(by_turn.to_string(float_format="{:.4f}".format))
     if args.out:
         result.export(args.out)
+        if paired is not None:
+            paired.to_csv(args.out / "paired.csv", index=False)
+        summary.to_csv(args.out / "summary.csv", index=False)
+        if by_seed is not None:
+            by_seed.to_csv(args.out / "accuracy_by_seed.csv")
         if by_turn is not None:
             by_turn.to_csv(args.out / "accuracy_by_turn.csv")
         print(f"results exported to {args.out}")
     return 0
+
+
+def _evaluate_seed(
+    models: Sequence[Model],
+    feature_sets: Sequence[FeatureSet[BattleContext]],
+    n_folds: int,
+    seed: int,
+    data: tuple,
+) -> GymResult:
+    """One full cross-validation with folds drawn with ``seed``."""
+    contexts, labels, ids, groups, unlabeled = data
+    splitter = StratifiedGroupKFold(n_splits=n_folds, shuffle=True, random_state=seed)
+    gym = Gym(models, feature_sets, splitter)
+    started = time.perf_counter()
+    result = gym.evaluate(contexts, labels, ids=ids, groups=groups, unlabeled=unlabeled)
+    print(f"  seed {seed} done ({time.perf_counter() - started:.0f} s)", flush=True)
+    return result
+
+
+_SHARED: dict[str, tuple] = {}
+
+
+def _evaluate_shared(seed: int) -> GymResult:
+    models, feature_sets, n_folds, data = _SHARED["job"]
+    return _evaluate_seed(models, feature_sets, n_folds, seed, data)
+
+
+def _seeds(args: argparse.Namespace) -> list[int]:
+    """The seeds of the fold assignments: ``--seeds`` as given, else
+    ``--n-seeds`` random ones (``--random-seeds``) or consecutive ones
+    starting from ``--seed`` (default: just ``--seed``)."""
+    if args.seeds:
+        return list(dict.fromkeys(args.seeds))
+    if args.n_seeds < 1:
+        raise SystemExit("--n-seeds must be at least 1")
+    if args.random_seeds:
+        rng = random.SystemRandom()
+        return rng.sample(range(1, 2**31 - 1), args.n_seeds)
+    return [args.seed + k for k in range(args.n_seeds)]
 
 
 def train(args: argparse.Namespace) -> int:
@@ -321,6 +407,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_eval = commands.choices["evaluate"]
     p_eval.add_argument("--folds", type=int, default=DEFAULT_FOLDS)
     p_eval.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    p_eval.add_argument(
+        "--n-seeds", type=int, default=1,
+        help="repeat the CV on this many fold assignments (seeds --seed, --seed+1, ...)",
+    )
+    p_eval.add_argument("--seeds", type=int, nargs="+", help="explicit seeds (override --n-seeds)")
+    p_eval.add_argument(
+        "--random-seeds", action="store_true",
+        help="draw the --n-seeds seeds at random (they are printed and exported)",
+    )
+    p_eval.add_argument("--jobs", type=int, default=1, help="seeds evaluated in parallel")
+    p_eval.add_argument(
+        "--reference",
+        help="FEATURE_SET/MODEL: print every other combination's paired difference "
+        "with it (corrected repeated k-fold t-test)",
+    )
     p_eval.add_argument("--out", type=Path, help="directory for the results")
     commands.choices["train"].add_argument("--out", type=Path, default=Path("runs"))
 

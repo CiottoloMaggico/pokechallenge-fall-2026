@@ -65,6 +65,7 @@ from sklearn.metrics import (
     log_loss,
     roc_auc_score,
 )
+from scipy import stats
 from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
 from model import Model
@@ -234,6 +235,32 @@ class GymResult:
             for name, table in self.probes.items():
                 table.to_csv(out / PROBES_DIR / f"{name}.csv", index=False)
         return out
+
+    @classmethod
+    def combine(cls, results: Mapping[int, GymResult]) -> GymResult:
+        """One result from evaluations of the same combinations on folds
+        drawn with different seeds (``{seed: result}``): every table gets a
+        ``seed`` column, the meta lists the seeds and their splitters."""
+        if not results:
+            raise ValueError("no results to combine")
+        seeds = list(results)
+
+        def stack(tables: Iterable[pd.DataFrame]) -> pd.DataFrame:
+            return pd.concat(list(tables), ignore_index=True)
+
+        first = results[seeds[0]]
+        meta = dict(first.meta)
+        meta["seeds"] = seeds
+        meta["splitter"] = {str(s): r.meta.get("splitter") for s, r in results.items()}
+        return cls(
+            predictions=stack(r.predictions.assign(seed=s) for s, r in results.items()),
+            folds=stack(r.folds.assign(seed=s) for s, r in results.items()),
+            probes={
+                name: stack(r.probes[name].assign(seed=s) for s, r in results.items())
+                for name in first.probes
+            },
+            meta=meta,
+        )
 
     @classmethod
     def load(cls, directory: str | Path) -> GymResult:
@@ -762,15 +789,82 @@ def _mask(table: pd.DataFrame, feature_set: str, model: str) -> np.ndarray:
     return fs_match & model_match
 
 
+SEED_STD_METRICS = ("accuracy", "log_loss")  # metrics that also get a seed_std
+
+
 def summary_table(result: GymResult) -> pd.DataFrame:
-    """Mean and std of each metric per (feature set, model)."""
-    aggregations = {
-        f"{metric}_{stat}": (metric, stat)
-        for metric in result.metric_names
-        for stat in ("mean", "std")
-    }
-    grouped = result.folds.groupby(["feature_set", "model"])
-    return grouped.agg(**aggregations).reset_index()
+    """Mean and std of each metric per (feature set, model).
+
+    With one seed (no ``seed`` column, or a single value) the columns are
+    ``<metric>_mean`` and ``<metric>_std`` over the folds. With several
+    seeds of the fold assignment (``main.py evaluate --n-seeds``):
+
+    * ``<metric>_mean``: mean over every seed x fold;
+    * ``<metric>_std``: fold-to-fold std within a seed, averaged over the
+      seeds (same meaning as with one seed);
+    * ``<metric>_seed_std``: std across seeds of the per-seed means, i.e.
+      how much the number moves with the luck of the fold assignment
+      (accuracy and log loss only, to keep the table short).
+    """
+    folds = result.folds
+    metrics = result.metric_names
+    if "seed" not in folds or folds["seed"].nunique() < 2:
+        aggregations = {
+            f"{metric}_{stat}": (metric, stat)
+            for metric in metrics
+            for stat in ("mean", "std")
+        }
+        grouped = folds.groupby(["feature_set", "model"])
+        return grouped.agg(**aggregations).reset_index()
+    by_seed = folds.groupby(["feature_set", "model", "seed"])[metrics]
+    means, stds = by_seed.mean(), by_seed.std()
+    keys = ["feature_set", "model"]
+    columns: dict[str, pd.Series] = {}
+    for metric in metrics:
+        columns[f"{metric}_mean"] = means[metric].groupby(level=keys).mean()
+        columns[f"{metric}_std"] = stds[metric].groupby(level=keys).mean()
+        if metric in SEED_STD_METRICS:
+            columns[f"{metric}_seed_std"] = means[metric].groupby(level=keys).std()
+    table = pd.DataFrame(columns).reset_index()
+    table.insert(2, "n_seeds", means.groupby(level=keys).size().to_numpy())
+    return table
+
+
+def seed_table(result: GymResult, metric: str = "accuracy") -> pd.DataFrame:
+    """Mean ``metric`` over the folds of each seed: one row per (feature
+    set, model), one column per seed."""
+    folds = result.folds
+    if "seed" not in folds:
+        raise KeyError("these results have a single seed")
+    table = folds.pivot_table(
+        index=["feature_set", "model"], columns="seed", values=metric, aggfunc="mean"
+    )
+    table.columns = [f"seed {s}" for s in table.columns]
+    return table.reset_index()
+
+
+def corrected_ttest(
+    diffs: Sequence[float] | np.ndarray, test_train_ratio: float
+) -> tuple[float, float]:
+    """Corrected repeated k-fold t-test (Nadeau & Bengio 2003; Bouckaert &
+    Frank 2004) of paired per-fold differences.
+
+    The J differences of r repetitions of k-fold CV are not independent
+    (training sets overlap and the repetitions reuse the same battles), so
+    the variance of their mean is ``(1/J + n_test/n_train) * s^2`` instead
+    of ``s^2 / J``: the naive t is divided by ``sqrt(1 + J * n_test/n_train)``.
+    Note the floor: more seeds shrink 1/J, never the n_test/n_train term.
+    Returns ``(t, two-sided p)`` with J - 1 degrees of freedom.
+    """
+    d = np.asarray(diffs, dtype=float)
+    j = d.size
+    if j < 2:
+        return float("nan"), float("nan")
+    var = d.var(ddof=1)
+    if var == 0:
+        return (0.0, 1.0) if d.mean() == 0 else (float(np.sign(d.mean()) * np.inf), 0.0)
+    t = d.mean() / np.sqrt((1 / j + test_train_ratio) * var)
+    return float(t), float(2 * stats.t.sf(abs(t), j - 1))
 
 
 def paired_table(
@@ -778,21 +872,31 @@ def paired_table(
 ) -> pd.DataFrame:
     """Per-fold ``metric`` difference of each combination vs reference.
 
-    Columns: feature_set, model, mean_diff, std_diff, folds_better.
+    Columns: feature_set, model, mean_diff, std_diff, folds_better (seed x
+    fold pairs where the combination is better), and ``t`` / ``p`` of the
+    corrected repeated k-fold t-test (:func:`corrected_ttest`), which does
+    not treat overlapping folds and repeated seeds as independent.
     """
     folds = result.folds
     is_ref = _mask(folds, reference[0], reference[1])
     if not bool(is_ref.any()):
         raise KeyError(f"reference {reference} not in the results")
-    ref = folds.loc[is_ref, ["fold", metric]].rename(columns={metric: "reference"})
-    merged = folds.merge(ref, on="fold")
+    keys = ["seed", "fold"] if "seed" in folds else ["fold"]
+    ref = folds.loc[is_ref, [*keys, metric]].rename(columns={metric: "reference"})
+    merged = folds.merge(ref, on=keys)
     merged["diff"] = merged[metric] - merged["reference"]
     merged["better"] = (merged["diff"] > 0).astype(int)
+    ratio = float((folds["n_valid"] / folds["n_train"]).mean())
     table = merged.groupby(["feature_set", "model"]).agg(
         mean_diff=("diff", "mean"),
         std_diff=("diff", "std"),
         folds_better=("better", "sum"),
     )
+    tests = merged.groupby(["feature_set", "model"])["diff"].apply(
+        lambda d: corrected_ttest(d.to_numpy(), ratio)
+    )
+    table["t"] = [t for t, _ in tests.loc[table.index]]
+    table["p"] = [p for _, p in tests.loc[table.index]]
     return table.reset_index().sort_values("mean_diff", ascending=False)
 
 

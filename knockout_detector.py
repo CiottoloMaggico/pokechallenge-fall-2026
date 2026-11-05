@@ -8,9 +8,11 @@ fitted on the training and the test battles together, once, before any
 feature.
 
 Checked out of fold on P1's transitions (10,212 faints among 38,310
-final switches of the training battles): AUC 0.98, and at the 0.5
-threshold 89% precision with 88% recall, against 87% precision and 48%
-recall of the earlier hand-written rule on the same transitions.
+final switches of the training battles, 30 columns, 3 seeds): AUC 0.992,
+log loss 0.099, accuracy 96.3%, and at the 0.5 threshold about 93.5%
+precision with 92% recall (the earlier hand-written rule: 87% precision,
+48% recall). On P2 it repairs 10,130 switches, close to the ~10,100
+detectable hidden faints that symmetry with P1's recorded faints predicts.
 
 An instance is the ``repair`` of ``BattleContext`` (``data.Repair``)::
 
@@ -29,7 +31,13 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from threadpoolctl import threadpool_limits
 
 from data import load_records
-from domain.knockouts import FEATURES, SpeciesLookup, Transition, transitions
+from domain.knockouts import (
+    CATEGORICAL_FEATURES,
+    DETECTOR_FEATURES,
+    SpeciesLookup,
+    Transition,
+    transitions,
+)
 from domain.pokedex import Pokedex, PokemonGen2
 from domain.typechart import TypeChart
 
@@ -40,14 +48,20 @@ Turn = Mapping[str, Any]
 Classifier = Any  # scikit-learn style: fit / predict_proba
 
 
-def default_classifier() -> Classifier:
+def default_classifier(
+    columns: Sequence[str] = DETECTOR_FEATURES, seed: int = SEED
+) -> Classifier:
+    """The detector's gradient boosting; the coded columns (``x_status``,
+    ``y_code``) are categorical."""
+    categorical = [c in CATEGORICAL_FEATURES for c in columns]
     return HistGradientBoostingClassifier(
         max_iter=600,
         learning_rate=0.03,
         max_leaf_nodes=31,
         min_samples_leaf=40,
         l2_regularization=1.0,
-        random_state=SEED,
+        categorical_features=categorical if any(categorical) else None,
+        random_state=seed,
     )
 
 
@@ -165,7 +179,7 @@ def _fingerprint(timeline: Sequence[Turn]) -> tuple[Any, ...]:
 
 
 def _vector(transition: Transition) -> list[float]:
-    return [transition.features[name] for name in FEATURES]
+    return [transition.features[name] for name in DETECTOR_FEATURES]
 
 
 def _safe(species: Callable[[str], PokemonGen2]) -> SpeciesLookup:

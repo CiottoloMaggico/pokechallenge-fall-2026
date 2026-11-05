@@ -4,33 +4,29 @@ Starting from the columns of one feature set (``--start``), columns of a
 larger pool (``--pool``) are added or removed one at a time, comparing
 each candidate with the current set fold by fold (paired):
 
-* add the candidate that lowers the log-loss the most, if its paired
-  t-statistic is at most ``--add-t`` (default -2.5) and the accuracy
-  does not drop;
+* add the candidate that lowers the log-loss the most, if the decrease is
+  significant (corrected p below ``--add-p``, default 0.05) and the
+  accuracy does not drop;
 * otherwise remove the column whose removal keeps the accuracy and does
-  not worsen the log-loss significantly (t below ``--drop-t``, 1.0);
-* stop when nothing changes (or a step would return to an earlier set).
+  not worsen the log-loss significantly (corrected t below ``--drop-t``,
+  1.0);
 
-With several ``--models`` every candidate is scored by each model, and the
-fold-wise changes are averaged over the models before the paired test, so
-the columns help the group of models as a whole. Slow members (CatBoost,
-LightGBM, XGBoost) multiply the run time; ``logreg`` and ``hgb_shallow``
-are the cheap pair.
+The t-statistics are those of the corrected repeated k-fold t-test
+(``gym.corrected_ttest``, Nadeau & Bengio 2003): the J = folds x repeats
+differences are not independent, so the naive t is divided by
+sqrt(1 + J * n_test / n_train) (2.18 with 5 folds and 3 repeats; the
+earlier naive threshold t <= -2.5 was only p = 0.27 once corrected).
+* stop when nothing changes (or a step would return to an earlier set).
 
 The pool's tables are built once (stateful features fitted inside each
 training part, as in ``gym``), so each comparison only refits the
 model. Battles are repaired with the knockout detector, exactly as in
 ``main.py``.
 
-By default it starts from ``compact_v4`` and searches ``selection_pool_v5``;
-with ``--name`` the chosen columns become a new feature set, saved in
-``feature_sets/<name>.json`` and usable right away by ``main.py``.
-
 Example::
 
-    python selection.py --test input/test.jsonl --name compact_v5
-    python main.py evaluate --test input/test.jsonl \\
-        --features compact_v4 compact_v5 --models logreg
+    python selection.py --test input/test.jsonl
+    python selection.py --test input/test.jsonl --model logreg --repeats 3
 
 The result (steps, final columns, scores) is printed and saved to
 ``--out`` (default ``runs/selection.json``).
@@ -46,6 +42,7 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import numpy as np
+from scipy import stats
 from sklearn.metrics import accuracy_score, log_loss
 from sklearn.model_selection import StratifiedGroupKFold
 
@@ -53,7 +50,7 @@ import feature_catalog
 import model_catalog
 from data import Dataset
 from domain.pokedex import Pokedex
-from gym import FoldData, prepare_folds
+from gym import FoldData, corrected_ttest, prepare_folds
 from knockout_detector import detector_from_files
 
 DEFAULT_POKEDEX = Path("assets/species.json")
@@ -61,7 +58,7 @@ DEFAULT_TRAIN = Path("input/train.jsonl")
 DEFAULT_OUT = Path("runs/selection.json")
 PROBA_CLIP = 1e-6
 
-Scores = tuple[np.ndarray, np.ndarray]  # accuracy and log-loss, (models, folds)
+Scores = tuple[np.ndarray, np.ndarray]  # accuracy and log-loss per fold
 
 
 class RepeatedGroupFolds:
@@ -80,51 +77,45 @@ class RepeatedGroupFolds:
 
 
 class Selector:
-    """Scores column subsets on precomputed fold tables, one row per model."""
+    """Scores column subsets on precomputed fold tables."""
 
-    def __init__(self, folds: Sequence[FoldData], models: Sequence[str]) -> None:
-        if not models:
-            raise ValueError("at least one model is needed")
+    def __init__(self, folds: Sequence[FoldData], model: str) -> None:
         self.folds = folds
-        self.models = tuple(models)
+        self.model = model
+        # n_test / n_train of the corrected t-test
+        self.ratio = float(np.mean([len(f[3]) / len(f[1]) for f in folds]))
 
     @property
     def columns(self) -> list[str]:
         return list(self.folds[0][0].columns)
 
     def score(self, columns: Sequence[str]) -> Scores:
-        shape = (len(self.models), len(self.folds))
-        accuracy, loss = np.empty(shape), np.empty(shape)
-        for m, name in enumerate(self.models):
-            for f, (x_train, y_train, x_valid, y_valid) in enumerate(self.folds):
-                model = model_catalog.build(name)
-                model.fit(x_train[list(columns)], y_train)
-                proba = model.predict_proba(x_valid[list(columns)])
-                proba = np.clip(proba, PROBA_CLIP, 1 - PROBA_CLIP)
-                accuracy[m, f] = accuracy_score(y_valid, proba > 0.5)
-                loss[m, f] = log_loss(y_valid, proba)
-        return accuracy, loss
+        accuracy, loss = [], []
+        for x_train, y_train, x_valid, y_valid in self.folds:
+            model = model_catalog.build(self.model)
+            model.fit(x_train[list(columns)], y_train)
+            proba = np.clip(
+                model.predict_proba(x_valid[list(columns)]), PROBA_CLIP, 1 - PROBA_CLIP
+            )
+            accuracy.append(accuracy_score(y_valid, proba > 0.5))
+            loss.append(log_loss(y_valid, proba))
+        return np.array(accuracy), np.array(loss)
 
 
-def paired_t(values: np.ndarray) -> float:
-    """One-sample t-statistic of ``values`` against zero."""
-    return float(values.mean() / (values.std(ddof=1) / np.sqrt(values.size)))
-
-
-def compare(new: Scores, old: Scores) -> tuple[float, float, float]:
-    """Mean accuracy change, mean log-loss change, paired t of the log-loss.
-
-    The change of each fold is averaged over the models first, so the
-    t-statistic tests the average effect across the folds.
-    """
-    d_accuracy = (new[0] - old[0]).mean(axis=0)
-    d_loss = (new[1] - old[1]).mean(axis=0)
-    t = paired_t(d_loss) if d_loss.std() > 0 else 0.0
-    return float(d_accuracy.mean()), float(d_loss.mean()), t
+def compare(
+    new: Scores, old: Scores, test_train_ratio: float
+) -> tuple[float, float, float, float]:
+    """Mean accuracy change, mean log-loss change, corrected paired t and
+    p of the log-loss (``gym.corrected_ttest``)."""
+    d_accuracy, d_loss = new[0] - old[0], new[1] - old[1]
+    t, p = corrected_ttest(d_loss, test_train_ratio)
+    if np.isnan(t):
+        t, p = 0.0, 1.0
+    return float(d_accuracy.mean()), float(d_loss.mean()), t, p
 
 
 def select(
-    selector: Selector, start: Sequence[str], add_t: float, drop_t: float
+    selector: Selector, start: Sequence[str], add_p: float, drop_t: float
 ) -> tuple[list[str], list[dict[str, object]], Scores]:
     current = list(start)
     scores = selector.score(current)
@@ -137,15 +128,15 @@ def select(
             if column in current:
                 continue
             trial = selector.score([*current, column])
-            d_acc, d_loss, t = compare(trial, scores)
-            if t <= add_t and d_acc >= 0 and (best is None or d_loss < best[2]):
+            d_acc, d_loss, t, p = compare(trial, scores, selector.ratio)
+            if d_loss < 0 and p < add_p and d_acc >= 0 and (best is None or d_loss < best[2]):
                 best = (column, trial, d_loss, d_acc, t)
         action = "add"
         if best is None:
             action = "drop"
             for column in current:
                 trial = selector.score([c for c in current if c != column])
-                d_acc, d_loss, t = compare(trial, scores)
+                d_acc, d_loss, t, _ = compare(trial, scores, selector.ratio)
                 if t < drop_t and d_acc >= 0 and (best is None or d_acc > best[3]):
                     best = (column, trial, d_loss, d_acc, t)
         if best is None:
@@ -185,25 +176,17 @@ def _progress(done: int, total: int, seconds: float) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--train", type=Path, default=DEFAULT_TRAIN)
     parser.add_argument("--test", type=Path, help="unlabelled battles (optional)")
     parser.add_argument("--pokedex", type=Path, default=DEFAULT_POKEDEX)
-    parser.add_argument("--pool", default="selection_pool_v5")
-    parser.add_argument("--start", default="compact_v4")
-    parser.add_argument(
-        "--name", help="save the result as this feature set (e.g. compact_v5)"
-    )
-    parser.add_argument(
-        "--models",
-        nargs="+",
-        default=["logreg"],
-        help="models whose changes are averaged (default: logreg)",
-    )
+    parser.add_argument("--pool", default="selection_pool")
+    parser.add_argument("--start", default="compact_v3")
+    parser.add_argument("--model", default="logreg")
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--seed", type=int, default=11)
-    parser.add_argument("--add-t", type=float, default=-2.5)
+    parser.add_argument("--add-p", type=float, default=0.05)
     parser.add_argument("--drop-t", type=float, default=1.0)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     return parser
@@ -211,8 +194,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.name in feature_catalog.BUILT_IN:
-        raise SystemExit(f"{args.name!r} is a built-in feature set")
     pokedex = Pokedex.from_json(args.pokedex)
     chart = feature_catalog.type_chart()
     detector = detector_from_files(pokedex, chart, (args.train,))  # as main.py
@@ -237,32 +218,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         progress=_progress,
     )
     print(f"pool tables ready in {time.perf_counter() - began:.0f} s", flush=True)
-    selector = Selector(folds, args.models)
+    selector = Selector(folds, args.model)
     missing = set(start) - set(selector.columns)
     if missing:
         raise SystemExit(f"start columns not in the pool: {sorted(missing)}")
-    columns, steps, scores = select(selector, start, args.add_t, args.drop_t)
+    columns, steps, scores = select(selector, start, args.add_p, args.drop_t)
     result = {
         "start": args.start,
         "pool": args.pool,
-        "models": list(selector.models),
+        "model": args.model,
         "folds": len(folds),
         "columns": columns,
         "accuracy": float(scores[0].mean()),
         "log_loss": float(scores[1].mean()),
-        "per_model": {
-            name: {"accuracy": float(acc.mean()), "log_loss": float(loss.mean())}
-            for name, acc, loss in zip(selector.models, scores[0], scores[1])
-        },
         "steps": steps,
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(result, indent=2) + "\n")
     print(f"final columns ({len(columns)}): {columns}")
     print(f"saved to {args.out}")
-    if args.name:
-        path = feature_catalog.save_selected_set(args.name, args.pool, columns)
-        print(f"feature set {args.name!r} saved to {path}")
     return 0
 
 

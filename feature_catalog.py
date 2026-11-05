@@ -38,6 +38,18 @@ Sets:
   ``b_stat_diff``, ``alive_gain_10_30``, ``p2_fainted`` (26)
 * ``selection_pool`` compact_v3 plus every other candidate (37 columns),
   the starting pool of ``selection.py``
+
+Revalidation on 6 seeds x 5 folds (exp/reval_analyze.py, corrected repeated
+k-fold t-test): every compact set above is now the original minus the
+columns whose removal did not raise the log loss (one-sided corrected
+p >= 0.20, removed one at a time, least harmful first); the originals stay
+available as ``<name>_orig``. Removed: ``mv_res`` everywhere, ``act_duel``
+and ``ghost_ko_50`` from v2..v5, the knockout columns ``p2_hidden_ko_soft``
+/ ``p2_hidden_ko_det`` (the repair applied to every set already carries the
+detector), ``hidden_bst`` and ``te_p2_mean`` from compact, ``material_hp``
+(``smat_hp`` replaces it), ``hp_healed``, ``alive_gain_10_30`` and
+``eff_trapped`` from v5. Columns: compact 11, v2 15, v3 15 (= v2), v4 16,
+v5 18; accuracy and log loss equal to the originals within noise.
 """
 
 from __future__ import annotations
@@ -341,19 +353,79 @@ def type_chart() -> TypeChart:
     return TypeChart.from_csv(TYPE_CHART_PATH)
 
 
+# columns dropped by the multi-seed revalidation (see the module docstring)
+REVALIDATION_DROPS: dict[str, tuple[str, ...]] = {
+    "compact": ("hidden_team_strength", "opponent_species_encoding", "mv_res"),
+    "compact_v2": ("hidden_knockout_probability", "ghost_ko_50", "act_duel", "mv_res"),
+    "compact_v3": ("p2_hidden_ko_det", "ghost_ko_50", "act_duel", "mv_res"),
+    "compact_v4": ("p2_hidden_ko_det", "ghost_ko_50", "act_duel", "mv_res"),
+    "compact_v5": (
+        "p2_hidden_ko_det", "material_hp", "mv_res", "hp_healed", "ghost_ko_50",
+        "act_duel", "alive_gain_10_30", "eff_trapped",
+    ),
+}
+
+
+def _revalidated(base: str, original: Builder) -> Builder:
+    """``original`` without its ``REVALIDATION_DROPS`` (same set name)."""
+    drops = REVALIDATION_DROPS[base]
+
+    def build(turn: int | None = None) -> FeatureSet[BattleContext]:
+        full = original(turn)
+        missing = set(drops) - set(full.feature_ids)
+        if missing:
+            raise KeyError(f"{base}: no features {sorted(missing)} to drop")
+        return full.select(
+            [f for f in full.feature_ids if f not in drops], name=set_name(base, turn)
+        )
+
+    build.__doc__ = f"{base} after the multi-seed revalidation (drops {', '.join(drops)})."
+    return build
+
+
+def _renamed(base: str, original: Builder) -> Builder:
+    """``original`` under the name ``<base>_orig``."""
+
+    def build(turn: int | None = None) -> FeatureSet[BattleContext]:
+        full = original(turn)
+        return full.select(list(full.feature_ids), name=set_name(f"{base}_orig", turn))
+
+    build.__doc__ = f"{base} as it was before the multi-seed revalidation."
+    return build
+
+
+def compact_v5_v11(turn: int | None = None) -> FeatureSet[BattleContext]:
+    """compact_v5 + ``v11_proba`` (``features/v11_bridge.py``), for the
+    ``blend_v11`` model only: v11 is trained inside each fold, the column is
+    NaN on training battles. Needs the v11 repository (``V11_REPO``)."""
+    from features.v11_bridge import V11Probability
+
+    if turn is not None:
+        raise ValueError("compact_v5_v11 is only defined at the last turn")
+    base = FEATURE_SETS["compact_v5"](None)
+    extra = _feature_set("v11", None, [V11Probability()])
+    return base.merge(extra, name="compact_v5_v11")
+
+
 FEATURE_SETS: dict[str, Builder] = {
     "hp30": hp30,
     "material": material,
     "hazards": hazards,
     "switch": switch,
     "core": core,
-    "compact": compact,
+    "compact": _revalidated("compact", compact),
     "compact_plus": compact_plus,
     "compact_ko": compact_ko,
-    "compact_v2": compact_v2,
-    "compact_v3": compact_v3,
-    "compact_v4": compact_v4,
-    "compact_v5": compact_v5,
+    "compact_v2": _revalidated("compact_v2", compact_v2),
+    "compact_v3": _revalidated("compact_v3", compact_v3),
+    "compact_v4": _revalidated("compact_v4", compact_v4),
+    "compact_v5": _revalidated("compact_v5", compact_v5),
+    "compact_orig": _renamed("compact", compact),
+    "compact_v2_orig": _renamed("compact_v2", compact_v2),
+    "compact_v3_orig": _renamed("compact_v3", compact_v3),
+    "compact_v4_orig": _renamed("compact_v4", compact_v4),
+    "compact_v5_orig": _renamed("compact_v5", compact_v5),
+    "compact_v5_v11": compact_v5_v11,
     "selection_pool": selection_pool,
 }
 

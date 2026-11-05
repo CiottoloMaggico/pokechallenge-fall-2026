@@ -373,9 +373,16 @@ class FeatureSet(Generic[BattleT]):
 
         battles = list(battles)
         self.fit(battles, labels, unlabeled)
-        label_aware = [f for f, e in self._entries.items() if e.feature.uses_labels]
+        # features with ``inner_oof = False`` never output in-sample values for
+        # their own training battles (e.g. NaN), so they skip the inner folds
+        label_aware = [
+            f
+            for f, e in self._entries.items()
+            if e.feature.uses_labels and getattr(e.feature, "inner_oof", True)
+        ]
         if not label_aware or labels is None:
             return pd.DataFrame(self.extract_many(battles))
+        self._prepare(battles)
         folds = _inner_fold_ids(len(battles), groups, inner_folds, seed)
         rows: list[Row | None] = [None] * len(battles)
         for fold in sorted(set(folds)):
@@ -450,7 +457,21 @@ class FeatureSet(Generic[BattleT]):
                 fid for fid, e in self._entries.items() if not e.feature.is_fitted
             ]
             raise FeatureNotFittedError(f"call fit() first; unfitted: {unfitted}")
+        battles = list(battles)
+        self._prepare(battles)
         return [self.extract(battle) for battle in battles]
+
+    def _prepare(self, battles: list[BattleT]) -> None:
+        """Let batch features compute all the battles at once.
+
+        A feature may define ``prepare(battles)``: it is called with every
+        battle before the row-by-row extraction (e.g. a whole external
+        pipeline run once on the batch, then read back by ``compute``).
+        """
+        for entry in self._entries.values():
+            prepare = getattr(entry.feature, "prepare", None)
+            if callable(prepare):
+                prepare(battles)
 
     def to_frame(
         self,
@@ -485,34 +506,6 @@ class FeatureSet(Generic[BattleT]):
             if fid not in self._entries:
                 raise KeyError(f"no feature registered as {fid!r}")
             subset._entries[fid] = self._entries[fid]
-        return subset
-
-    def restrict(self, columns: Iterable[str], name: str) -> FeatureSet[BattleT]:
-        """Return a new set producing exactly ``columns``.
-
-        Keeps the features that produce at least one of them (in this
-        set's order); a feature with other outputs too is wrapped so that
-        only the wanted ones are returned. Every feature must declare its
-        outputs, and every column must be produced by some feature.
-        """
-        wanted = list(columns)
-        subset = self._empty_copy(name)
-        found: set[str] = set()
-        for fid, entry in self._entries.items():
-            outputs = entry.output_names
-            if outputs is None:
-                raise ValueError(f"feature {fid!r} does not declare its outputs")
-            kept = tuple(c for c in outputs if c in wanted)
-            if not kept:
-                continue
-            found.update(kept)
-            feature = entry.feature
-            if kept != tuple(outputs):
-                feature = ColumnSubset(feature, kept)
-            subset._entries[fid] = _Entry(feature, entry.prefix)
-        missing = [c for c in wanted if c not in found]
-        if missing:
-            raise KeyError(f"columns not produced by {self._name!r}: {missing}")
         return subset
 
     def merge(
@@ -683,28 +676,6 @@ class _Renamed(Feature[BattleT]):
 
     def compute(self, battle: BattleT) -> Mapping[str, float]:
         return self._inner.compute(battle)
-
-
-class ColumnSubset(_Renamed[BattleT]):
-    """A Feature returning only some of the outputs of another one.
-
-    The inner feature still computes everything; only the columns change.
-    """
-
-    def __init__(self, inner: Feature[BattleT], columns: Sequence[str]) -> None:
-        super().__init__(inner, inner.feature_id)
-        declared = inner.output_names
-        if declared is not None and set(columns) - set(declared):
-            raise ValueError(f"{inner.feature_id!r} does not produce {columns}")
-        self._columns = tuple(columns)
-
-    @property
-    def output_names(self) -> tuple[str, ...]:
-        return self._columns
-
-    def compute(self, battle: BattleT) -> Mapping[str, float]:
-        values = self._inner.compute(battle)
-        return {c: values[c] for c in self._columns}
 
 
 # ----------------------------------------------------------------------

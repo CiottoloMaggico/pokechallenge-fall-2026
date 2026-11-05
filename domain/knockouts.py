@@ -37,6 +37,12 @@ priority, Toxic and Perish Song counters) and ``a_drop_any``, the damage
 taken by whichever opposing Pokémon was on the field during the change:
 AUC 0.9915, log loss 0.099, precision 0.935, recall 0.922 (50 features).
 
+The detector is trained on ``DETECTOR_FEATURES``: the 50 compressed to 30
+by Gen 2 rules (lossless codes and quantities that contain the dropped
+columns, exp/ko_domain.py), same out-of-fold log loss as the 50 (0.0988 vs
+0.0984, corrected p 0.70). On P2 it repairs 10,130 switches, the number
+symmetry with P1's recorded faints predicts (~10,100 detectable).
+
 The detector itself (``knockout_detector.KnockoutDetector``) learns
 P(faint | transition) on P1 and scores P2's transitions.
 """
@@ -62,6 +68,7 @@ PHAZING_MOVES = frozenset({"roar", "whirlwind"})
 MAX_STAGE = 6
 MISSING = float("nan")
 SIDES = ("p1", "p2")
+STATUS_CODES = {"par": 1, "slp": 2, "frz": 3, "psn": 4, "tox": 5, "brn": 6}
 
 Turn = Mapping[str, Any]
 SpeciesLookup = Callable[[str], PokemonGen2 | None]
@@ -119,7 +126,54 @@ FEATURES = (
     "x_perish_turns",
     "x_tox_turns",
     "a_drop_any",
+    # priority of the opposing move, -2 for Roar / Whirlwind (forced switch)
+    "a_prio_phaze",
+    # lossless codes of the flags above (categorical for the detector)
+    "x_status",
+    "y_code",
 )
+
+# The columns the detector is trained on (exp/ko_domain.py): the 50 above
+# compressed by Gen 2 rules, without pruning on scores. Every dropped column
+# is an exact function of the kept ones or is folded into a quantity that
+# contains it; out of fold (3 seeds) the log loss is 0.0988 vs 0.0984 with
+# the 50 (corrected t 0.39, p 0.70) and the P2 repairs agree on 99.2%.
+DETECTOR_FEATURES = (
+    "turn",
+    # leaver: HP, then margins that already include the Gen 2 damage
+    "x_hp",
+    "x_residual",  # end-of-turn damage: psn / tox counter, Leech Seed, Curse, Nightmare, traps, sand, Leftovers
+    "x_hp_after",  # x_hp - field-aware expected damage - x_residual (a_dmg_field is implied)
+    "x_hp_minus_max",  # x_hp - worst critical roll (a_dmg_max is implied)
+    "x_status",  # categorical code of slp / par / frz / psn / tox / brn
+    "x_boost",
+    "x_trapped",
+    "x_sub",
+    "x_conf",
+    "x_perish_turns",  # 0 when not under Perish Song (replaces x_perish)
+    "x_bhp",
+    "x_bdef",
+    "x_bspd",
+    "x_spe_ratio",
+    # incoming Pokémon
+    "y_code",  # categorical: first appearance x (no move / new move / repeated move)
+    "y_hp",
+    "y_drop",  # y_prev_hp = y_hp + y_drop
+    "drop_gap",  # a_dmg_in = drop_gap + y_drop
+    "y_bst",
+    "spikes",
+    # opponent
+    "a_drop",  # NaN when the attacker changed (replaces a_same)
+    "a_drop_any",
+    "a_mv_changed",
+    "a_bp",
+    "a_status_mv",
+    "a_eff",
+    "a_prio_phaze",  # priority, -2 for Roar / Whirlwind (replaces a_priority, a_phaze)
+    "a_boost",
+    "a_disabled",
+)
+CATEGORICAL_FEATURES = frozenset({"x_status", "y_code"})
 
 
 @dataclass(frozen=True)
@@ -176,8 +230,17 @@ def transitions(
     side: str,
     species: SpeciesLookup,
     chart: TypeChart,
+    align: bool = False,
 ) -> list[Transition]:
     """Every change of active Pokémon of ``side``, with its features.
+
+    ``align`` reads the opponent of a recorded P1 faint at the faint row
+    instead of the replacement row. It was tested and rejected
+    (exp/ko_domain.py): it fits P1 better (log loss 0.078 vs 0.098) but
+    repairs only ~7,000 P2 switches, while symmetry with P1's recorded
+    faints expects ~10,100 detectable hidden P2 faints, the number the
+    default construction finds (10,130); it also raises the P1-vs-P2
+    adversarial AUC from 0.585 to 0.603. Kept only for that experiment.
 
     For P1 a recorded faint is described from the row before the faint
     row, so it looks like a hidden P2 faint; double faints (both sides
@@ -216,14 +279,19 @@ def transitions(
             before = i - 2
         else:
             before = i - 1
-        context = _Context(own, opp, before, i, species, chart)
+        # the turn being judged: for a recorded P1 faint it is the faint row
+        # (i - 1), the turn a hidden P2 faint is shown in; describing the
+        # opponent at row i would describe one turn later on P1 only
+        turn = i - 1 if fainted and align else i
+        context = _Context(own, opp, before, i, species, chart, turn)
         features = context.features(last_hp, last_move, seen, spikes[j])
         features.update(
             _mechanics(
-                timeline, side, before, i, species, chart,
+                timeline, side, before, turn, species, chart,
                 fields[before], tox_turns[before], perish_turns[before],
             )
         )
+        features["a_prio_phaze"] = features["a_priority"] - features["a_phaze"]
         result.append(Transition(i, leaver, fainted, final, features))
     return result
 
@@ -248,6 +316,7 @@ class _Context:
     index: int
     species: SpeciesLookup
     chart: TypeChart
+    turn: int  # row of the opponent's move: ``index``, or the P1 faint row
 
     def features(
         self,
@@ -256,11 +325,11 @@ class _Context:
         seen: set[str],
         spikes: bool,
     ) -> dict[str, float]:
-        own, opp, b, i = self.own, self.opp, self.before, self.index
+        own, opp, b, i, k = self.own, self.opp, self.before, self.index, self.turn
         leaver, incoming = own.names[b], own.names[i]
         x, y = self.species(leaver), self.species(incoming)
-        attacker_same = opp.names[b] == opp.names[i]
-        move = opp.moves[i]
+        attacker_same = opp.names[b] == opp.names[k]
+        move = opp.moves[k]
         previous_move = opp.moves[b]
         status, effects = own.status[b], own.effects[b]
         y_prev = last_hp.get(incoming, 1.0)
@@ -272,13 +341,14 @@ class _Context:
             else MISSING
         )
         values: dict[str, float | bool] = {
-            "turn": i,
+            "turn": k,
             "x_hp": own.hp[b],
             "x_slp": status == "slp",
             "x_par": status == "par",
             "x_frz": status == "frz",
             "x_psn": status in ("psn", "tox"),
             "x_brn": status == "brn",
+            "x_status": STATUS_CODES.get(status, 0),
             "x_boost": sum(own.boosts[b].values()),
             "x_trapped": "trapped" in effects,
             "x_perish": "perish" in effects,
@@ -298,9 +368,16 @@ class _Context:
             "y_mv_new": y_move is not None
             and last_move.get(incoming) != y_move["name"],
             "y_bst": y.base_stat_total if y else MISSING,
+            # first appearance x (no move / new move / repeated move)
+            "y_code": 3 * (incoming not in seen)
+            + (
+                0
+                if y_move is None
+                else 1 if last_move.get(incoming) != y_move["name"] else 2
+            ),
             "spikes": spikes,
             "a_same": attacker_same,
-            "a_drop": opp.hp[b] - opp.hp[i] if attacker_same else MISSING,
+            "a_drop": opp.hp[b] - opp.hp[k] if attacker_same else MISSING,
             "a_mv_changed": move is not None
             and (
                 not attacker_same
@@ -313,8 +390,8 @@ class _Context:
             "a_dmg": damage,
             "x_hp_minus_dmg": own.hp[b] - damage,
             "a_phaze": move is not None and move["name"] in PHAZING_MOVES,
-            "a_boost": sum(opp.boosts[i].values()),
-            "a_disabled": opp.status[i] in ("slp", "frz"),
+            "a_boost": sum(opp.boosts[k].values()),
+            "a_disabled": opp.status[k] in ("slp", "frz"),
             **self._evidence(move, x, y, own.hp[b], own.hp[i], y_prev),
         }
         # the Gen 2 mechanics features are added by ``transitions`` (``_mechanics``)
@@ -343,7 +420,7 @@ class _Context:
           it is immune, e.g. a Ground type into Thunder); a replacement sent
           in after a faint enters at the end of the turn (gap = full damage).
         """
-        attacker = self.species(self.opp.names[self.index])
+        attacker = self.species(self.opp.names[self.turn])
         values = {
             "x_spe_ratio": MISSING,
             "a_dmg_max": 0.0,
@@ -356,8 +433,8 @@ class _Context:
             return values
         a = Combatant(
             attacker,
-            boosts=_stages(self.opp.boosts[self.index]),
-            status=_status(self.opp.status[self.index]),
+            boosts=_stages(self.opp.boosts[self.turn]),
+            status=_status(self.opp.status[self.turn]),
         )
         if leaver is not None:
             d = Combatant(
@@ -386,15 +463,15 @@ class _Context:
 
     def _damage(self, move: Turn | None, defender: PokemonGen2 | None) -> float:
         """Expected damage of the opponent's move on the leaver, in max HP."""
-        attacker = self.species(self.opp.names[self.index])
+        attacker = self.species(self.opp.names[self.turn])
         if move is None or move["category"] == "status":
             return 0.0
         if attacker is None or defender is None:
             return 0.0
         a = Combatant(
             attacker,
-            boosts=_stages(self.opp.boosts[self.index]),
-            status=_status(self.opp.status[self.index]),
+            boosts=_stages(self.opp.boosts[self.turn]),
+            status=_status(self.opp.status[self.turn]),
         )
         d = Combatant(defender, boosts=_stages(self.own.boosts[self.before]))
         mean = expected_damage(
