@@ -12,20 +12,20 @@ Otherwise the refactoring is done when `evaluate --seeds 33 66 99` on
 ## 1. Layers and dependency rule
 
 ```
-cli (main.py) ──► application (gym, tasks, tuning, selection, statistics, storage)
+cli (main.py) ──► application (gym, detector, tuning, selection, statistics, storage)
                         │
           ┌─────────────┼──────────────┐
           ▼             ▼              ▼
        addons ──►   features        models      (addons may use both)
           │             │       (no domain import)
           ▼             ▼
-                 domain  (pure logic + ports: Addon, TimelineRepair)
+                 domain  (pure logic + TimelineRepair protocol)
 ```
 
-- `domain` imports only the standard library and numpy. It defines the ports
-  (`Addon`, `TimelineRepair`) but never imports an implementation: addons are
+- `domain` imports only the standard library and numpy. It defines the protocol
+  `TimelineRepair` but never imports an implementation: addons are
   passed in (`BattleReplay(repair=...)`).
-- `addons` implement the domain ports. An addon may be deterministic code
+- `addons` implement the domain protocol. An addon may be deterministic code
   (only `domain`) or load a trained artifact (`features`, `models`,
   `artifacts.py`); it never imports `gym`, `tuning` or the CLI.
 - `features` imports `domain` and the feature interfaces; never `models`, `gym`.
@@ -54,8 +54,7 @@ pokechallenge/
 │   ├── moves.py                # Move
 │   ├── damage.py               # Combatant, Field, DamageCalculator
 │   ├── battle.py               # BattleReplay, BattleContext, TurnState
-│   ├── addon.py                # Addon port (deterministic or learned) + manifest
-│   ├── repair.py               # TimelineRepair port + NoRepair
+│   ├── repair.py               # TimelineRepair protocol + NoRepair
 │   ├── transitions.py          # Transition, TransitionExtractor (switch description)
 │   └── __main__.py             # `python -m domain …`: build-pokedex, replay, check
 ├── addons/
@@ -85,8 +84,8 @@ pokechallenge/
 ├── interfaces.py               # Feature, FeatureSet, Model, Splitter, Probe, Registry
 ├── registry.py                 # generic Registry[T] + decorators
 ├── artifacts.py                # TrainedRun: save / load a fitted feature set + model
-├── tasks.py                    # Task: BattleOutcomeTask, HiddenFaintTask
-├── gym.py                      # Gym, GymResult (generic over a Task)
+├── detector.py                 # detector dataset (P1 transitions), probes, commands
+├── gym.py                      # Gym, GymResult (rows, labels, groups: any table)
 ├── statistics.py               # corrected_ttest, summary tables
 ├── storage.py                  # ResultsLayout: every path under results/
 ├── settings.py                 # Settings dataclass (paths, seeds, folds, jobs)
@@ -96,7 +95,7 @@ pokechallenge/
 ├── selection.py                # Selector, backward / forward selection
 ├── results/                    # ONLY outputs (git-ignored)
 │   ├── runs/<set>__<model>/    # run.json, feature_state.pkl, model.pkl
-│   ├── addons/knockouts/<version>/  # detector artifact: run files + manifest.json
+│   ├── addons/knockouts/<version>/  # detector artifact: run files + info.json
 │   ├── tuning/                 # optuna.db, <set>__<model>.json
 │   ├── evaluations/<name>/     # folds.csv, predictions.csv, summary.csv, meta.json
 │   ├── cache/                  # fold tables, detector matrices
@@ -126,6 +125,7 @@ class PokemonDetails(TypedDict):
     level: int
     types: list[str]
     base_hp: int; base_atk: int; base_def: int; base_spa: int; base_spd: int; base_spe: int
+    item: NotRequired[str | None]   # present in some records
 
 class PokemonState(TypedDict):
     name: str
@@ -146,7 +146,7 @@ class BattleRecord(TypedDict):
     p1_team_details: list[PokemonDetails]
     p2_lead_details: PokemonDetails
     battle_timeline: list[TurnRecord]
-    player_won: NotRequired[bool]
+    player_won: NotRequired[int]    # 0 / 1 in the files; absent in test
 
 def read_records(path: Path) -> Iterator[BattleRecord]: ...
 def validate(record: Mapping[str, Any]) -> BattleRecord: ...   # raises InvalidRecordError
@@ -262,11 +262,16 @@ class DamageCalculator:
     def roll(self, attacker: Combatant, defender: Combatant, move: Move,
              field: Field = Field(), crit: bool = False) -> DamageRoll | None: ...
     def expected(self, attacker: Combatant, defender: Combatant, move: Move,
-                 field: Field = Field(), with_accuracy: bool = True) -> float | None: ...
+                 field: Field = Field(), *, with_accuracy: bool) -> float | None: ...
 ```
 
 - Same formulas as today's `calc_damage` / `expected_damage`, wrapped in one
   object that owns the chart (no chart argument repeated everywhere).
+- `with_accuracy` is keyword-only without default: today `include_accuracy`
+  defaults to False but the detector passes True, so every call site states it.
+- The sketches above are simplified: existing fields (`Combatant.level`,
+  `hp_fraction`, `item`, `DamageRange` and its helpers) stay; when the code and
+  this document disagree, the code's behaviour wins and the document is fixed.
 - Tests: a table of hand-checked Gen 2 damage cases (STAB, immunity, crit,
   Reflect, sand, burn) with expected min / max.
 
@@ -303,43 +308,25 @@ class BattleReplay:
 - The repair is applied here, once, as today (`main._repair`): every feature
   sees repaired battles.
 
-### 3.6 Addon and repair ports (`domain/addon.py`, `domain/repair.py`)
+### 3.6 Repair protocol (`domain/repair.py`)
 
-An addon is any component plugged into the domain from outside. It may be
-deterministic code (a rule, a lookup) or a learned model loaded from an
-artifact; the port does not assume either.
+A repair fixes a data artifact of the timeline (today: hidden P2 faints). It
+may be deterministic code or a model loaded from disk; the protocol does not
+care.
 
 ```python
-@dataclass(frozen=True)
-class AddonManifest:
-    name: str                       # "knockouts_model", "knockouts_rule", …
-    version: str                    # "v3", or the code version for deterministic addons
-    kind: Literal["deterministic", "learned"]
-    artifact: str | None            # path of the loaded artifact, None if deterministic
-    data_hash: str | None           # hash of the records it was fitted on
-    params: Mapping[str, Any]       # e.g. threshold
-
-class Addon(Protocol):
-    requires_fit: bool              # False for deterministic code and loaded artifacts
-    def fit(self, records: Sequence[BattleRecord]) -> Self: ...   # no-op if not required
-    def manifest(self) -> AddonManifest: ...
-    def get_state(self) -> dict[str, Any]: ...                    # {} if deterministic
-    def set_state(self, state: Mapping[str, Any]) -> None: ...
-
-class TimelineRepair(Addon, Protocol):
+class TimelineRepair(Protocol):
     def probabilities(self, record: BattleRecord) -> Mapping[int, float]: ...
     def repairs(self, record: BattleRecord) -> Mapping[int, str]: ...
+    def describe(self) -> dict[str, Any]: ...   # JSON: name, version, params (saved in runs)
 
-class NoRepair:                      # deterministic identity, for tests and baselines
+class NoRepair:                                 # identity, for tests and baselines
     ...
 ```
 
-- A deterministic addon has `requires_fit = False`, an empty state and a
-  manifest with `kind="deterministic"`; its probabilities are 0 / 1.
-- A learned addon is normally loaded already trained (§3.8), so it also has
-  `requires_fit = False` at run time; `fit` exists for addons that learn
-  something small and label-free on the fly.
-
+- No `fit` in the protocol: deterministic repairs need none, learned ones are
+  trained by `python main.py detector train` (§3.8) and only loaded here.
+- A deterministic repair returns probabilities 0 / 1.
 - `probabilities`: turn index → P(the P2 Pokémon that left at that row
   fainted). Used by the repair and by features (`p2_hidden_ko_unsure`, `smat_hp`).
 - `repairs`: turn index → name of the Pokémon to mark as fainted
@@ -349,8 +336,8 @@ class NoRepair:                      # deterministic identity, for tests and bas
 - Results are cached by `fingerprint` inside the implementation.
 - The registry `addons/__init__.py` maps names to factories; the CLI selects
   one with `--repair none | rule | model=<artifact>` (§3.8).
-- The manifest of the repair is saved in every run of the main model, and
-  `predict` refuses a run whose repair differs from the one requested.
+- `describe()` is saved in every run of the main model, and `predict` refuses
+  a run whose repair differs from the one requested.
 
 ### 3.7 Transitions (`domain/transitions.py`)
 
@@ -384,28 +371,14 @@ runs) on a different task, exported as a versioned artifact, and loaded at run
 time by a thin addon. Changing or comparing detectors becomes `evaluate` on
 the detector task, and its versions are folders under `results/addons/`.
 
-**Task** (`tasks.py`): the gym is generic over a task, which says what a row
-is, its label and its group.
-
-```python
-class Task(Protocol[ItemT]):
-    name: str
-    def items(self, records: Sequence[BattleRecord]) -> Sequence[ItemT]: ...
-    def labels(self, items: Sequence[ItemT]) -> np.ndarray: ...
-    def groups(self, items: Sequence[ItemT]) -> np.ndarray: ...     # rows that share a fold
-    def probes(self) -> Mapping[str, Probe]: ...                    # task-specific checks
-
-class BattleOutcomeTask(Task[BattleContext]): ...   # row = battle, label = player_won,
-                                                    # group = duplicate fingerprint
-class HiddenFaintTask(Task[Transition]): ...        # row = P1 final switch, label = recorded
-                                                    # faint, group = battle fingerprint
-```
-
-`HiddenFaintTask.probes()`: the checks of the detector work (`exp/ko_*`), run on
-the P2 candidate transitions with the model fitted on all P1 rows:
-P2 repairs against the symmetry estimate (recorded P1 faints − recorded P2
-faints, times the detectable share; ~10,100 today), adversarial AUC P1 vs P2
-transitions, agreement with a reference artifact.
+**Dataset** (`detector.py`): the rows are P1's final switches (from
+`TransitionExtractor`), the label is the recorded faint, the group is the
+battle. The gym already takes any rows / labels / groups, so no new
+abstraction is needed: `detector.py` only builds this table and adds the
+detector checks, run on P2's candidate switches with the model fitted on all
+P1 rows: P2 repairs against the symmetry estimate (recorded P1 faints −
+recorded P2 faints, times the detectable share; ~10,100 today), adversarial
+AUC P1 vs P2 switches, agreement with a previous artifact.
 
 **Feature sets** (`features/transitions/`): `Feature[Transition]` objects over
 the columns of `TransitionExtractor`, with the same interfaces as the battle
@@ -429,7 +402,7 @@ python main.py evaluate --features compact_v5 --models ensemble_from_lr \
 ```
 
 **Artifact** (`results/addons/knockouts/<version>/`): the `TrainedRun` files
-(`run.json`, `feature_state.pkl`, `model.pkl`) plus `manifest.json`: version,
+(`run.json`, `feature_state.pkl`, `model.pkl`) plus `info.json`: version,
 feature set, model and parameters, threshold, hash of the training file, the
 `detector evaluate` summary and the probes. Versions are never overwritten.
 
@@ -439,7 +412,7 @@ feature set, model and parameters, threshold, hash of the training file, the
 class ModelKnockoutRepair(TimelineRepair):          # addons/knockouts_model.py
     def __init__(self, artifact: Path, extractor: TransitionExtractor) -> None: ...
     # loads the TrainedRun once, scores the P2 candidate transitions of a record,
-    # caches by fingerprint, requires_fit = False, manifest from manifest.json
+    # caches by fingerprint; describe() reads info.json
 
 class RuleKnockoutRepair(TimelineRepair):           # addons/knockouts_rule.py
     def __init__(self, extractor: TransitionExtractor, margin: float = 0.0) -> None: ...
@@ -623,8 +596,8 @@ class Gym:
     def fold_tables(self, data, feature_set, plan) -> dict[int, list[FoldData]]: ...  # cached
 ```
 
-- The gym is generic over a `Task` (§3.8): `evaluate`, `train`, tuning and
-  selection work the same for battles (main model) and transitions (detector).
+- The gym works on any rows / labels / groups: `evaluate`, `train`, tuning and
+  selection are the same for battles (main model) and switches (detector).
 - `LabelledBattles` = items + labels + ids + groups, produced by the task
   (today `Dataset`).
 - `jobs`: seeds in parallel with fork; disabled automatically when a model or
@@ -714,7 +687,7 @@ class Settings:
 Commands (unchanged names and options): `check`, `evaluate` (`--n-seeds`,
 `--seeds`, `--random-seeds`, `--jobs`, `--reference`, `--repair`), `train`,
 `predict`, `tune`, `select`, `replay`, and the detector group `detector evaluate`,
-`detector train`, `detector tune` (same options, `HiddenFaintTask`).
+`detector train`, `detector tune` (same options, rows = P1 switches).
 
 ## 7. Rules that must survive the refactoring
 
@@ -726,7 +699,7 @@ Commands (unchanged names and options): `check`, `evaluate` (`--n-seeds`,
   detector artifact uses the 30 domain columns, no alignment.
 - The Pokédex comes only from competition-format records (train by default);
   no external species data; unknown species give NaN, never invented stats.
-- Addons never see `player_won`; every run records the manifest of its repair.
+- Repairs never see `player_won`; every run records `describe()` of its repair.
 - All comparisons with the corrected repeated k-fold t-test; multi-seed by default
   for decisions (`--n-seeds 3` at least).
 - No fork with OpenMP libraries after they have been used in the parent.
@@ -755,8 +728,8 @@ Commands (unchanged names and options): `check`, `evaluate` (`--n-seeds`,
 The steps, their prompts and acceptance checks are in `REFACTORING_STEPS.md`;
 the rules for the agent are in `CLAUDE.md`. In short: tooling and golden
 reference → domain values → Pokédex from train only (planned result change,
-re-measured) → replay and ports → interfaces, registry, features → models →
-tasks, gym, CLI → knockout detector as a task and versioned addon → tuning,
+re-measured) → replay and repair protocol → interfaces, registry, features → models →
+gym, CLI → knockout detector trained with the gym and loaded as a versioned addon → tuning,
 selection, cleanup → quality gates. Every step must pass
 `tools/golden.py check` against the reference before the next one starts.
 
@@ -772,7 +745,7 @@ Not implemented as v11 code now, but the interfaces must allow it:
   probability column, not v11 specifically; its weight is chosen by a generic
   `blend-weight` command (nested CV, corrected t-test) to add when needed.
 - v11's LightGBM detector becomes another model / feature set on the
-  `HiddenFaintTask`, compared with `detector evaluate` and exported as a new
+  detector table, compared with `detector evaluate` and exported as a new
   artifact version; no new addon code is needed.
 - Feature sets with hundreds of columns must stay cheap: `FeatureSet.transform`
   must not assume one Python call per battle per column (batch `prepare`), and
