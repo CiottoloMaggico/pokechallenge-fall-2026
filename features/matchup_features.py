@@ -23,7 +23,7 @@ import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
 
 from domain.battle import BattleContext, LeadState, PlayerState, PokemonState
-from domain.damage import STAGE_MULTIPLIER, Combatant, Field, expected_damage
+from domain.damage import STAGE_MULTIPLIER, Combatant, DamageCalculator, Field
 from domain.moves import Move
 from domain.typechart import TypeChart
 from feature_set import Feature
@@ -65,12 +65,11 @@ def _hits_to_ko(
     a = Combatant.from_state(attacker.pokemon, attacker.boosts)
     d = Combatant.from_state(defender.pokemon, defender.boosts)
     conditions = Field.of(weather, defender_screens)
+    damage = DamageCalculator(chart)
     shown = [m for m in attacker.pokemon.known_moves.values() if is_attack(m)]
     best = 0.0
     for move in (*shown, *stab_moves(attacker.pokemon.info.types)):
-        mean = expected_damage(
-            a, d, move, chart, conditions=conditions, include_accuracy=True
-        )
+        mean = damage.expected(a, d, move, conditions, with_accuracy=True)
         if mean is not None:
             best = max(best, mean / d.max_hp)
     best = min(best, 1.0)
@@ -196,13 +195,12 @@ def best_share(
     d = Combatant.from_state(defender, _stages(defender_boosts))
     screens = defender_side.screens if defender_side is not None else ()
     conditions = Field.of(weather, screens)
+    damage = DamageCalculator(chart)
     known = attacker.known_moves.values() if moves is None else moves
     shown = [m for m in known if is_attack(m)]
     best = 0.0
     for move in (*shown, *stab_moves(attacker.info.types)):
-        mean = expected_damage(
-            a, d, move, chart, conditions=conditions, include_accuracy=True
-        )
+        mean = damage.expected(a, d, move, conditions, with_accuracy=True)
         if mean is not None:
             best = max(best, mean / d.max_hp)
     return min(best, 1.0)

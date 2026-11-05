@@ -38,10 +38,10 @@ import feature_catalog
 from data import Dataset
 from domain.battle import BattleContext
 from domain.pokedex import Pokedex
+from domain.records import fingerprint
 from domain.team_knowledge import (
     KnowledgeView,
     TeamKnowledge,
-    battle_fingerprint,
 )
 from features.team_features import HiddenTeamStrength
 from knockout_detector import detector_from_files
@@ -113,7 +113,7 @@ def _score_battle(
     moves: _MoveScores,
     hidden: _HiddenScores,
 ) -> None:
-    view = knowledge.excluding(battle_fingerprint(context))
+    view = knowledge.excluding(fingerprint(context.record))
     at_cut = context.upto(CUT)
     at_end = context.upto(END)
     revealed = frozenset(at_cut.side("p2").team)

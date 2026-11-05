@@ -7,7 +7,7 @@ is played ``runs`` times with random outcomes instead:
 * each attack misses with the move's inaccuracy, and is a critical hit with
   the move's critical rate (standard damage moves only);
 * the damage is drawn uniformly over the 39 random rolls of the Gen 2
-  formula (``calc_damage`` gives the minimum and maximum);
+  formula (``DamageCalculator.roll`` gives the minimum and maximum);
 * a speed tie is broken by a coin toss, not by the order of the arguments.
 
 The attacker of each duel always uses the move with the best expected
@@ -32,9 +32,9 @@ import random
 from collections.abc import Mapping
 
 from domain.battle import BattleContext, PokemonState
-from domain.damage import calc_damage, expected_damage
+from domain.damage import DamageCalculator
 from domain.moves import DamageKind, Move, crit_rate, damage_kind
-from domain.team_knowledge import battle_fingerprint
+from domain.records import fingerprint
 from domain.typechart import TypeChart
 from features.simulation_features import (
     TEAM_SIZE,
@@ -89,13 +89,10 @@ class MonteCarloDuels(DuelSimulator):
         """The move with the best expected damage, as in ``_best``."""
         best: Move | None = None
         best_mean = 0.0
+        damage = DamageCalculator(self.chart)
         for move in attacker.moves:
-            mean = expected_damage(
-                attacker.combatant,
-                defender.combatant,
-                move,
-                self.chart,
-                include_accuracy=True,
+            mean = damage.expected(
+                attacker.combatant, defender.combatant, move, with_accuracy=True
             )
             if mean is not None and mean > best_mean:
                 best, best_mean = move, mean
@@ -108,11 +105,10 @@ class MonteCarloDuels(DuelSimulator):
         critical = damage_kind(move) is DamageKind.STANDARD and (
             self.rng.random() < crit_rate(move)
         )
-        rolls = calc_damage(
+        rolls = DamageCalculator(self.chart).roll(
             attacker.combatant,
             defender.combatant,
             move,
-            self.chart,
             crit=critical,
         )
         if rolls is None:
@@ -155,7 +151,7 @@ class MonteCarloSimulation(BattleSimulation):
             self._fighter(PokemonState(context.species(name))) for name in hidden
         ]
         actives = (p1.active.pokemon.name, p2.active.pokemon.name)
-        seed = int(battle_fingerprint(battle)[:SEED_DIGITS], 16)
+        seed = int(fingerprint(battle.record)[:SEED_DIGITS], 16)
         seen_values: list[float] = []
         full_values: list[float] = []
         for run in range(self.runs):

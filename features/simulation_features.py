@@ -32,7 +32,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from domain.battle import BattleContext, PokemonState
-from domain.damage import Combatant, expected_damage
+from domain.damage import Combatant, DamageCalculator
 from domain.moves import SELF_KO_MOVES, DamageKind, Move, damage_kind
 from domain.typechart import TypeChart
 from features.team_features import HiddenTeamStrength
@@ -181,13 +181,10 @@ class DuelSimulator:
 
     def _best(self, attacker: Fighter, defender: Fighter) -> float:
         best = 0.0
+        damage = DamageCalculator(self.chart)
         for move in attacker.moves:
-            mean = expected_damage(
-                attacker.combatant,
-                defender.combatant,
-                move,
-                self.chart,
-                include_accuracy=True,
+            mean = damage.expected(
+                attacker.combatant, defender.combatant, move, with_accuracy=True
             )
             if mean is not None:
                 best = max(best, mean / defender.combatant.max_hp)

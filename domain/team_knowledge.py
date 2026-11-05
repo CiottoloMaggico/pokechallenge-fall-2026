@@ -33,14 +33,13 @@ This module does not import ``sklearn`` nor the feature layer.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
 from domain.battle import BattleContext, PlayerState, PokemonState
 from domain.moves import Move
+from domain.records import fingerprint
 
 TEAM_SIZE = 6
 SMOOTHING = 3.0
@@ -49,16 +48,6 @@ MIN_TEAM_SHARE = 0.5
 MAX_MOVES = 4
 
 Team = frozenset[str]
-
-
-def battle_fingerprint(context: BattleContext) -> str:
-    """Hash of the battle's content, ignoring its id.
-
-    The same definition as :meth:`data.Dataset.duplicate_groups`. It must
-    be computed on the complete battle, not on a truncated copy.
-    """
-    content = {k: v for k, v in context.record.items() if k != "battle_id"}
-    return hashlib.sha1(json.dumps(content, sort_keys=True).encode()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -171,9 +160,9 @@ class TeamKnowledge:
         self._entries = dict(entries)
         self._times = dict(times)
         self.counts = Counts()
-        for fingerprint in sorted(self._entries):
+        for digest in sorted(self._entries):
             self.counts.add(
-                _tally(self._entries[fingerprint], self._times[fingerprint])
+                _tally(self._entries[digest], self._times[digest])
             )
         self.index, self.species_moves, self.catalog = _indexes(
             self.counts, self._entries
@@ -186,10 +175,10 @@ class TeamKnowledge:
         entries: dict[str, Contribution] = {}
         times: Counter[str] = Counter()
         for context in contexts:
-            fingerprint = battle_fingerprint(context)
-            times[fingerprint] += 1
-            if fingerprint not in entries:
-                entries[fingerprint] = contribution(context)
+            digest = fingerprint(context.record)
+            times[digest] += 1
+            if digest not in entries:
+                entries[digest] = contribution(context)
         return cls(entries, times, smoothing)
 
     def excluding(self, fingerprint: str) -> KnowledgeView:
@@ -212,8 +201,8 @@ def _indexes(
     for species, move in counts.species_moves:
         moves_of.setdefault(species, set()).add(move)
     catalog: dict[str, Move] = {}
-    for fingerprint in sorted(entries):
-        for seen in entries[fingerprint].observations:
+    for digest in sorted(entries):
+        for seen in entries[digest].observations:
             for move in seen.moves:
                 catalog.setdefault(move.name, move)
     index = {s: frozenset(teams) for s, teams in teams_of.items()}

@@ -22,15 +22,12 @@ import csv
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+from domain.errors import TypeChartError
 from domain.pokedex import TYPES
 
 NEUTRAL = 1.0
 ALLOWED_MULTIPLIERS = frozenset({0.0, 0.5, 1.0, 2.0})
 CSV_COLUMNS = ("attacking_type", "defending_type", "multiplier")
-
-
-class TypeChartError(ValueError):
-    """The type chart file is malformed."""
 
 
 class TypeChart:
@@ -72,26 +69,22 @@ class TypeChart:
         self._check(defending)
         return self._table.get((attacking, defending), NEUTRAL)
 
-    def effectiveness(self, attacking: str | None, defending: Iterable[str]) -> float:
+    def effectiveness(self, move_type: str | None, defender: Iterable[str]) -> float:
         """Product of the multipliers against every type of the defender.
 
-        ``attacking=None`` stands for a typeless attack (always 1.0).
+        ``move_type=None`` stands for a typeless attack (always 1.0).
         """
-        if attacking is None:
+        if move_type is None:
             return NEUTRAL
         result = NEUTRAL
-        for defending_type in defending:
-            result *= self.multiplier(attacking, defending_type)
+        for defending_type in defender:
+            result *= self.multiplier(move_type, defending_type)
         return result
 
-    def best_effectiveness(
-        self, attacking: Iterable[str], defending: Iterable[str]
-    ) -> float:
+    def best_effectiveness(self, attacking: Iterable[str], defending: Iterable[str]) -> float:
         """Highest effectiveness among several attacking types (e.g. STAB)."""
         defenders = tuple(defending)
-        return max(
-            (self.effectiveness(t, defenders) for t in attacking), default=NEUTRAL
-        )
+        return max((self.effectiveness(t, defenders) for t in attacking), default=NEUTRAL)
 
     def __len__(self) -> int:
         return len(self._table)

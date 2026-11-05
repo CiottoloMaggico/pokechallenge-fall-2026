@@ -353,7 +353,7 @@ class Battle:
         obs = {s: t[f"{s}_pokemon_state"] for s in sides}
         moves = {
             s: (
-                Move.from_dict(t[f"{s}_move_details"])
+                Move.from_details(t[f"{s}_move_details"])
                 if t[f"{s}_move_details"]
                 else None
             )

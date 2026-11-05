@@ -55,7 +55,7 @@ from typing import Any
 
 import math
 
-from domain.damage import Combatant, Field, calc_damage, expected_damage
+from domain.damage import Combatant, DamageCalculator, Field
 from domain.moves import Move
 from domain.pokedex import TYPES, PokemonGen2
 from domain.typechart import TypeChart
@@ -445,9 +445,10 @@ class _Context:
             values["x_spe_ratio"] = math.log(d.stat("spe") / a.stat("spe"))
         if move is None or move["category"] == "status":
             return values
-        parsed = Move.from_dict(dict(move))
+        parsed = Move.from_details(move)
+        damage = DamageCalculator(self.chart)
         if leaver is not None:
-            worst = calc_damage(a, d, parsed, self.chart, crit=True)
+            worst = damage.roll(a, d, parsed, crit=True)
             if worst is not None:
                 values["a_dmg_max"] = worst.max / d.max_hp
                 values["x_hp_minus_max"] = x_hp - values["a_dmg_max"]
@@ -455,7 +456,7 @@ class _Context:
             if move["type"] in TYPES:
                 values["a_eff_in"] = self.chart.effectiveness(move["type"], incoming.types)
             target = Combatant(incoming)
-            mean = expected_damage(a, target, parsed, self.chart, include_accuracy=True)
+            mean = damage.expected(a, target, parsed, with_accuracy=True)
             if mean is not None:
                 values["a_dmg_in"] = min(1.0, mean / target.max_hp)
                 values["drop_gap"] = values["a_dmg_in"] - (y_prev - y_hp)
@@ -474,8 +475,8 @@ class _Context:
             status=_status(self.opp.status[self.turn]),
         )
         d = Combatant(defender, boosts=_stages(self.own.boosts[self.before]))
-        mean = expected_damage(
-            a, d, Move.from_dict(dict(move)), self.chart, include_accuracy=True
+        mean = DamageCalculator(self.chart).expected(
+            a, d, Move.from_details(move), with_accuracy=True
         )
         return 0.0 if mean is None else mean / d.max_hp
 
@@ -617,13 +618,8 @@ def _mechanics(
             status=_status(attacker_state["status"]),
         )
         d = Combatant(leaver, boosts=_stages(leaver_state.get("boosts") or {}))
-        mean = expected_damage(
-            a,
-            d,
-            Move.from_dict(dict(move)),
-            chart,
-            conditions=Field.of(weather, screens[side]),
-            include_accuracy=True,
+        mean = DamageCalculator(chart).expected(
+            a, d, Move.from_details(move), Field.of(weather, screens[side]), with_accuracy=True
         )
         damage = 0.0 if mean is None else mean / d.max_hp
 

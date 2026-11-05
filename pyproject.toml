@@ -16,6 +16,13 @@ select = ["E", "F", "W", "I", "UP", "B"]
 
 [tool.pyright]
 typeCheckingMode = "basic"
+strict = [
+    "domain/errors.py",
+    "domain/records.py",
+    "domain/typechart.py",
+    "domain/moves.py",
+    "domain/damage.py",
+]
 include = ["."]
 exclude = [".env", "results", "runs", "input", "**/__pycache__"]
 venvPath = "."
@@ -23,4 +30,5 @@ venv = ".env"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-q"

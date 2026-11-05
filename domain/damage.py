@@ -13,10 +13,10 @@ Screen doubling Defense and Explosion halving the target's Defense.
 
 Example::
 
-    chart = TypeChart.from_csv("assets/type_chart_gen2.csv")
+    damage = DamageCalculator(TypeChart.from_csv("assets/type_chart_gen2.csv"))
     snorlax = Combatant(pokedex.get("snorlax"))
     zapdos = Combatant(pokedex.get("zapdos"))
-    result = calc_damage(zapdos, snorlax, thunderbolt, chart)
+    result = damage.roll(zapdos, snorlax, thunderbolt)
     result.min, result.max, result.fraction_of(snorlax.max_hp)
 """
 
@@ -25,7 +25,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Literal, Protocol, cast
 
 from domain.moves import (
     FIXED_DAMAGE,
@@ -94,6 +94,8 @@ WEATHER_MULTIPLIER = {
     ("sun", "water"): 0.5,
 }
 
+Weather = Literal["rain", "sun", "sand"]
+
 
 class PokemonLike(Protocol):
     """What :meth:`Combatant.from_state` reads (``battle.PokemonState``)."""
@@ -121,7 +123,7 @@ class Combatant:
     species: PokemonGen2
     level: int = DEFAULT_LEVEL
     hp_fraction: float = 1.0
-    boosts: Mapping[str, int] = field(default_factory=dict)
+    boosts: Mapping[str, int] = field(default_factory=dict[str, int])
     status: str = "nostatus"
     item: str | None = None
 
@@ -134,9 +136,7 @@ class Combatant:
             raise ValueError(f"{self.species.name}: boosts must be in -6..6")
 
     @classmethod
-    def from_state(
-        cls, pokemon: PokemonLike, boosts: Mapping[str, int] | None = None
-    ) -> Combatant:
+    def from_state(cls, pokemon: PokemonLike, boosts: Mapping[str, int] | None = None) -> Combatant:
         """Build from a ``battle.PokemonState`` (and the active boosts)."""
         return cls(
             species=pokemon.info,
@@ -154,14 +154,17 @@ class Combatant:
 
     @property
     def types(self) -> tuple[str, ...]:
+        """The species' types."""
         return self.species.types
 
     @property
     def max_hp(self) -> int:
+        """Maximum HP at this level."""
         return self.species.max_hp(self.level)
 
     @property
     def hp(self) -> int:
+        """Current HP, rounded up."""
         return math.ceil(self.hp_fraction * self.max_hp)
 
     def stat(self, name: str, boosted: bool = True) -> int:
@@ -186,138 +189,147 @@ class Combatant:
 class Field:
     """Conditions that change damage: weather and the defender's screens."""
 
-    weather: str | None = None
-    defender_screens: frozenset[str] = frozenset()
+    weather: Weather | None = None
+    screens: frozenset[str] = frozenset()
 
     @classmethod
-    def of(cls, weather: str | None, defender_screens: Iterable[str] = ()) -> Field:
-        return cls(weather, frozenset(defender_screens))
+    def of(cls, weather: str | None, screens: Iterable[str] = ()) -> Field:
+        """Build from the replay's weather name and any iterable of screens."""
+        return cls(cast(Weather | None, weather), frozenset(screens))
+
+
+NO_FIELD = Field()
 
 
 @dataclass(frozen=True)
-class DamageRange:
+class DamageRoll:
     """Damage of one use of a move, over the 39 random rolls."""
 
     min: float
     max: float
     mean: float
 
-    def fraction_of(self, hp: float) -> DamageRange:
+    def fraction_of(self, hp: float) -> DamageRoll:
         """The same range as a fraction of ``hp`` (e.g. the target's max HP)."""
-        return DamageRange(self.min / hp, self.max / hp, self.mean / hp)
+        return DamageRoll(self.min / hp, self.max / hp, self.mean / hp)
 
     @classmethod
-    def constant(cls, value: float) -> DamageRange:
+    def constant(cls, value: float) -> DamageRoll:
+        """A damage that does not depend on the roll."""
         return cls(value, value, value)
 
 
-def calc_damage(
-    attacker: Combatant,
-    defender: Combatant,
-    move: Move,
-    chart: TypeChart,
-    conditions: Field | None = None,
-    crit: bool = False,
-) -> DamageRange | None:
-    """Damage of ``move`` from ``attacker`` to ``defender``.
+class DamageCalculator:
+    """The damage formula, with the type chart it uses."""
 
-    Returns None for status moves and moves whose damage cannot be
-    predicted (Counter, Mirror Coat, Bide, Beat Up). Multi-hit moves
-    return the damage of the expected number of hits.
-    """
-    kind = damage_kind(move)
-    if kind in (DamageKind.NONE, DamageKind.UNPREDICTABLE):
-        return None
-    effectiveness = chart.effectiveness(attack_type(move), defender.types)
-    if effectiveness == 0:
-        return DamageRange.constant(0)
-    if kind is DamageKind.FIXED:
-        return DamageRange.constant(FIXED_DAMAGE[move.name])
-    if kind is DamageKind.LEVEL:
-        return DamageRange.constant(attacker.level * LEVEL_DAMAGE[move.name])
-    if kind is DamageKind.HALF_HP:
-        return DamageRange.constant(max(1, defender.hp // 2))
-    if kind is DamageKind.OHKO:
-        ko = attacker.level >= defender.level
-        return DamageRange.constant(defender.hp if ko else 0)
-    return _standard(attacker, defender, move, chart, conditions or Field(), crit)
+    def __init__(self, chart: TypeChart) -> None:
+        self._chart = chart
 
+    def roll(
+        self,
+        attacker: Combatant,
+        defender: Combatant,
+        move: Move,
+        field: Field = NO_FIELD,
+        crit: bool = False,
+    ) -> DamageRoll | None:
+        """Damage of ``move`` from ``attacker`` to ``defender``.
 
-def expected_damage(
-    attacker: Combatant,
-    defender: Combatant,
-    move: Move,
-    chart: TypeChart,
-    conditions: Field | None = None,
-    include_accuracy: bool = False,
-) -> float | None:
-    """Mean damage, mixing critical and normal hits by their chance.
+        Returns None for status moves and moves whose damage cannot be
+        predicted (Counter, Mirror Coat, Bide, Beat Up). Multi-hit moves
+        return the damage of the expected number of hits.
+        """
+        kind = damage_kind(move)
+        if kind in (DamageKind.NONE, DamageKind.UNPREDICTABLE):
+            return None
+        effectiveness = self._chart.effectiveness(attack_type(move), defender.types)
+        if effectiveness == 0:
+            return DamageRoll.constant(0)
+        if kind is DamageKind.FIXED:
+            return DamageRoll.constant(FIXED_DAMAGE[move.name])
+        if kind is DamageKind.LEVEL:
+            return DamageRoll.constant(attacker.level * LEVEL_DAMAGE[move.name])
+        if kind is DamageKind.HALF_HP:
+            return DamageRoll.constant(max(1, defender.hp // 2))
+        if kind is DamageKind.OHKO:
+            ko = attacker.level >= defender.level
+            return DamageRoll.constant(defender.hp if ko else 0)
+        return self._standard(attacker, defender, move, field, crit)
 
-    With ``include_accuracy`` the result is also multiplied by the
-    move's accuracy (expected damage per attempt).
-    """
-    normal = calc_damage(attacker, defender, move, chart, conditions)
-    if normal is None:
-        return None
-    mean = normal.mean
-    if damage_kind(move) is DamageKind.STANDARD:
-        critical = calc_damage(attacker, defender, move, chart, conditions, True)
-        rate = crit_rate(move)
-        mean = (1 - rate) * normal.mean + rate * (critical or normal).mean
-    return mean * move.accuracy if include_accuracy else mean
+    def expected(
+        self,
+        attacker: Combatant,
+        defender: Combatant,
+        move: Move,
+        field: Field = NO_FIELD,
+        *,
+        with_accuracy: bool,
+    ) -> float | None:
+        """Mean damage, mixing critical and normal hits by their chance.
 
+        With ``with_accuracy`` the result is also multiplied by the
+        move's accuracy (expected damage per attempt).
+        """
+        normal = self.roll(attacker, defender, move, field)
+        if normal is None:
+            return None
+        mean = normal.mean
+        if damage_kind(move) is DamageKind.STANDARD:
+            critical = self.roll(attacker, defender, move, field, True)
+            rate = crit_rate(move)
+            mean = (1 - rate) * normal.mean + rate * (critical or normal).mean
+        return mean * move.accuracy if with_accuracy else mean
 
-def hits_to_ko(
-    attacker: Combatant,
-    defender: Combatant,
-    move: Move,
-    chart: TypeChart,
-    conditions: Field | None = None,
-) -> float | None:
-    """Expected uses of ``move`` to knock out ``defender`` from its HP.
+    def hits_to_ko(
+        self,
+        attacker: Combatant,
+        defender: Combatant,
+        move: Move,
+        field: Field = NO_FIELD,
+    ) -> float | None:
+        """Expected uses of ``move`` to knock out ``defender`` from its HP.
 
-    ``math.inf`` if the move deals no damage, None if unpredictable.
-    """
-    mean = expected_damage(attacker, defender, move, chart, conditions)
-    if mean is None:
-        return None
-    if mean <= 0:
-        return math.inf
-    return math.ceil(defender.hp / mean)
+        ``math.inf`` if the move deals no damage, None if unpredictable.
+        """
+        mean = self.expected(attacker, defender, move, field, with_accuracy=False)
+        if mean is None:
+            return None
+        if mean <= 0:
+            return math.inf
+        return math.ceil(defender.hp / mean)
 
-
-def _standard(
-    attacker: Combatant,
-    defender: Combatant,
-    move: Move,
-    chart: TypeChart,
-    conditions: Field,
-    crit: bool,
-) -> DamageRange | None:
-    move_power = power(move, attacker.hp_fraction)
-    if move_power <= 0:
-        return None
-    attack, defense = _stats(attacker, defender, move, conditions, crit)
-    base = ((2 * attacker.level // 5 + 2) * int(move_power) * attack // defense) // 50
-    move_type = attack_type(move)
-    if move_type is not None and TYPE_BOOST_ITEMS.get(attacker.item or "") == move_type:
-        base = base * 110 // 100
-    if crit:
-        base *= 2
-    base = min(base, DAMAGE_CAP) + 2
-    if move_type is not None:
-        if conditions.weather is not None:
-            weather = WEATHER_MULTIPLIER.get((conditions.weather, move_type), 1.0)
-            base = int(base * weather)
-        if move_type in attacker.types:
-            base = int(base * STAB)
-        for defending_type in defender.types:
-            base = int(base * chart.multiplier(move_type, defending_type))
-    rolls = [max(1, base * r // 255) for r in range(MIN_ROLL, MAX_ROLL + 1)]
-    n_hits = hits(move)
-    return DamageRange(
-        min(rolls) * n_hits, max(rolls) * n_hits, sum(rolls) / len(rolls) * n_hits
-    )
+    def _standard(
+        self,
+        attacker: Combatant,
+        defender: Combatant,
+        move: Move,
+        conditions: Field,
+        crit: bool,
+    ) -> DamageRoll | None:
+        move_power = power(move, attacker.hp_fraction)
+        if move_power <= 0:
+            return None
+        attack, defense = _stats(attacker, defender, move, conditions, crit)
+        base = ((2 * attacker.level // 5 + 2) * int(move_power) * attack // defense) // 50
+        move_type = attack_type(move)
+        if move_type is not None and TYPE_BOOST_ITEMS.get(attacker.item or "") == move_type:
+            base = base * 110 // 100
+        if crit:
+            base *= 2
+        base = min(base, DAMAGE_CAP) + 2
+        if move_type is not None:
+            if conditions.weather is not None:
+                weather = WEATHER_MULTIPLIER.get((conditions.weather, move_type), 1.0)
+                base = int(base * weather)
+            if move_type in attacker.types:
+                base = int(base * STAB)
+            for defending_type in defender.types:
+                base = int(base * self._chart.multiplier(move_type, defending_type))
+        rolls = [max(1, base * r // 255) for r in range(MIN_ROLL, MAX_ROLL + 1)]
+        n_hits = hits(move)
+        return DamageRoll(
+            min(rolls) * n_hits, max(rolls) * n_hits, sum(rolls) / len(rolls) * n_hits
+        )
 
 
 def _stats(
@@ -331,14 +343,12 @@ def _stats(
     atk_name, def_name = ("atk", "def") if move.is_physical else ("spa", "spd")
     screen = "reflect" if move.is_physical else "lightscreen"
     # a critical hit ignores stages and screens unless that favours the user
-    ignore = crit and attacker.boosts.get(atk_name, 0) <= defender.boosts.get(
-        def_name, 0
-    )
+    ignore = crit and attacker.boosts.get(atk_name, 0) <= defender.boosts.get(def_name, 0)
     attack = attacker.stat(atk_name, boosted=not ignore)
     defense = defender.stat(def_name, boosted=not ignore)
     if move.is_physical and attacker.status == "brn" and not ignore:
         attack //= 2
-    if screen in conditions.defender_screens and not ignore:
+    if screen in conditions.screens and not ignore:
         defense *= 2
     if move.name in SELF_KO_MOVES:
         defense //= 2

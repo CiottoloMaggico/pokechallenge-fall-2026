@@ -33,7 +33,7 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 
 from domain.battle import BattleContext
-from domain.damage import Combatant, calc_damage
+from domain.damage import Combatant, DamageCalculator
 from domain.moves import Move
 from domain.typechart import TypeChart
 from feature_set import Feature
@@ -212,7 +212,8 @@ class HiddenKnockoutProbability(Feature[BattleContext]):
         if attacker is None or defender is None or not _is_attack(move):
             return 0.0, 0.0
         assert move is not None
-        result = calc_damage(attacker, defender, Move.from_dict(dict(move)), self.chart)
+        damage = DamageCalculator(self.chart)
+        result = damage.roll(attacker, defender, Move.from_details(move))
         if result is None:
             return 0.0, 0.0
         share = result.fraction_of(defender.max_hp)

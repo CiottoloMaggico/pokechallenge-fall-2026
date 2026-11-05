@@ -29,24 +29,22 @@ Leakage rules enforced here:
 from __future__ import annotations
 
 import copy
-import json
 import logging
 import random
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
 from domain.battle import LABEL_KEY, BattleContext, Repair
 from domain.pokedex import PLACEHOLDER_TYPES, STATS, Pokedex, PokemonGen2
-from domain.team_knowledge import battle_fingerprint
+from domain.records import fingerprint, read_records
 
 Record = dict[str, Any]
 
-REQUIRED_KEYS = ("battle_id", "p1_team_details", "p2_lead_details", "battle_timeline")
 SIDES = ("p1", "p2")
 
 logger = logging.getLogger(__name__)
@@ -57,21 +55,8 @@ class DataError(ValueError):
 
 
 def load_records(path: str | Path) -> list[Record]:
-    """Read a JSONL file and check that every record has the needed keys."""
-    records = []
-    with Path(path).open(encoding="utf-8") as fh:
-        for line_no, line in enumerate(fh, start=1):
-            if not line.strip():
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise DataError(f"{path}:{line_no}: invalid JSON") from exc
-            missing = [k for k in REQUIRED_KEYS if k not in record]
-            if missing:
-                raise DataError(f"{path}:{line_no}: missing keys {missing}")
-            records.append(record)
-    return records
+    """Read a JSONL file; every record is validated (InvalidRecordError)."""
+    return cast(list[Record], list(read_records(path)))
 
 
 class UnknownSpecies(Enum):
@@ -269,7 +254,7 @@ class Dataset:
         keys: dict[str, int] = {}
         groups = []
         for context in self.contexts:
-            digest = battle_fingerprint(context)
+            digest = fingerprint(context.record)
             groups.append(keys.setdefault(digest, len(keys)))
         return np.asarray(groups, dtype=int)
 

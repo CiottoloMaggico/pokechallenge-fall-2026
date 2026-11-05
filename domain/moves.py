@@ -14,11 +14,12 @@ Coat, Bide, Beat Up) are marked as :attr:`DamageKind.UNPREDICTABLE`.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-CATEGORIES = frozenset({"physical", "special", "status"})
+from domain.records import CATEGORIES, MoveCategory
 
 
 class DamageKind(Enum):
@@ -87,7 +88,7 @@ class Move:
 
     name: str
     type: str
-    category: str
+    category: MoveCategory
     base_power: int
     accuracy: float
     priority: int
@@ -99,22 +100,25 @@ class Move:
             raise ValueError(f"{self.name}: accuracy must be in [0, 1]")
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> Move:
+    def from_details(cls, details: Mapping[str, Any]) -> Move:
+        """Build a move from a record's ``MoveDetails``."""
         return cls(
-            d["name"],
-            d["type"],
-            d["category"],
-            int(d["base_power"]),
-            float(d["accuracy"]),
-            int(d["priority"]),
+            details["name"],
+            details["type"],
+            details["category"],
+            int(details["base_power"]),
+            float(details["accuracy"]),
+            int(details["priority"]),
         )
 
     @property
     def is_status(self) -> bool:
+        """Whether the move deals no direct damage."""
         return self.category == "status"
 
     @property
     def is_physical(self) -> bool:
+        """Whether the move uses Attack and Defense."""
         return self.category == "physical"
 
 

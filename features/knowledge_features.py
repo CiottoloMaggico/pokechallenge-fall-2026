@@ -27,6 +27,7 @@ from collections.abc import Callable, Mapping, Sequence
 
 from domain.battle import BattleContext, PlayerState, PokemonState
 from domain.moves import Move
+from domain.records import fingerprint
 from domain.team_knowledge import (
     MIN_TEAM_SHARE,
     SMOOTHING,
@@ -34,7 +35,6 @@ from domain.team_knowledge import (
     KnowledgeView,
     Team,
     TeamKnowledge,
-    battle_fingerprint,
     complete_team,
 )
 from domain.typechart import TypeChart
@@ -114,8 +114,8 @@ class TeamKnowledgeFeatures(Feature[BattleContext]):
         if self.knowledge is None:
             raise RuntimeError("team knowledge is not fitted")
         # a property of the whole battle, so it is safe to remember it there
-        fingerprint = battle.cached(FINGERPRINT_KEY, lambda: battle_fingerprint(battle))
-        view = self.knowledge.excluding(fingerprint)
+        digest = battle.cached(FINGERPRINT_KEY, lambda: fingerprint(battle.record))
+        view = self.knowledge.excluding(digest)
         context = battle.upto(self.turn)
         p1, p2 = context.side("p1"), context.side("p2")
         team_1 = complete_team(p1)
