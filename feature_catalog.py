@@ -22,7 +22,7 @@ Sets:
                 (see the feature-selection report)
 * ``compact_plus`` compact + team encoding and battle simulation (17)
 * ``compact_ko`` the 19 features selected on the knockout-repaired replay
-  (``domain.knockouts``); use it with repaired datasets (``main.py``
+  (``domain.transitions``); use it with repaired datasets (``main.py``
   always repairs)
 * ``compact_v2`` compact_ko re-selected on the corrected replay (stale
   moves, per-turn knockouts): with ``p2_hidden_ko_soft``, ``ghost_ko_50``,

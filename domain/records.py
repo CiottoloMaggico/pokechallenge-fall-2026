@@ -23,7 +23,8 @@ BOOSTED_STATS = frozenset({"atk", "def", "spa", "spd", "spe"})
 BASE_STATS = ("hp", "atk", "def", "spa", "spd", "spe")
 MAX_TEAM_SIZE = 6
 MAX_STAGE = 6
-NOT_IDENTITY = ("battle_id", "player_won")
+LABEL_KEY = "player_won"
+NOT_IDENTITY = ("battle_id", LABEL_KEY)
 
 
 class PokemonDetails(TypedDict):
@@ -122,6 +123,11 @@ def fingerprint(record: Mapping[str, Any]) -> str:
     """
     content = {k: v for k, v in record.items() if k not in NOT_IDENTITY}
     return hashlib.sha1(json.dumps(content, sort_keys=True).encode()).hexdigest()
+
+
+def without_label(record: Mapping[str, Any]) -> dict[str, Any]:
+    """A shallow copy of ``record`` without the outcome: what features and repairs may read."""
+    return {k: v for k, v in record.items() if k != LABEL_KEY}
 
 
 class _Invalid(Exception):

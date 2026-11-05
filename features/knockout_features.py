@@ -1,4 +1,4 @@
-"""Features about knockouts the records may hide (see ``domain.knockouts``).
+"""Features about knockouts the records may hide (see ``domain.transitions``).
 
 * ``p2_hidden_ko_soft``: expected number of hidden P2 knockouts, over 6.
   For every P2 switch whose Pokémon never comes back, a probability of
@@ -14,11 +14,11 @@
   Roar / Whirlwind are skipped. In [0, 1].
 * ``p2_hidden_ko_det``: expected number of hidden P2 knockouts according
   to the learned detector used to repair the battle
-  (``knockout_detector.KnockoutDetector``, the context's ``repair``):
-  the sum of its probabilities over P2's switches, over 6. In [0, 1].
+  (the context's ``repair``): the sum of its probabilities over P2's
+  switches, over 6. In [0, 1].
 * ``p2_hidden_ko_unsure``: the same sum restricted to the switches the
-  repair did not mark as knockouts (probability below its threshold):
-  the knockouts the material features cannot see yet. In [0, 1].
+  repair did not mark as knockouts: the knockouts the material features
+  cannot see yet. In [0, 1].
 * ``ghost_ko_50``: revealed Pokémon off the field at or below half HP,
   not fainted (after the hidden-knockout repair), P2's count minus P1's,
   over 6: positive when P2 has more such probable losses. In [-1, 1].
@@ -73,18 +73,15 @@ def expected_hidden_knockouts(context: BattleContext) -> float:
 
 def unsure_hidden_knockouts(context: BattleContext) -> float:
     """``p2_hidden_ko_unsure`` (see the module docstring)."""
-    threshold = getattr(context.repair, "threshold", 1.0)
-    unsure = [p for p in _detector_probabilities(context) if p < threshold]
+    probabilities = context.repair.probabilities(context.record)
+    repaired = context.repair.repairs(context.record)
+    unsure = [p for index, p in probabilities.items() if index not in repaired]
     return min(1.0, sum(unsure) / TEAM_SIZE)
 
 
 def _detector_probabilities(context: BattleContext) -> list[float]:
-    """Probabilities of the context's detector; none without a detector."""
-    scorer = getattr(context.repair, "probabilities", None)
-    if scorer is None:
-        return []
-    timeline = context.record["battle_timeline"]
-    return list(scorer(timeline, context.species).values())
+    """Probabilities of the context's repair; none with ``NoRepair``."""
+    return list(context.repair.probabilities(context.record).values())
 
 
 class HiddenKnockoutProbability(Feature[BattleContext]):
@@ -124,7 +121,7 @@ class HiddenKnockoutProbability(Feature[BattleContext]):
         )
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        context = battle.upto(self.turn)
+        context = battle.at_turn(self.turn)
         probabilities = self.knockout_probabilities(context)
         return {"p2_hidden_ko_soft": sum(probabilities.values()) / TEAM_SIZE}
 

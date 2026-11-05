@@ -139,7 +139,7 @@ class HiddenTeamStrength(Feature[BattleContext]):
         return team[n_revealed:]
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        context = battle.upto(self.turn)
+        context = battle.at_turn(self.turn)
         p2 = context.side("p2")
         hidden = self.guess(list(p2.team), p2.team_size)
         if not hidden:

@@ -9,7 +9,7 @@ Pipeline::
     gym.evaluate(train.contexts, train.labels, ids=train.ids)
 
 Each battle is replayed into a :class:`battle.BattleContext`, which keeps
-the final state, the raw record and one snapshot per turn.
+the final state, the raw record and one state per turn.
 
 Species with no stats in any record never stop a prediction: with the
 default ``Missing`` policy the battle is replayed without them, features
@@ -33,9 +33,11 @@ from typing import Any, cast
 
 import numpy as np
 
-from domain.battle import LABEL_KEY, BattleContext, Repair
+from domain.battle import BattleContext, BattleReplay
+from domain.errors import ReplayError
 from domain.pokedex import Missing, Pokedex, UnknownSpeciesPolicy
-from domain.records import fingerprint, read_records
+from domain.records import LABEL_KEY, fingerprint, read_records
+from domain.repair import NO_REPAIR, TimelineRepair
 
 Record = dict[str, Any]
 
@@ -51,17 +53,12 @@ def load_records(path: str | Path) -> list[Record]:
     return cast(list[Record], list(read_records(path)))
 
 
-def replay(
-    record: Record,
-    pokedex: Pokedex,
-    repair: Repair | None = None,
-    unknown: UnknownSpeciesPolicy = KEEP_BATTLE,
-) -> BattleContext:
+def _replay(replayer: BattleReplay, record: Record) -> BattleContext:
     """Replay one record; a failure becomes a DataError with its battle id,
     except UnknownSpeciesError, which is what ``Strict`` asks for."""
     try:
-        return BattleContext.from_record(record, pokedex.lookup(record, unknown), repair)
-    except (ValueError, RuntimeError, KeyError) as exc:  # includes PokedexError
+        return replayer.replay(record)
+    except (ValueError, RuntimeError, KeyError, ReplayError) as exc:  # includes PokedexError
         raise DataError(f"battle {record.get('battle_id')}: {exc}") from exc
 
 
@@ -89,12 +86,12 @@ class Dataset:
         records: Iterable[Record],
         pokedex: Pokedex,
         unknown: UnknownSpeciesPolicy = KEEP_BATTLE,
-        repair: Repair | None = None,
+        repair: TimelineRepair = NO_REPAIR,
     ) -> Dataset:
         """Replay every record (see the module docstring for unknowns).
 
         ``repair`` finds the faints each record omits (e.g.
-        ``knockout_detector.KnockoutDetector``); see ``BattleContext.from_record``.
+        ``knockout_detector.DetectorRepair``); see ``BattleReplay``.
         """
         records = list(records)
         labelled = [LABEL_KEY in r for r in records]
@@ -105,7 +102,8 @@ class Dataset:
             if records and all(labelled)
             else None
         )
-        contexts = tuple(replay(r, pokedex, repair, unknown) for r in records)
+        replayer = BattleReplay(pokedex, repair, unknown)
+        contexts = tuple(_replay(replayer, r) for r in records)
         return cls(contexts, labels)
 
     @classmethod
@@ -114,7 +112,7 @@ class Dataset:
         path: str | Path,
         pokedex: Pokedex,
         unknown: UnknownSpeciesPolicy = KEEP_BATTLE,
-        repair: Repair | None = None,
+        repair: TimelineRepair = NO_REPAIR,
     ) -> Dataset:
         records = load_records(path)
         return cls.from_records(records, pokedex, unknown, repair)

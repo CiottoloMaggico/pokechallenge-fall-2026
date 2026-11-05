@@ -17,12 +17,7 @@ select = ["E", "F", "W", "I", "UP", "B"]
 [tool.pyright]
 typeCheckingMode = "basic"
 strict = [
-    "domain/errors.py",
-    "domain/records.py",
-    "domain/typechart.py",
-    "domain/moves.py",
-    "domain/damage.py",
-    "domain/pokedex.py",
+    "domain",
 ]
 include = ["."]
 exclude = [".env", "results", "runs", "input", "**/__pycache__"]

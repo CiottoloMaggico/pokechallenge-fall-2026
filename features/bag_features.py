@@ -67,7 +67,7 @@ class BagLogit(Feature[BattleContext]):
     ) -> None:
         if labels is None:
             raise ValueError("the bag logit needs the training labels")
-        contexts = [battle.upto(self.turn) for battle in battles]
+        contexts = [battle.at_turn(self.turn) for battle in battles]
         species: Counter[str] = Counter()
         moves: Counter[str] = Counter()
         for context in contexts:
@@ -86,7 +86,7 @@ class BagLogit(Feature[BattleContext]):
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
         if self.model is None:
             raise RuntimeError("fit the feature first")
-        context = battle.upto(self.turn)
+        context = battle.at_turn(self.turn)
         z = float(self.model.decision_function(np.array([self._vector(context)]))[0])
         return {"bag_logit": math.tanh(z / 2)}
 

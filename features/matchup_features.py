@@ -150,7 +150,7 @@ class TeamMatchup(Feature[BattleContext]):
         return self.OUTPUTS
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        context = battle.upto(self.turn)
+        context = battle.at_turn(self.turn)
         # keyed by name only: copies of the feature (one per fold) share it
         return dict(context.cached("team_matchup", lambda: self._matrix(context)))
 

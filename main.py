@@ -18,7 +18,7 @@ Commands::
 ``--test`` in ``evaluate`` and ``train`` is optional: its battles (never
 its labels, which it does not have) feed label-free stateful features.
 Duplicated battles are always kept in the same fold. Every battle is
-repaired for the P2 knockouts the records omit (``domain.knockouts``).
+repaired for the P2 knockouts the records omit (``domain.transitions``).
 
 ``tune`` searches a model's hyperparameters with Optuna (``pip install
 optuna``) on folds seeded differently from ``evaluate``, stores the study
@@ -56,12 +56,13 @@ from sklearn.model_selection import StratifiedGroupKFold
 
 import feature_catalog
 import model_catalog
-from data import Dataset, Repair
+from data import Dataset
 from domain.battle import BattleContext
 from domain.pokedex import Pokedex, species_without_stats
+from domain.repair import TimelineRepair
 from feature_set import FeatureSet
 from gym import FoldData, Gym, GymResult, TrainedRun, prepare_folds, save_runs, seed_table
-from knockout_detector import KnockoutDetector, detector_from_files
+from knockout_detector import detector_from_files
 from model import Model
 from models.ensemble import DEFAULT_MEMBERS
 from tuning import Tuner, cached_folds, load_params, save_best
@@ -321,7 +322,7 @@ def _accuracy_by_turn(summary: pd.DataFrame) -> pd.DataFrame:
     return table.pivot(index="turn", columns="series", values="accuracy_mean")
 
 
-def _repair(args: argparse.Namespace) -> Repair:
+def _repair(args: argparse.Namespace) -> TimelineRepair:
     """Fix every replayed battle for P2 knockouts the records omit.
 
     Always applied, in every command, so that training and prediction see
@@ -336,7 +337,7 @@ def _repair(args: argparse.Namespace) -> Repair:
 
 
 @cache
-def _detector(pokedex_path: Path, train: Path, test: Path | None) -> KnockoutDetector:
+def _detector(pokedex_path: Path, train: Path, test: Path | None) -> TimelineRepair:
     pokedex = Pokedex.from_json(pokedex_path)
     return detector_from_files(pokedex, feature_catalog.type_chart(), (train, test))
 

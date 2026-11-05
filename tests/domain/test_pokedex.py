@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from domain.__main__ import main
-from domain.battle import BattleContext
+from domain.battle import BattleReplay
 from domain.damage import Combatant, DamageCalculator
 from domain.errors import PokedexError, UnknownSpeciesError
 from domain.moves import Move
@@ -165,7 +165,7 @@ def test_combatant_stat_stays_nan_through_the_clamp() -> None:
 def test_replay_keeps_a_battle_with_a_species_without_stats() -> None:
     battle = record(p2=("b", "hidden"))
     pokedex = PokedexBuilder().add_records([battle]).build()
-    context = BattleContext.from_record(battle, pokedex.lookup(battle, Missing()))
+    context = BattleReplay(pokedex, unknown=Missing()).replay(battle)
     hidden = context.side("p2").team["hidden"]
     assert context.last.p2.active == "hidden"
     assert hidden.hp_pct == 1.0
@@ -177,13 +177,13 @@ def test_replay_with_strict_refuses_it() -> None:
     battle = record(p2=("b", "hidden"))
     pokedex = PokedexBuilder().add_records([battle]).build()
     with pytest.raises(UnknownSpeciesError):
-        BattleContext.from_record(battle, pokedex.lookup(battle, Strict()))
+        BattleReplay(pokedex, unknown=Strict()).replay(battle)
 
 
 def test_nan_speed_leaves_p1_first() -> None:
     battle = record(p2=("b", "hidden"))
     pokedex = PokedexBuilder().add_records([battle]).build()
-    replayed = BattleContext.from_record(battle, pokedex.lookup(battle, Missing())).battle
+    replayed = BattleReplay(pokedex, unknown=Missing()).replay(battle).battle
     assert replayed._action_order({"p1": None, "p2": None}) == ["p1", "p2"]
 
 

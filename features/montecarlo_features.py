@@ -136,7 +136,7 @@ class MonteCarloSimulation(BattleSimulation):
         return MC_OUTPUTS
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        context = battle.upto(self.turn)
+        context = battle.at_turn(self.turn)
         p1, p2 = context.side("p1"), context.side("p2")
         team_a = [
             self._fighter(p, p1.active.boosts if p is p1.active.pokemon else None)

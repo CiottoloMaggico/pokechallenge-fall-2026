@@ -72,7 +72,7 @@ class OpponentSpeciesEncoding(Feature[BattleContext]):
         }
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        team = battle.upto(self.turn).side("p2").team
+        team = battle.at_turn(self.turn).side("p2").team
         values = [self.encoding.get(name, self.prior) for name in team]
         mean = sum(values) / len(values) if values else self.prior
         return {"te_p2_mean": mean - self.prior}
@@ -133,7 +133,7 @@ class TeamEncoding(Feature[BattleContext]):
         self.pair = self._smooth(pairs, self.pair_smoothing)
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        context = battle.upto(self.turn)
+        context = battle.at_turn(self.turn)
         team = _p1_team(context)
         values = [
             self.pair.get((p1, p2), self.prior)
@@ -207,7 +207,7 @@ class TeamEffect(Feature[BattleContext]):
     ) -> None:
         if labels is None:
             raise ValueError("the team effect needs the training labels")
-        contexts = [battle.upto(self.turn) for battle in battles]
+        contexts = [battle.at_turn(self.turn) for battle in battles]
         y = np.asarray(labels)
         x = np.array([_state(context) for context in contexts])
         self.base = LogisticRegression(max_iter=2000).fit(x, y)
@@ -229,7 +229,7 @@ class TeamEffect(Feature[BattleContext]):
         self.sums, self.counts = dict(sums), dict(counts)
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        context = battle.upto(self.turn)
+        context = battle.at_turn(self.turn)
         mine, theirs = self._teams(context)
         own = self._effect(mine)
         other = self._effect(theirs) if theirs is not None else 0.0

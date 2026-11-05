@@ -75,12 +75,14 @@ class Counts:
     """Integer tallies of observations (see the module docstring)."""
 
     pokemon: int = 0
-    team: Counter[Team] = field(default_factory=Counter)
-    team_seen: Counter[tuple[Team, str]] = field(default_factory=Counter)
-    team_moves: Counter[tuple[Team, str, str]] = field(default_factory=Counter)
-    species_seen: Counter[str] = field(default_factory=Counter)
-    species_moves: Counter[tuple[str, str]] = field(default_factory=Counter)
-    move_users: Counter[str] = field(default_factory=Counter)
+    team: Counter[Team] = field(default_factory=Counter[Team])
+    team_seen: Counter[tuple[Team, str]] = field(default_factory=Counter[tuple[Team, str]])
+    team_moves: Counter[tuple[Team, str, str]] = field(
+        default_factory=Counter[tuple[Team, str, str]]
+    )
+    species_seen: Counter[str] = field(default_factory=Counter[str])
+    species_moves: Counter[tuple[str, str]] = field(default_factory=Counter[tuple[str, str]])
+    move_users: Counter[str] = field(default_factory=Counter[str])
 
     def add(self, other: Counts) -> None:
         self.pokemon += other.pokemon
@@ -282,7 +284,8 @@ class KnowledgeView:
 
     def _candidates(self, names: frozenset[str]) -> list[Team]:
         sets = [self._knowledge.index.get(s, frozenset()) for s in sorted(names)]
-        common = frozenset.intersection(*sets)
+        first, *rest = sets
+        common = first.intersection(*rest)
         return sorted(
             (t for t in common if self.team_count(t) > 0),
             key=lambda t: tuple(sorted(t)),
@@ -349,7 +352,7 @@ class KnowledgeView:
         return (*revealed, *added)
 
 
-def _by_name(items: Iterable[PokemonState | Move]) -> list:
+def _by_name[Named: (PokemonState, Move)](items: Iterable[Named]) -> list[Named]:
     return sorted(items, key=_name)
 
 

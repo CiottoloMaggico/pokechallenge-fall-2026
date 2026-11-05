@@ -119,7 +119,7 @@ class TeamRating(Feature[BattleContext]):
         self, battles: Sequence[BattleContext], labels: Sequence[int] | None
     ) -> None:
         assert labels is not None
-        contexts = [b.upto(self.turn) for b in battles]
+        contexts = [b.at_turn(self.turn) for b in battles]
         self.pool = TeamPool.from_battles(contexts)
         wins: dict[Team, float] = collections.defaultdict(float)
         games: dict[Team, float] = collections.defaultdict(float)
@@ -141,7 +141,7 @@ class TeamRating(Feature[BattleContext]):
         return (self.wins.get(team, 0.0) + 0.5 * m) / (self.games.get(team, 0.0) + m)
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        context = battle.upto(self.turn)
+        context = battle.at_turn(self.turn)
         p1 = self._rate(frozenset(context.side("p1").team)) - 0.5
         p2_teams = self._p2_teams(context)
         p2 = sum(w * (self._rate(t) - 0.5) for t, w in p2_teams) if p2_teams else 0.0
@@ -166,10 +166,10 @@ class PoolBulk(Feature[BattleContext]):
     def _fit(
         self, battles: Sequence[BattleContext], labels: Sequence[int] | None
     ) -> None:
-        self.pool = TeamPool.from_battles([b.upto(self.turn) for b in battles])
+        self.pool = TeamPool.from_battles([b.at_turn(self.turn) for b in battles])
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        context = battle.upto(self.turn)
+        context = battle.at_turn(self.turn)
         p1, p2 = context.side("p1"), context.side("p2")
         a = _alive_bulk(p1, self.stat)
         b = _alive_bulk(p2, self.stat)
@@ -197,8 +197,7 @@ def _alive_bulk(player: PlayerState, stat: str) -> float:
 def soft_material_hp(context: BattleContext) -> float:
     """``smat_hp`` (see the module docstring)."""
     timeline = context.record["battle_timeline"]
-    scorer = getattr(context.repair, "probabilities", None)
-    probabilities = scorer(timeline, context.species) if scorer else {}
+    probabilities = context.repair.probabilities(context.record)
     p_ko: dict[str, float] = {}
     last_hp: dict[str, float] = {}
     for index, p in probabilities.items():

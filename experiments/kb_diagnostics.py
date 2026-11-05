@@ -114,8 +114,8 @@ def _score_battle(
     hidden: _HiddenScores,
 ) -> None:
     view = knowledge.excluding(fingerprint(context.record))
-    at_cut = context.upto(CUT)
-    at_end = context.upto(END)
+    at_cut = context.at_turn(CUT)
+    at_end = context.at_turn(END)
     revealed = frozenset(at_cut.side("p2").team)
     team = _team(view, revealed)
     _score_moves(view, team, at_cut, at_end, moves)

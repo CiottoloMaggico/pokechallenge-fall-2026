@@ -118,7 +118,7 @@ class TeamKnowledgeFeatures(Feature[BattleContext]):
         # a property of the whole battle, so it is safe to remember it there
         digest = battle.cached(FINGERPRINT_KEY, lambda: fingerprint(battle.record))
         view = self.knowledge.excluding(digest)
-        context = battle.upto(self.turn)
+        context = battle.at_turn(self.turn)
         p1, p2 = context.side("p1"), context.side("p2")
         team_1 = complete_team(p1)
         team_2, hidden = self._p2_team(view, p2)

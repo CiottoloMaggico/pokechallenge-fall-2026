@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from domain.battle import BattleContext, TurnSnapshot
+from domain.battle import BattleContext, TurnState
 from feature_set import Feature
 from features.turn_features import AtTurn, check_turn, opponent, share_difference
 
@@ -75,10 +75,10 @@ class NextSwitchProbability(Feature[BattleContext]):
         }
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        last = battle.upto(self.turn).last
+        last = battle.at_turn(self.turn).last
         return {f"{side}_p_switch": self.probability(last, side) for side in SIDES}
 
-    def probability(self, snapshot: TurnSnapshot, side: str) -> float:
+    def probability(self, snapshot: TurnState, side: str) -> float:
         """Chance that ``side`` switches out after ``snapshot``."""
         key = _decision(snapshot, side)
         if key is None:
@@ -91,7 +91,7 @@ class NextSwitchProbability(Feature[BattleContext]):
         return (switches + self.smoothing * prior) / (turns + self.smoothing)
 
 
-def _decision(snapshot: TurnSnapshot, side: str) -> tuple[str, str] | None:
+def _decision(snapshot: TurnState, side: str) -> tuple[str, str] | None:
     """(my active, opposing active) when ``side`` can choose; None if fainted."""
     mine = snapshot.side(side)
     if mine.hp_pct <= 0:
@@ -133,7 +133,7 @@ class SwitchPressure(NextSwitchProbability):
         return self.outputs
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        context = battle.upto(self.turn)
+        context = battle.at_turn(self.turn)
         last = context.last
         voluntary = {side: 0.0 for side in SIDES}
         every = {side: 0.0 for side in SIDES}

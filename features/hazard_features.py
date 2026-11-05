@@ -9,7 +9,7 @@ neither player did it).
 
 from __future__ import annotations
 
-from domain.battle import BattleContext, SideSnapshot, TurnSnapshot
+from domain.battle import BattleContext, SideState, TurnState
 from features.turn_features import AtTurn, opponent, share_difference
 
 SPIKES = "spikes"
@@ -17,18 +17,18 @@ RAPID_SPIN = "rapidspin"
 PHAZING_MOVES = frozenset({"roar", "whirlwind"})
 
 
-def _move_name(snapshot: SideSnapshot) -> str | None:
+def _move_name(snapshot: SideState) -> str | None:
     return snapshot.move.name if snapshot.move is not None else None
 
 
 def _transitions(
     context: BattleContext,
-) -> list[tuple[TurnSnapshot | None, TurnSnapshot]]:
-    previous: list[TurnSnapshot | None] = [None, *context.history[:-1]]
+) -> list[tuple[TurnState | None, TurnState]]:
+    previous: list[TurnState | None] = [None, *context.history[:-1]]
     return list(zip(previous, context.history, strict=True))
 
 
-def _had_spikes(snapshot: TurnSnapshot | None, side: str) -> bool:
+def _had_spikes(snapshot: TurnState | None, side: str) -> bool:
     return snapshot is not None and snapshot.side(side).spikes
 
 

@@ -1,12 +1,22 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Hashable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
 from domain.damage import STAGE_MULTIPLIER
+from domain.errors import ReplayError
 from domain.moves import Move
-from domain.pokedex import DEFAULT_LEVEL, PokemonGen2, SpeciesLookup
+from domain.pokedex import (
+    DEFAULT_LEVEL,
+    Pokedex,
+    PokemonGen2,
+    SpeciesLookup,
+    Strict,
+    UnknownSpeciesPolicy,
+)
+from domain.records import without_label
+from domain.repair import NO_REPAIR, TimelineRepair
 
 NO_STATUS = "nostatus"
 FAINTED = "fnt"
@@ -79,17 +89,19 @@ TEAM_CURE = {"healbell"}
 # it switches in, while it stays frozen or asleep (except Sleep Talk and
 # Snore) and, for the side still standing, on the turn after the other
 # side's Pokémon fainted (only the replacement comes in).
-IMMOBILE = {"frz": frozenset(), "slp": frozenset({"sleeptalk", "snore"})}
+IMMOBILE: dict[str, frozenset[str]] = {
+    "frz": frozenset(),
+    "slp": frozenset({"sleeptalk", "snore"}),
+}
 PHAZING_MOVES = {"roar", "whirlwind"}
 SPIN_BLOCKERS = {"ghost"}  # Rapid Spin (Normal) does not touch Ghost types
 PROTECTED = "protect"
 PARALYSIS_SPEED = 4
 MAX_STAGE = 6
 
+STRICT = Strict()
+
 T = TypeVar("T")
-Timeline = Sequence[Mapping[str, Any]]
-Repair = Callable[[Timeline, SpeciesLookup], Mapping[int, str]]
-"""Finds the P2 faints a timeline omits: {turn index: fainted Pokémon}."""
 
 
 class PokemonState:
@@ -188,14 +200,14 @@ class LeadState:
     def add_effect(self, effect: str) -> None:
         self.effects.setdefault(effect, 0)
 
-    def remove_effects(self, effects) -> None:
+    def remove_effects(self, effects: Iterable[str]) -> None:
         for e in effects:
             self.effects.pop(e, None)
 
     def reset_boosts(self) -> None:
         self.boosts = {s: 0 for s in STATS}
 
-    def baton_pass_payload(self) -> tuple[dict, dict]:
+    def baton_pass_payload(self) -> tuple[dict[str, int], dict[str, int]]:
         return (
             {e: n for e, n in self.effects.items() if e in BATON_PASSABLE},
             dict(self.boosts),
@@ -300,7 +312,7 @@ class Battle:
         self.targets: dict[str, str | None] = {"p1": None, "p2": None}
 
     @classmethod
-    def from_record(cls, record: dict, species: SpeciesLookup, **kw) -> Battle:
+    def from_record(cls, record: Mapping[str, Any], species: SpeciesLookup) -> Battle:
         """Build the initial state; ``species`` maps a name to its species
         (for example ``Pokedex.lookup``). Levels come from the record."""
         p1 = PlayerState()
@@ -326,16 +338,16 @@ class Battle:
         p1.team[p1_lead_name].seen = True
         p1.switch_in(p1_lead_name)
         p2.switch_in(p2_lead.name)
-        return cls(p1, p2, species, **kw)
+        return cls(p1, p2, species)
 
     def side(self, name: str) -> PlayerState:
         return self.p1 if name == "p1" else self.p2
 
-    def update(self, t: dict, p2_fainted: str | None = None) -> Battle:
+    def update(self, t: Mapping[str, Any], p2_fainted: str | None = None) -> Battle:
         """Apply one turn of the record.
 
         ``p2_fainted`` names P2's active Pokémon when it fainted this turn
-        without a ``fnt`` record (see ``knockouts``). Afterwards
+        without a ``fnt`` record (see ``domain.transitions``). Afterwards
         :attr:`moves` holds the moves really used this turn and
         :attr:`forced` which sides had to switch (faint or phazing),
         :attr:`switched` which changed Pokémon and :attr:`targets` the
@@ -364,7 +376,7 @@ class Battle:
         if leaving is not None and leaving.name == p2_fainted:
             leaving.hp_pct, leaving.status = 0.0, FAINTED
 
-        switched = {}
+        switched: dict[str, bool] = {}
         for s, (me, _) in sides.items():
             name = obs[s]["name"]
             if name not in me.team:
@@ -398,11 +410,12 @@ class Battle:
         self.moves = moves
         self.switched = switched
         self.forced = {}
-        fainted_out = {}
+        fainted_out: dict[str, bool] = {}
         for s in sides:
             other = "p2" if s == "p1" else "p1"
-            fainted_out[s] = switched[s] and before[s] is not None and before[s].fainted
-            phazed = moves[other] is not None and moves[other].name in PHAZING_MOVES
+            previous, opposing = before[s], moves[other]
+            fainted_out[s] = switched[s] and previous is not None and previous.fainted
+            phazed = opposing is not None and opposing.name in PHAZING_MOVES
             self.forced[s] = fainted_out[s] or (switched[s] and phazed)
         # a move hits the Pokémon in front; if that one fainted from it, the
         # replacement shown at the end of the turn was not the target
@@ -460,7 +473,7 @@ class Battle:
         as a broken Substitute, is removed.
         """
         lead = me.active
-        volatile = set()
+        volatile: set[str] = set()
         for effect in effects:
             if effect in EVENT_EFFECTS:
                 lead.events.add(effect)
@@ -572,15 +585,11 @@ def _immobile(
     )
 
 
-# ----------------------------------------------------------------------
-# replay context: what every feature receives
-# ----------------------------------------------------------------------
 SIDES = ("p1", "p2")
-LABEL_KEY = "player_won"
 
 
 @dataclass(frozen=True)
-class SideSnapshot:
+class SideState:
     """One player's situation at the end of a turn (copied, immutable)."""
 
     active: str
@@ -605,11 +614,11 @@ class SideSnapshot:
         cls,
         player: PlayerState,
         move: Move | None,
-        previous: SideSnapshot | None,
+        previous: SideState | None,
         forced: bool = False,
         switched: bool | None = None,
         target: str | None = None,
-    ) -> SideSnapshot:
+    ) -> SideState:
         """``move`` is the move used this turn and ``target`` the Pokémon it
         was aimed at; ``forced`` a switch made because the previous Pokémon
         fainted or was phazed. ``switched`` defaults to a change of active
@@ -639,15 +648,87 @@ class SideSnapshot:
 
 
 @dataclass(frozen=True)
-class TurnSnapshot:
+class TurnState:
     """Both players at the end of one turn."""
 
     turn: int
-    p1: SideSnapshot
-    p2: SideSnapshot
+    p1: SideState
+    p2: SideState
 
-    def side(self, name: str) -> SideSnapshot:
+    def side(self, name: str) -> SideState:
         return self.p1 if name == "p1" else self.p2
+
+
+class BattleReplay:
+    """Turns battle records into :class:`BattleContext`, repaired and without labels.
+
+    ``repair`` finds the P2 faints a record omits; ``unknown`` decides what
+    happens with a species that has no stats in any available record.
+    """
+
+    def __init__(
+        self,
+        pokedex: Pokedex,
+        repair: TimelineRepair = NO_REPAIR,
+        unknown: UnknownSpeciesPolicy = STRICT,
+    ) -> None:
+        self._pokedex = pokedex
+        self._repair = repair
+        self._unknown = unknown
+
+    def replay(self, record: Mapping[str, Any]) -> BattleContext:
+        """Replay ``record`` turn by turn; errors from the replay propagate unchanged.
+
+        The label is removed first: neither the repair nor a feature can read
+        it (labels live only in ``data.Dataset``).
+        """
+        visible = without_label(record)
+        species = self._pokedex.lookup(visible, self._unknown)
+        return _replayed(visible, species, self._repair)
+
+
+def _replayed(
+    record: dict[str, Any], species: SpeciesLookup, repair: TimelineRepair
+) -> BattleContext:
+    """The faints of ``repair`` are applied turn by turn, so the history and the
+    final state both see them, and again on truncated copies."""
+    battle = Battle.from_record(record, species)
+    faints = repair.repairs(record)
+    history: list[TurnState] = []
+    previous: TurnState | None = None
+    for i, turn in enumerate(record["battle_timeline"]):
+        battle.update(turn, faints.get(i))
+        state = TurnState(
+            turn=turn["turn"],
+            p1=SideState.capture(
+                battle.p1,
+                battle.moves["p1"],
+                previous.p1 if previous else None,
+                battle.forced["p1"],
+                battle.switched["p1"],
+                battle.targets["p1"],
+            ),
+            p2=SideState.capture(
+                battle.p2,
+                battle.moves["p2"],
+                previous.p2 if previous else None,
+                battle.forced["p2"],
+                battle.switched["p2"],
+                battle.targets["p2"],
+            ),
+        )
+        history.append(state)
+        previous = state
+    if not history:
+        raise ReplayError(f"battle {record['battle_id']}: empty timeline")
+    return BattleContext(
+        battle_id=record["battle_id"],
+        record=record,
+        battle=battle,
+        history=tuple(history),
+        species=species,
+        repair=repair,
+    )
 
 
 @dataclass(frozen=True)
@@ -655,78 +736,25 @@ class BattleContext:
     """A replayed battle: final state, raw record and per-turn history.
 
     ``battle`` is the final state after the last turn; ``history`` has
-    one snapshot per turn, in order. The outcome is deliberately absent:
+    one state per turn, in order. The outcome is deliberately absent:
     ``record`` is a copy without ``player_won``, so no feature can read
-    the label (labels live only in ``data.Dataset``).
+    the label. Built by :class:`BattleReplay`.
     """
 
     battle_id: Any
     record: dict[str, Any]
     battle: Battle
-    history: tuple[TurnSnapshot, ...]
+    history: tuple[TurnState, ...]
     species: SpeciesLookup = field(repr=False, compare=False)
-    repair: Repair | None = field(default=None, repr=False, compare=False)
+    repair: TimelineRepair = field(default=NO_REPAIR, repr=False, compare=False)
     _truncated: dict[int, BattleContext] = field(
-        default_factory=dict, repr=False, compare=False
+        default_factory=dict[int, "BattleContext"], repr=False, compare=False
     )
-    _memo: dict[Hashable, Any] = field(default_factory=dict, repr=False, compare=False)
+    _memo: dict[Hashable, Any] = field(
+        default_factory=dict[Hashable, Any], repr=False, compare=False
+    )
 
-    @classmethod
-    def from_record(
-        cls,
-        record: dict[str, Any],
-        species: SpeciesLookup,
-        repair: Repair | None = None,
-    ) -> BattleContext:
-        """Replay ``record`` turn by turn, capturing a snapshot per turn.
-
-        ``species`` maps a name to its species (for example
-        ``Pokedex.lookup``). ``repair`` (e.g. ``knockout_detector.KnockoutDetector``)
-        finds the P2 faints the record omits; they are applied turn by
-        turn, so the history and the final state both see them, and again
-        on truncated copies (:meth:`upto`). Errors from the replay
-        propagate unchanged.
-        """
-        battle = Battle.from_record(record, species)
-        timeline = record["battle_timeline"]
-        faints = repair(timeline, species) if repair is not None else {}
-        history: list[TurnSnapshot] = []
-        previous: TurnSnapshot | None = None
-        for i, turn in enumerate(timeline):
-            battle.update(turn, faints.get(i))
-            snapshot = TurnSnapshot(
-                turn=turn["turn"],
-                p1=SideSnapshot.capture(
-                    battle.p1,
-                    battle.moves["p1"],
-                    previous.p1 if previous else None,
-                    battle.forced["p1"],
-                    battle.switched["p1"],
-                    battle.targets["p1"],
-                ),
-                p2=SideSnapshot.capture(
-                    battle.p2,
-                    battle.moves["p2"],
-                    previous.p2 if previous else None,
-                    battle.forced["p2"],
-                    battle.switched["p2"],
-                    battle.targets["p2"],
-                ),
-            )
-            history.append(snapshot)
-            previous = snapshot
-        if not history:
-            raise ValueError(f"battle {record['battle_id']}: empty timeline")
-        return cls(
-            battle_id=record["battle_id"],
-            record={k: v for k, v in record.items() if k != LABEL_KEY},
-            battle=battle,
-            history=tuple(history),
-            species=species,
-            repair=repair,
-        )
-
-    def upto(self, turn: int | None) -> BattleContext:
+    def at_turn(self, turn: int | None) -> BattleContext:
         """The battle as if the timeline stopped after its first ``turn`` turns.
 
         ``None`` (or a turn past the end) returns the battle itself. The
@@ -742,7 +770,7 @@ class BattleContext:
         if cached is None:
             timeline = self.record["battle_timeline"][:turn]
             record = {**self.record, "battle_timeline": timeline}
-            cached = BattleContext.from_record(record, self.species, self.repair)
+            cached = _replayed(record, self.species, self.repair)
             self._truncated.clear()
             self._truncated[turn] = cached
         return cached
@@ -762,7 +790,7 @@ class BattleContext:
         return self._memo[key]
 
     @property
-    def last(self) -> TurnSnapshot:
+    def last(self) -> TurnState:
         return self.history[-1]
 
     @property
@@ -773,7 +801,7 @@ class BattleContext:
         """Final state of ``"p1"`` or ``"p2"``."""
         return self.battle.side(name)
 
-    def window(self, last_n: int) -> tuple[TurnSnapshot, ...]:
+    def window(self, last_n: int) -> tuple[TurnState, ...]:
         """The last ``last_n`` turns (all of them if there are fewer)."""
         return self.history[-last_n:]
 

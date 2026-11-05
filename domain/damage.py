@@ -228,6 +228,11 @@ class DamageCalculator:
     def __init__(self, chart: TypeChart) -> None:
         self._chart = chart
 
+    @property
+    def chart(self) -> TypeChart:
+        """The type chart of this calculator."""
+        return self._chart
+
     def roll(
         self,
         attacker: Combatant,

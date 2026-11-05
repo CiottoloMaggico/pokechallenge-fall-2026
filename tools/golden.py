@@ -49,7 +49,7 @@ def _export(out: Path, train: Path) -> None:
     import model_catalog
     from data import Dataset
     from domain.pokedex import PokedexBuilder
-    from domain.records import read_records
+    from domain.records import read_records, without_label
     from gym import make_splits, prepare_folds
     from knockout_detector import detector_from_files
 
@@ -63,17 +63,18 @@ def _export(out: Path, train: Path) -> None:
                         for s in ("hp", "atk", "def", "spa", "spd", "spe")}})
     pd.DataFrame(rows).sort_values("name").to_csv(out / "species.csv", index=False)
 
-    detector = detector_from_files(pokedex, feature_catalog.type_chart(), (train,))
-    records = [json.loads(line) for line in train.open()]
+    repair = detector_from_files(pokedex, feature_catalog.type_chart(), (train,))
+    records = [without_label(json.loads(line)) for line in train.open()]
     rows = []
     for record in records:
-        for index, p in sorted(detector.probabilities(record["battle_timeline"]).items()):
+        repaired = repair.repairs(record)
+        for index, p in sorted(repair.probabilities(record).items()):
             rows.append({"battle_id": record["battle_id"], "index": index, "p": p,
-                         "repaired": int(p >= detector.threshold)})
+                         "repaired": int(index in repaired)})
     pd.DataFrame(rows).to_csv(out / "repairs_p2.csv", index=False, float_format=FLOAT)
     print(f"species and P2 repairs exported ({time.perf_counter() - started:.0f} s)", flush=True)
 
-    dataset = Dataset.from_jsonl(train, pokedex, repair=detector)
+    dataset = Dataset.from_jsonl(train, pokedex, repair=repair)
     ids, y, groups = np.asarray(dataset.ids), dataset.labels, dataset.duplicate_groups()
     splitter = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=SEED)
     splits = make_splits(splitter, y, groups)

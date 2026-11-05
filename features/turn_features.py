@@ -1,7 +1,7 @@
 """Building blocks for features measured at a chosen turn.
 
 Every concrete feature sees the battle *as if the timeline stopped after
-turn T* (``BattleContext.upto``): the final state, the history and every
+turn T* (``BattleContext.at_turn``): the final state, the history and every
 counter use only the first T turns. ``turn=None`` means the last
 recorded turn (turn 30 for most battles). Column names do not depend on
 the turn, so the same model can be compared across turns.
@@ -49,7 +49,7 @@ class AtTurn(Feature[BattleContext]):
         return (self._name,)
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        context = battle.upto(self.turn)
+        context = battle.at_turn(self.turn)
         key = (self._name, self._fn)  # the function survives set copies
         value = context.cached(key, lambda: float(self._fn(context)))
         return {self._name: value}
