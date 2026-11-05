@@ -117,7 +117,11 @@ If a compact_v5 column changes, report it like the Pokédex change of step 2.
 **4b** – Move every feature to `features/core/<family>.py` (field_features.py
 included) and every feature set to its own file with its history in the
 docstring (`compact`, `compact_v2` … `compact_v5`, `*_orig`); delete
-`feature_catalog.py`. Pure moves: no renaming of columns or ids.
+`feature_catalog.py`. Pure moves: no renaming of columns or ids. 4a left the
+catalog declaring its sets with `@feature_set`, so they move as they are. Deleting
+the catalog breaks `tools/v11_common.py`, and `tools/blend_from_saved.py old-base`
+if it is run on this code instead of the old worktree of `SUBMISSIONS.md`: ask the
+user before deleting it.
 
 **Acceptance** – golden check passes; contract tests pass for all features;
 `python main.py evaluate --features compact_v5 --models logreg --seeds 33`
@@ -131,6 +135,7 @@ gives the logreg number of `metrics.json`.
 BoostFromLogreg, LogitBlend, preprocessing), one file per model with its
 `ModelSpec` (builder, search space, required modules); delete
 `model_catalog.py`; `build`, `build_tuned`, `available` in the registry.
+`ModelSpec`, `@model` and `@ensemble` exist since 4a, used by `model_catalog.py`.
 
 **Do not** – change any default parameter or search space.
 

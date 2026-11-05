@@ -10,9 +10,9 @@ Predict the winner (`player_won`, P1 wins) of Gen 2 OU battles from the first
 - Outputs only under `results/` (after the refactoring; `runs/` today).
 
 ## Commands
-Always `export PYTHONHASHSEED=0` first: some features iterate frozensets
-(`TeamKnowledgeFeatures`), so results depend on the hash seed until step 4a
-makes them order-independent.
+Since step 4a no feature depends on the hash seed (contract test in
+`tests/features/test_feature_contract.py`). `export PYTHONHASHSEED=0` is needed
+only to run commits older than step 4a, such as the recipes in `SUBMISSIONS.md`.
 
 - Tests: `pytest -q` (once `tests/` exists); lint: `ruff check . && ruff format --check .`;
   types: `pyright`.
@@ -67,10 +67,9 @@ makes them order-independent.
 - If something in `REFACTORING.md` is ambiguous or conflicts with the code,
   keep the code's behaviour, note the conflict in the step report and ask.
 - Determinism: every model has a fixed seed (logreg / liblinear included, since
-  step 1); a new model or tuned-parameter file must not change that. Known
-  issue: features iterating sets / frozensets depend on PYTHONHASHSEED; step 4a
-  adds a determinism contract test (same output with two hash seeds) and sorts
-  before iterating.
+  step 1); a new model or tuned-parameter file must not change that. Features
+  sort before iterating a set / frozenset: the contract test requires the same
+  output under two hash seeds, and a new feature must be added to it.
 
 ## Simplicity
 - Write the simplest code that satisfies the step; a human must be able to read

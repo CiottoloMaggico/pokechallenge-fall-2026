@@ -84,7 +84,8 @@ pokechallenge/
 │   ├── logreg.py  hgb.py  lightgbm.py  xgboost.py  catboost.py
 │   ├── gb_lr.py  catboost_lr.py  lightgbm_lr.py  xgboost_lr.py
 │   └── ensembles.py            # ensemble, ensemble_from_lr, …
-├── interfaces.py               # Feature, FeatureSet, Model, Splitter, Probe, Registry
+├── interfaces.py               # Feature, FeatureSource protocols (Model, Splitter, Probe: steps 5-6)
+├── feature_set.py              # FeatureSet, at the root while the v11 bridge imports it (§4.2)
 ├── registry.py                 # generic Registry[T] + decorators
 ├── artifacts.py                # TrainedRun: save / load a fitted feature set + model
 ├── detector.py                 # detector dataset (P1 transitions), probes, commands
@@ -494,16 +495,15 @@ python -m domain check input/train.jsonl input/test.jsonl   # unknown species, i
 ### 4.1 Feature (`interfaces.py`)
 
 ```python
-class Feature(ABC, Generic[BattleT]):
+class Feature[BattleT](ABC):
     feature_id: str
-    requires_fit: ClassVar[bool] = False    # learns a state from training battles
-    uses_labels: ClassVar[bool] = False     # that state uses the outcomes
-    inner_oof: ClassVar[bool] = True        # False: never outputs in-sample values (NaN)
+    requires_fit: bool = False    # learns a state from training battles
+    uses_labels: bool = False     # that state uses the outcomes
+    inner_oof: bool = True        # False: never outputs in-sample values (NaN)
 
     @property
-    def output_names(self) -> tuple[str, ...]: ...
-    def fit(self, battles: Sequence[BattleT], labels: Sequence[int] | None,
-            unlabeled: Sequence[BattleT] = ()) -> Self: ...
+    def output_names(self) -> tuple[str, ...] | None: ...   # None: a FunctionFeature's column
+    def fit(self, battles: Sequence[BattleT], labels: Sequence[int] | None = None) -> Self: ...
     def prepare(self, battles: Sequence[BattleT]) -> None: ...   # optional batch hook
     @abstractmethod
     def compute(self, battle: BattleT) -> Mapping[str, float]: ...
@@ -512,6 +512,8 @@ class Feature(ABC, Generic[BattleT]):
     def set_state(self, state: Mapping[str, Any]) -> None: ...
 ```
 
+- `unlabeled` battles are handled by `FeatureSet.fit`, which passes them to
+  label-free features as part of `battles`.
 - Contract: `compute` returns exactly `output_names`, all floats (NaN allowed);
   it never sees labels. A label-aware feature must give out-of-fold values on
   its training battles (`FeatureSet.fit_transform` handles it) or NaN
@@ -519,11 +521,17 @@ class Feature(ABC, Generic[BattleT]):
 - Helpers: `FunctionFeature` (wraps `def f(context) -> float`), `AtTurn`
   (evaluates a feature on `context.at_turn(n)`), `side_difference`,
   `share_difference`.
-- Tests: a generic contract test parametrised over every registered feature
-  (names, types, determinism, `get_state` / `set_state` round trip, no label
-  access in `compute`).
+- Tests: a generic contract test parametrised over every registered feature and
+  the features only the experiments use (names, types, determinism, same output
+  under two `PYTHONHASHSEED` values, `get_state` / `set_state` round trip, no
+  label access in `compute`).
 
-### 4.2 FeatureSet (`interfaces.py`, implementation `features/feature_set.py`)
+### 4.2 FeatureSet (`feature_set.py`)
+
+The application depends on the protocols `FeatureSource` and
+`FittableFeatureSource` of `interfaces.py`; `FeatureSet` is the concrete class.
+It stays in the root `feature_set.py` because `features/v11_bridge.py` imports
+`Feature` from there and must not change; moving it is decided with the bridge.
 
 ```python
 class FeatureSet(Generic[BattleT]):
@@ -547,16 +555,20 @@ class FeatureSet(Generic[BattleT]):
 ```
 
 - Same semantics as today (inner OOF grouped by duplicates, `prepare` before
-  extraction). `without` replaces the `_revalidated` helper.
+  extraction). `without` replaced the `_revalidated` helper.
+- The sketch is simplified: `on_conflict` and the other existing arguments stay.
 
 ### 4.3 Feature set files (`features/compact_v5.py`, …)
 
 ```python
-@feature_set("compact_v5", turns=True)
+@feature_set("compact_v5")
 def compact_v5(turn: int | None = None) -> FeatureSet[BattleContext]:
     """18 columns after the multi-seed revalidation (originals: compact_v5_orig)."""
     return compact_v5_orig(turn).without(REVALIDATION_DROPS, name=set_name("compact_v5", turn))
 ```
+
+A set fixed at the last turn (`hp30`, `compact_v5_v11`) refuses a turn in its own
+builder, so the decorator needs no `turns` argument.
 
 - One file per set with its history in the docstring (what was added, what
   was dropped, CV on seeds 42-47). `feature_catalog.py` disappears; the
@@ -603,11 +615,14 @@ class ModelSpec:
 def gb_lr(**params: Any) -> Model: ...
 
 @ensemble("ensemble_from_lr", members=("gb_lr", "catboost_lr", "lightgbm_lr", "xgboost_lr"))
+def ensemble_from_lr(**params: Any) -> Model: ...    # requires = those of its members
 ```
 
 - Replaces `BUILDERS`, `SEARCH_SPACES`, `REQUIRED_MODULE`, `ENSEMBLES` of
   `model_catalog.py` with one declaration per model. `build(name, **params)`,
   `build_tuned(name, params_files)` and `available()` stay as registry functions.
+- Since step 4a `registry.py` holds `ModelSpec`, `@model` and `@ensemble`, and
+  `model_catalog.py` registers through them; step 5 moves the declarations.
 
 ## 6. Application
 
@@ -666,11 +681,12 @@ def corrected_ttest(diffs: np.ndarray, test_train_ratio: float) -> tuple[float, 
 Every comparison printed by the program uses `corrected_ttest`
 (Nadeau-Bengio); the naive t-test is removed.
 
-### 6.4 Runs and storage (`gym.py`, `storage.py`)
+### 6.4 Runs and storage (`artifacts.py`, `storage.py`)
 
 ```python
 class TrainedRun:
-    feature_set: FeatureSet; model: Model; columns: tuple[str, ...]
+    source: FeatureSource; model: Model; columns: tuple[str, ...]
+    repair: Mapping[str, Any] | None      # describe() of the repair; None in older runs
     def predict_proba(self, battles: Sequence[BattleContext]) -> np.ndarray: ...
     def save(self, layout: ResultsLayout) -> Path: ...
     @classmethod
@@ -688,7 +704,8 @@ class ResultsLayout:
 
 A run stores the feature set name, the columns, the feature state, the model,
 and the repair state and Pokédex hash, so `predict` rebuilds exactly the same
-pipeline (today the detector is refitted at predict time).
+pipeline (today the detector is refitted at predict time). `save` and `load` take
+a directory until `ResultsLayout` exists (step 6).
 
 ### 6.5 Tuning (`tuning/`) and selection (`selection.py`)
 
