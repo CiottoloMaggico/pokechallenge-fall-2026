@@ -229,8 +229,8 @@ supplied by the competition) is the only other input file.
   `for_battle` species, then the policy.
 - Policies: `Strict` (raise `UnknownSpeciesError`; default of `BattleReplay`, for
   callers that must refuse such a battle), `Missing` (default of `Dataset`: return
-  `None`; features that need stats give NaN, damage is not computed). Both
-  `check` commands use `Missing` and list these species instead of stopping at
+  `None`; features that need stats give NaN, damage is not computed). Neither
+  `check` command uses `Strict`: they list these species instead of stopping at
   the first (§3.9). Today's seeded random replacement is dropped: it invents data.
 - Removing the manual file and the random replacement can move the results:
   measure it right after this step (§9) with the corrected test and accept the
