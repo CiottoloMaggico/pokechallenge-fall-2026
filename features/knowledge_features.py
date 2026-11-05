@@ -23,6 +23,7 @@ training rows see the archive as validation rows do.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Mapping, Sequence
 
 from domain.battle import BattleContext, PlayerState, PokemonState
@@ -47,6 +48,7 @@ from features.simulation_features import (
     is_attack,
     make_fighter,
     outcome,
+    stats_missing,
 )
 from features.team_features import MAX_BST, HiddenTeamStrength
 from features.turn_features import check_turn
@@ -135,10 +137,13 @@ class TeamKnowledgeFeatures(Feature[BattleContext]):
         unseen = [self._hidden_fighter(context, name, team_2, view) for name in hidden]
         actives = (p1.active.pokemon.name, p2.active.pokemon.name)
 
-        left_a, left_b = self.simulator.simulate(mine, seen, actives)
-        values["kb_sim_seen_left"] = (len(left_a) - len(left_b)) / TEAM_SIZE
-        win_a, win_b = self.simulator.simulate(mine, [*seen, *unseen], actives)
-        values["kb_sim_full_win"] = outcome(win_a, win_b)
+        values["kb_sim_seen_left"] = values["kb_sim_full_win"] = math.nan
+        if not stats_missing(mine, seen):
+            left_a, left_b = self.simulator.simulate(mine, seen, actives)
+            values["kb_sim_seen_left"] = (len(left_a) - len(left_b)) / TEAM_SIZE
+        if not stats_missing(mine, seen, unseen):
+            win_a, win_b = self.simulator.simulate(mine, [*seen, *unseen], actives)
+            values["kb_sim_full_win"] = outcome(win_a, win_b)
 
         values["kb_hidden_bst"] = _hidden_bst(context, hidden)
         counted = hidden if identified else []
@@ -148,6 +153,9 @@ class TeamKnowledgeFeatures(Feature[BattleContext]):
         values["kb_setup"] = self._expected_difference(
             (p1, team_1), (p2, team_2), view, context, counted, _setup
         )
+        # _setup needs the types (Curse only boosts a non-Ghost)
+        if stats_missing(mine, seen, unseen):
+            values["kb_setup"] = math.nan
         return {name: float(value) for name, value in values.items()}
 
     def _p2_team(
@@ -182,7 +190,7 @@ class TeamKnowledgeFeatures(Feature[BattleContext]):
     def _hidden_fighter(
         self, context: BattleContext, name: str, team: Team | None, view: KnowledgeView
     ) -> Fighter:
-        pokemon = PokemonState(context.species(name))
+        pokemon = context.new_pokemon(name)
         return make_fighter(pokemon, self._attacks(view, team, pokemon), None)
 
     def _expected_difference(
@@ -200,7 +208,7 @@ class TeamKnowledgeFeatures(Feature[BattleContext]):
         expected_1 = sum(_has_move(view, team_1, p, moveset) for p in _alive(player_1))
         expected_2 = sum(_has_move(view, team_2, p, moveset) for p in _alive(player_2))
         for name in hidden:
-            pokemon = PokemonState(context.species(name))
+            pokemon = context.new_pokemon(name)
             expected_2 += _has_move(view, team_2, pokemon, moveset)
         return (expected_1 - expected_2) / TEAM_SIZE
 
@@ -231,5 +239,5 @@ def _has_move(
 def _hidden_bst(context: BattleContext, hidden: Sequence[str]) -> float:
     if not hidden:
         return 0.0
-    bst = [context.species(name).base_stat_total for name in hidden]
+    bst = [context.new_pokemon(name).info.base_stat_total for name in hidden]
     return -sum(bst) / len(bst) / MAX_BST

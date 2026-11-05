@@ -158,7 +158,7 @@ class Combatant:
         return self.species.types
 
     @property
-    def max_hp(self) -> int:
+    def max_hp(self) -> float:
         """Maximum HP at this level."""
         return self.species.max_hp(self.level)
 
@@ -167,13 +167,16 @@ class Combatant:
         """Current HP, rounded up."""
         return math.ceil(self.hp_fraction * self.max_hp)
 
-    def stat(self, name: str, boosted: bool = True) -> int:
+    def stat(self, name: str, boosted: bool = True) -> float:
         """Stat value with the held item and, optionally, the stat stage.
 
         Paralysis divides Speed by 4. An unknown item (None) is taken to
-        be the species' signature item, if it has one.
+        be the species' signature item, if it has one. NaN for a species
+        without stats.
         """
         value = self.species.stat(name, self.level)
+        if math.isnan(value):  # the clamp at the end would turn it into a number
+            return value
         item = self.item if self.item is not None else self.likely_item
         holders, item_stat, factor = SPECIES_ITEMS.get(item or "", ((), "", 0))
         if item_stat == name and self.species.name in holders:
@@ -235,10 +238,12 @@ class DamageCalculator:
     ) -> DamageRoll | None:
         """Damage of ``move`` from ``attacker`` to ``defender``.
 
-        Returns None for status moves and moves whose damage cannot be
-        predicted (Counter, Mirror Coat, Bide, Beat Up). Multi-hit moves
-        return the damage of the expected number of hits.
+        Returns None for status moves, moves whose damage cannot be
+        predicted (Counter, Mirror Coat, Bide, Beat Up) and species without
+        stats. Multi-hit moves return the damage of the expected number of hits.
         """
+        if not (attacker.species.has_stats and defender.species.has_stats):
+            return None
         kind = damage_kind(move)
         if kind in (DamageKind.NONE, DamageKind.UNPREDICTABLE):
             return None
@@ -338,7 +343,7 @@ def _stats(
     move: Move,
     conditions: Field,
     crit: bool,
-) -> tuple[int, int]:
+) -> tuple[float, float]:
     """Attacking and defending stat after stages, burn, screens and caps."""
     atk_name, def_name = ("atk", "def") if move.is_physical else ("spa", "spd")
     screen = "reflect" if move.is_physical else "lightscreen"

@@ -44,6 +44,8 @@ def active_duel(chart: TypeChart) -> Callable[[BattleContext], float]:
         p1, p2 = p1_side.active, p2_side.active
         if p1.pokemon.fainted or p2.pokemon.fainted:
             return 0.0
+        if not (p1.pokemon.info.has_stats and p2.pokemon.info.has_stats):
+            return math.nan
         weather = context.battle.weather
         turns_p1 = _hits_to_ko(p1, p2, chart, weather, p2_side.screens)
         turns_p2 = _hits_to_ko(p2, p1, chart, weather, p1_side.screens)
@@ -98,6 +100,8 @@ def ttk_advantage(
         p1, p2 = p1_side.active, p2_side.active
         if p1.pokemon.fainted or p2.pokemon.fainted:
             return 0.0
+        if not (p1.pokemon.info.has_stats and p2.pokemon.info.has_stats):
+            return math.nan
         weather = context.battle.weather
         moves_1 = None if movesets is None else movesets(context, "p1")
         moves_2 = None if movesets is None else movesets(context, "p2")
@@ -155,6 +159,8 @@ class TeamMatchup(Feature[BattleContext]):
         theirs = _alive(context.side("p2"))
         if not mine or not theirs:
             return {"mx_win": 0.0, "mx_cover": 0.0}
+        if not all(p.info.has_stats for p in (*mine, *theirs)):
+            return {"mx_win": math.nan, "mx_cover": math.nan}
         wins = [[self._win_chance(a, b) for b in theirs] for a in mine]
         mean = sum(map(sum, wins)) / (len(mine) * len(theirs))
         p1_cover = sum(max(row[j] for row in wins) for j in range(len(theirs)))

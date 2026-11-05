@@ -53,7 +53,7 @@ SEED = 11
 AUC_GAIN = 0.02
 HIDDEN_GAIN = 0.10
 CLIP = 1e-6
-DEFAULT_POKEDEX = Path("assets/species.json")
+DEFAULT_POKEDEX = Path("results/cache/species.json")
 
 
 def main(argv: Sequence[str] | None = None) -> int:

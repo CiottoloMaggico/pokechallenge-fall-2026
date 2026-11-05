@@ -53,7 +53,7 @@ COMPACT_V5 = (
 def main() -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     parser.add_argument("--train", type=Path, default=Path("input/train.jsonl"))
-    parser.add_argument("--pokedex", type=Path, default=Path("assets/species.json"))
+    parser.add_argument("--pokedex", type=Path, default=Path("results/cache/species.json"))
     parser.add_argument("--battles", type=int, default=2000)
     parser.add_argument("--runs", type=int, default=8)
     parser.add_argument("--folds", type=int, default=5)

@@ -284,17 +284,26 @@ class BattleSimulation(HiddenTeamStrength):
         ]
         hidden = self.guess(list(p2.team), p2.team_size)
         full_b = seen_b + [
-            self._fighter(PokemonState(context.species(name))) for name in hidden
+            self._fighter(context.new_pokemon(name)) for name in hidden
         ]
         actives = (p1.active.pokemon.name, p2.active.pokemon.name)
         values: dict[str, float] = {}
         if "sim_seen_left" in self.outputs:
-            left_a, left_b = self.simulator.simulate(team_a, seen_b, actives)
-            values["sim_seen_left"] = (len(left_a) - len(left_b)) / TEAM_SIZE
+            values["sim_seen_left"] = math.nan
+            if not stats_missing(team_a, seen_b):
+                left_a, left_b = self.simulator.simulate(team_a, seen_b, actives)
+                values["sim_seen_left"] = (len(left_a) - len(left_b)) / TEAM_SIZE
         if "sim_full_win" in self.outputs:
-            win_a, win_b = self.simulator.simulate(team_a, full_b, actives)
-            values["sim_full_win"] = outcome(win_a, win_b)
+            values["sim_full_win"] = math.nan
+            if not stats_missing(team_a, full_b):
+                win_a, win_b = self.simulator.simulate(team_a, full_b, actives)
+                values["sim_full_win"] = outcome(win_a, win_b)
         return values
+
+
+def stats_missing(*teams: Iterable[Fighter]) -> bool:
+    """A fighter has no stats: the duels would treat its damage as 0, so they are not played."""
+    return not all(f.combatant.species.has_stats for team in teams for f in team)
 
 
 def _faster(a: Fighter, b: Fighter) -> bool:

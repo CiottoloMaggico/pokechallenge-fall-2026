@@ -11,6 +11,8 @@ as neutral.
 
 from __future__ import annotations
 
+import math
+
 from domain.battle import BattleContext
 from domain.moves import DamageKind, Move, attack_type, damage_kind
 from domain.typechart import TypeChart
@@ -20,7 +22,8 @@ UTILITY_ATTACKS = frozenset({"rapidspin"})  # used to clear Spikes, not to hurt
 
 
 def resisted_share(chart: TypeChart, context: BattleContext, side: str) -> float:
-    """Resisted attacks of ``side`` over its attacks (0 without attacks)."""
+    """Resisted attacks of ``side`` over its attacks (0 without attacks), NaN
+    when the types of a target are unknown."""
     attacks = resisted = 0
     for turn in context.history:
         move = turn.side(side).move
@@ -28,6 +31,8 @@ def resisted_share(chart: TypeChart, context: BattleContext, side: str) -> float
             continue
         snapshot = turn.side(side)
         target = context.species(snapshot.target or turn.side(opponent(side)).active)
+        if target is None:
+            return math.nan
         attacks += 1
         resisted += chart.effectiveness(attack_type(move), target.types) < 1
     return resisted / attacks if attacks else 0.0

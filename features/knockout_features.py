@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -147,11 +148,13 @@ class HiddenKnockoutProbability(Feature[BattleContext]):
             if move is not None and move["name"] in PHAZING_MOVES:
                 continue
             attacker = timeline[i]["p1_pokemon_state"]
-            mean, worst = self._damage(
+            fighters = (
                 self._combatant(context, attacker, levels.get(attacker["name"])),
                 self._combatant(context, before, DEFAULT_LEVEL),
-                move,
             )
+            if _is_attack(move) and None in fighters:
+                return {before["name"]: math.nan}
+            mean, worst = self._damage(*fighters, move)
             x = np.array([_row(before["hp_pct"], mean, worst, _is_attack(move))])
             p_ko = float(self.knockout_model.predict_proba(x)[0, 1])
             p_switch = float(self.switch_model.predict_proba(x)[0, 1])
@@ -173,11 +176,13 @@ class HiddenKnockoutProbability(Feature[BattleContext]):
             if move is not None and move["name"] in PHAZING_MOVES:
                 continue
             attacker = timeline[i]["p2_pokemon_state"]
-            mean, worst = self._damage(
+            fighters = (
                 self._combatant(context, attacker, DEFAULT_LEVEL),
                 self._combatant(context, before, levels.get(before["name"])),
-                move,
             )
+            if _is_attack(move) and None in fighters:
+                continue  # its damage is unknown, so it is no training example
+            mean, worst = self._damage(*fighters, move)
             knocked_out = int(
                 after["name"] == before["name"] and after["status"] == FAINTED
             )
@@ -190,9 +195,8 @@ class HiddenKnockoutProbability(Feature[BattleContext]):
     def _combatant(
         context: BattleContext, state: Record, level: int | None
     ) -> Combatant | None:
-        try:
-            species = context.species(state["name"])
-        except (KeyError, ValueError):
+        species = context.species(state["name"])
+        if species is None:
             return None
         boosts = {
             k: max(-MAX_STAGE, min(MAX_STAGE, v))

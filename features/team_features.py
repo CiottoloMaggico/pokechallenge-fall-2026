@@ -144,7 +144,7 @@ class HiddenTeamStrength(Feature[BattleContext]):
         hidden = self.guess(list(p2.team), p2.team_size)
         if not hidden:
             return {"hidden_bst": 0.0}
-        bst = [context.species(name).base_stat_total for name in hidden]
+        bst = [context.new_pokemon(name).info.base_stat_total for name in hidden]
         return {"hidden_bst": -sum(bst) / len(bst) / MAX_BST}
 
     def _score(self, species: str, team: Sequence[str]) -> float:

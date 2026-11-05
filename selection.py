@@ -53,7 +53,7 @@ from domain.pokedex import Pokedex
 from gym import FoldData, corrected_ttest, prepare_folds
 from knockout_detector import detector_from_files
 
-DEFAULT_POKEDEX = Path("assets/species.json")
+DEFAULT_POKEDEX = Path("results/cache/species.json")
 DEFAULT_TRAIN = Path("input/train.jsonl")
 DEFAULT_OUT = Path("runs/selection.json")
 PROBA_CLIP = 1e-6

@@ -18,6 +18,7 @@ alive Rapid Spinner, -1 for the same on P1's side, 0 otherwise.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 
 from domain.battle import BattleContext, PlayerState, PokemonState
@@ -54,7 +55,7 @@ SETUP = frozenset(
 PHAZING = frozenset({"roar", "whirlwind"})
 SLEEP = frozenset({"spore", "sleeppowder", "lovelykiss", "hypnosis", "sing"})
 
-Counter = Callable[[PokemonState], bool]
+Counter = Callable[[PokemonState], float]
 
 
 def _alive(player: PlayerState) -> list[PokemonState]:
@@ -65,10 +66,16 @@ def _knows(moves: frozenset[str]) -> Counter:
     return lambda pokemon: bool(moves & set(pokemon.known_moves))
 
 
-def _sets_up(pokemon: PokemonState) -> bool:
+def _sets_up(pokemon: PokemonState) -> float:
     known = set(pokemon.known_moves)
-    curse = CURSE in known and "ghost" not in pokemon.info.types
-    return curse or bool(SETUP & known)
+    if SETUP & known:
+        return 1.0
+    if CURSE not in known:
+        return 0.0
+    # Curse only boosts a non-Ghost, and the types of this species are unknown
+    if not pokemon.info.has_stats:
+        return math.nan
+    return float("ghost" not in pokemon.info.types)
 
 
 def _difference(counter: Counter) -> Callable[[BattleContext], float]:

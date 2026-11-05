@@ -22,6 +22,7 @@ strict = [
     "domain/typechart.py",
     "domain/moves.py",
     "domain/damage.py",
+    "domain/pokedex.py",
 ]
 include = ["."]
 exclude = [".env", "results", "runs", "input", "**/__pycache__"]

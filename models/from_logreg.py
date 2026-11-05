@@ -112,8 +112,9 @@ class BoostFromLogreg(ClassifierMixin, BaseEstimator):
         self.classes_ = np.array([0, 1])
         params = dict(self.params or {})
         if self.library == "sklearn":
-            init = logreg_pipeline(self.c)
-            self.booster_ = GradientBoostingClassifier(init=init, **params).fit(x, y)
+            booster = GradientBoostingClassifier(init=logreg_pipeline(self.c), **params)
+            # this booster rejects NaN; the median is what its logistic regression imputes too
+            self.booster_ = make_pipeline(SimpleImputer(strategy="median"), booster).fit(x, y)
             return self
         self.logreg_ = logreg_pipeline(self.c).fit(x, y)
         margin = _logit(self.logreg_.predict_proba(x)[:, 1])

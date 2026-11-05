@@ -54,7 +54,7 @@ def mode() -> str:
 
 def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--train", type=Path, default=ROOT / "input" / "train.jsonl")
-    parser.add_argument("--pokedex", type=Path, default=ROOT / "assets" / "species.json")
+    parser.add_argument("--pokedex", type=Path, default=ROOT / "results" / "cache" / "species.json")
     parser.add_argument("--seeds", type=int, nargs="+", help="explicit fold seeds")
     parser.add_argument("--n-seeds", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42, help="first of --n-seeds consecutive seeds")

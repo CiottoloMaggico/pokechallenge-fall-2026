@@ -2,7 +2,7 @@
 
 Pipeline::
 
-    pokedex = Pokedex.from_json("assets/species.json")
+    pokedex = Pokedex.from_json("results/cache/species.json")
     records = load_records("input/train.jsonl")
     train = Dataset.from_records(records, pokedex)
 
@@ -11,12 +11,10 @@ Pipeline::
 Each battle is replayed into a :class:`battle.BattleContext`, which keeps
 the final state, the raw record and one snapshot per turn.
 
-Unknown species (not in the Pokédex) never stop a prediction: with the
-default ``UnknownSpecies.RANDOM`` each one is replaced, everywhere in its
-battle, by a random Pokédex species not already in that battle. The
-choice depends only on the battle id and a seed (reproducible, no
-labels involved), and every replacement is listed in
-:attr:`Dataset.substitutions`.
+Species with no stats in any record never stop a prediction: with the
+default ``Missing`` policy the battle is replayed without them, features
+that need their stats give NaN and no data is invented (``Strict`` raises
+``UnknownSpeciesError`` instead).
 
 Leakage rules enforced here:
 
@@ -28,26 +26,20 @@ Leakage rules enforced here:
 
 from __future__ import annotations
 
-import copy
-import logging
-import random
 from collections.abc import Iterable, Iterator, Sequence
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
 
 from domain.battle import LABEL_KEY, BattleContext, Repair
-from domain.pokedex import PLACEHOLDER_TYPES, STATS, Pokedex, PokemonGen2
+from domain.pokedex import Missing, Pokedex, UnknownSpeciesPolicy
 from domain.records import fingerprint, read_records
 
 Record = dict[str, Any]
 
-SIDES = ("p1", "p2")
-
-logger = logging.getLogger(__name__)
+KEEP_BATTLE = Missing()
 
 
 class DataError(ValueError):
@@ -59,101 +51,16 @@ def load_records(path: str | Path) -> list[Record]:
     return cast(list[Record], list(read_records(path)))
 
 
-class UnknownSpecies(Enum):
-    """What to do with a species missing from the Pokédex."""
-
-    RAISE = "raise"
-    RANDOM = "random"  # replace it with a random Pokédex species
-
-
-@dataclass(frozen=True)
-class Substitution:
-    """An unknown species replaced in one battle."""
-
-    battle_id: Any
-    original: str
-    replacement: str
-
-
-def species_names(record: Record) -> list[str]:
-    """Every species name in a record, in order of first appearance."""
-    names = [d["name"] for d in record["p1_team_details"]]
-    names.append(record["p2_lead_details"]["name"])
-    for turn in record["battle_timeline"]:
-        names.extend(turn[f"{side}_pokemon_state"]["name"] for side in SIDES)
-    return list(dict.fromkeys(names))
-
-
-def substitute_unknown(
-    record: Record, pokedex: Pokedex, seed: int = 0
-) -> tuple[Record, list[Substitution]]:
-    """Replace species missing from ``pokedex`` with random known ones.
-
-    Each unknown name is replaced consistently in the whole battle (team
-    details, lead, timeline) by a species not already in the battle; the
-    details get the replacement's types and base stats, keeping level
-    and item. The random generator is seeded with ``seed`` and the
-    battle id, so the result does not depend on the dataset order. The
-    input record is not modified.
-    """
-    names = species_names(record)
-    unknown = [n for n in names if n not in pokedex]
-    if not unknown:
-        return record, []
-    rng = random.Random(f"{seed}:{record['battle_id']}")
-    candidates = sorted(set(pokedex.names) - set(names))
-    if len(candidates) < len(unknown):
-        raise DataError(f"battle {record['battle_id']}: not enough species")
-    mapping = dict(zip(unknown, rng.sample(candidates, len(unknown)), strict=True))
-    fixed = copy.deepcopy(record)
-    for details in [*fixed["p1_team_details"], fixed["p2_lead_details"]]:
-        if details["name"] in mapping:
-            details.update(_details(pokedex.get(mapping[details["name"]])))
-    for turn in fixed["battle_timeline"]:
-        for side in SIDES:
-            state = turn[f"{side}_pokemon_state"]
-            state["name"] = mapping.get(state["name"], state["name"])
-    return fixed, [
-        Substitution(record["battle_id"], old, new) for old, new in mapping.items()
-    ]
-
-
-def _details(species: PokemonGen2) -> dict[str, Any]:
-    """Species fields of a team-details entry (types padded as in records)."""
-    types = list(species.types)
-    types += sorted(PLACEHOLDER_TYPES)[: 2 - len(types)]
-    return {
-        "name": species.name,
-        "types": types,
-        **{f"base_{s}": species.base(s) for s in ("hp", *STATS)},
-    }
-
-
-def species_from_records(records: Iterable[Record]) -> list[PokemonGen2]:
-    """Every species whose data appears in the records, sorted by name.
-
-    Species data is read from ``p1_team_details`` and ``p2_lead_details``
-    (P2 Pokémon revealed later have no data). The same species must have
-    the same types and base stats everywhere, or a DataError is raised.
-    """
-    found: dict[str, PokemonGen2] = {}
-    for record in records:
-        for raw in [*record["p1_team_details"], record["p2_lead_details"]]:
-            species = PokemonGen2.from_dict(raw)
-            known = found.setdefault(species.name, species)
-            if known != species:
-                raise DataError(
-                    f"battle {record['battle_id']}: {species} differs from {known}"
-                )
-    return [found[name] for name in sorted(found)]
-
-
 def replay(
-    record: Record, pokedex: Pokedex, repair: Repair | None = None
+    record: Record,
+    pokedex: Pokedex,
+    repair: Repair | None = None,
+    unknown: UnknownSpeciesPolicy = KEEP_BATTLE,
 ) -> BattleContext:
-    """Replay one record; any failure becomes a DataError with its battle id."""
+    """Replay one record; a failure becomes a DataError with its battle id,
+    except UnknownSpeciesError, which is what ``Strict`` asks for."""
     try:
-        return BattleContext.from_record(record, pokedex.get, repair)
+        return BattleContext.from_record(record, pokedex.lookup(record, unknown), repair)
     except (ValueError, RuntimeError, KeyError) as exc:  # includes PokedexError
         raise DataError(f"battle {record.get('battle_id')}: {exc}") from exc
 
@@ -163,12 +70,11 @@ class Dataset:
     """Replayed battles, their ids and, for training data, their labels.
 
     ``label_values`` is None for unlabelled data (the competition test
-    set). ``substitutions`` lists the unknown species that were replaced.
+    set).
     """
 
     contexts: tuple[BattleContext, ...]
     label_values: tuple[int, ...] | None = None
-    substitutions: tuple[Substitution, ...] = field(default=())
 
     def __post_init__(self) -> None:
         if self.label_values is not None:
@@ -182,8 +88,7 @@ class Dataset:
         cls,
         records: Iterable[Record],
         pokedex: Pokedex,
-        unknown_species: UnknownSpecies = UnknownSpecies.RANDOM,
-        seed: int = 0,
+        unknown: UnknownSpeciesPolicy = KEEP_BATTLE,
         repair: Repair | None = None,
     ) -> Dataset:
         """Replay every record (see the module docstring for unknowns).
@@ -200,35 +105,19 @@ class Dataset:
             if records and all(labelled)
             else None
         )
-        substitutions: list[Substitution] = []
-        if unknown_species is UnknownSpecies.RANDOM:
-            fixed = []
-            for record in records:
-                record, done = substitute_unknown(record, pokedex, seed)
-                fixed.append(record)
-                substitutions.extend(done)
-            records = fixed
-        for sub in substitutions:
-            logger.warning(
-                "battle %s: unknown species %r replaced with %r",
-                sub.battle_id,
-                sub.original,
-                sub.replacement,
-            )
-        contexts = tuple(replay(r, pokedex, repair) for r in records)
-        return cls(contexts, labels, tuple(substitutions))
+        contexts = tuple(replay(r, pokedex, repair, unknown) for r in records)
+        return cls(contexts, labels)
 
     @classmethod
     def from_jsonl(
         cls,
         path: str | Path,
         pokedex: Pokedex,
-        unknown_species: UnknownSpecies = UnknownSpecies.RANDOM,
-        seed: int = 0,
+        unknown: UnknownSpeciesPolicy = KEEP_BATTLE,
         repair: Repair | None = None,
     ) -> Dataset:
         records = load_records(path)
-        return cls.from_records(records, pokedex, unknown_species, seed, repair)
+        return cls.from_records(records, pokedex, unknown, repair)
 
     @property
     def ids(self) -> list[Any]:
@@ -264,10 +153,7 @@ class Dataset:
             if self.label_values is None
             else tuple(self.label_values[i] for i in indices)
         )
-        contexts = tuple(self.contexts[i] for i in indices)
-        ids = {c.battle_id for c in contexts}
-        subs = tuple(s for s in self.substitutions if s.battle_id in ids)
-        return Dataset(contexts, labels, subs)
+        return Dataset(tuple(self.contexts[i] for i in indices), labels)
 
     def __len__(self) -> int:
         return len(self.contexts)

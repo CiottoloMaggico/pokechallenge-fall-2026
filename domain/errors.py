@@ -23,6 +23,10 @@ class InvalidRecordError(DomainError):
         self.path = path
 
 
+class PokedexError(DomainError, ValueError):
+    """A species entry is malformed, or two entries of a species contradict each other."""
+
+
 class UnknownSpeciesError(DomainError):
     """A species is not in the Pokédex."""
 

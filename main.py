@@ -58,7 +58,7 @@ import feature_catalog
 import model_catalog
 from data import Dataset, Repair
 from domain.battle import BattleContext
-from domain.pokedex import Pokedex
+from domain.pokedex import Pokedex, species_without_stats
 from feature_set import FeatureSet
 from gym import FoldData, Gym, GymResult, TrainedRun, prepare_folds, save_runs, seed_table
 from knockout_detector import KnockoutDetector, detector_from_files
@@ -66,7 +66,7 @@ from model import Model
 from models.ensemble import DEFAULT_MEMBERS
 from tuning import Tuner, cached_folds, load_params, save_best
 
-DEFAULT_POKEDEX = Path("assets/species.json")
+DEFAULT_POKEDEX = Path("results/cache/species.json")
 DEFAULT_TRAIN = Path("input/train.jsonl")
 DEFAULT_TEST = Path("input/test.jsonl")
 DEFAULT_FOLDS = 5
@@ -87,19 +87,24 @@ def check(args: argparse.Namespace) -> int:
     pokedex = Pokedex.from_json(args.pokedex)
     train = Dataset.from_jsonl(args.train, pokedex, repair=_repair(args))
     groups = train.duplicate_groups()
-    print(f"pokedex: {len(pokedex)} species")
+    print(f"pokedex: {len(pokedex)} species (source sha256 {pokedex.source_sha256})")
     print(
         f"train: {len(train)} battles, P1 win rate {train.labels.mean():.3f}, "
         f"{len(train) - len(set(groups))} duplicates, "
-        f"{len(train.substitutions)} species replaced"
+        f"{_without_stats(train, pokedex)}"
     )
     if args.test:
         test = Dataset.from_jsonl(args.test, pokedex, repair=_repair(args))
         print(
             f"test: {len(test)} battles, labelled {test.is_labelled}, "
-            f"{len(test.substitutions)} species replaced"
+            f"{_without_stats(test, pokedex)}"
         )
     return 0
+
+
+def _without_stats(dataset: Dataset, pokedex: Pokedex) -> str:
+    missing = species_without_stats((c.record for c in dataset), pokedex)
+    return f"species without stats: {missing or 'none'}"
 
 
 def evaluate(args: argparse.Namespace) -> int:

@@ -48,13 +48,14 @@ def _export(out: Path, train: Path) -> None:
     import feature_catalog
     import model_catalog
     from data import Dataset
-    from domain.pokedex import Pokedex
+    from domain.pokedex import PokedexBuilder
+    from domain.records import read_records
     from gym import make_splits, prepare_folds
     from knockout_detector import detector_from_files
 
     started = time.perf_counter()
     out.mkdir(parents=True, exist_ok=True)
-    pokedex = Pokedex.from_json(ROOT / "assets" / "species.json")
+    pokedex = PokedexBuilder().add_records(read_records(train)).build()
     rows = []
     for species in pokedex:
         rows.append({"name": species.name, "types": "/".join(species.types),

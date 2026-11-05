@@ -35,7 +35,7 @@ from __future__ import annotations
 import collections
 from collections.abc import Mapping, Sequence
 
-from domain.battle import BattleContext, PlayerState, PokemonState
+from domain.battle import BattleContext, PlayerState
 from feature_set import Feature
 from features.encoding_features import TeamEncoding
 from features.turn_features import check_turn
@@ -179,11 +179,7 @@ class PoolBulk(Feature[BattleContext]):
             hidden = [n for n in team if n not in p2.team] if team else []
             values = []
             for name in hidden[:unrevealed]:
-                try:
-                    species = context.species(name)
-                except (KeyError, ValueError):
-                    continue
-                pokemon = PokemonState(species)
+                pokemon = context.new_pokemon(name)
                 values.append(pokemon.max_hp * pokemon.stat(self.stat))
             if values:
                 b += sum(values) + (unrevealed - len(values)) * sum(values) / len(values)

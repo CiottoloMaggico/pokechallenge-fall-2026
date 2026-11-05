@@ -6,7 +6,7 @@ from typing import Any, TypeVar
 
 from domain.damage import STAGE_MULTIPLIER
 from domain.moves import Move
-from domain.pokedex import DEFAULT_LEVEL, PokemonGen2
+from domain.pokedex import DEFAULT_LEVEL, PokemonGen2, SpeciesLookup
 
 NO_STATUS = "nostatus"
 FAINTED = "fnt"
@@ -88,8 +88,7 @@ MAX_STAGE = 6
 
 T = TypeVar("T")
 Timeline = Sequence[Mapping[str, Any]]
-Species = Callable[[str], PokemonGen2]
-Repair = Callable[[Timeline, Species], Mapping[int, str]]
+Repair = Callable[[Timeline, SpeciesLookup], Mapping[int, str]]
 """Finds the P2 faints a timeline omits: {turn index: fainted Pokémon}."""
 
 
@@ -124,14 +123,14 @@ class PokemonState:
         return self.info.name
 
     @property
-    def max_hp(self) -> int:
+    def max_hp(self) -> float:
         return self.info.max_hp(self.level)
 
     @property
     def hp(self) -> float:
         return self.hp_pct * self.max_hp
 
-    def stat(self, name: str) -> int:
+    def stat(self, name: str) -> float:
         """Real value of ``"atk"``, ``"def"``, ``"spa"``, ``"spd"``, ``"spe"``
         at this Pokémon's level (boosts and status are not applied)."""
         return self.info.stat(name, self.level)
@@ -286,7 +285,7 @@ class Battle:
         self,
         p1: PlayerState,
         p2: PlayerState,
-        species: Callable[[str], PokemonGen2] | None = None,
+        species: SpeciesLookup | None = None,
         trust_noeffect: bool = True,
     ) -> None:
         self.p1, self.p2 = p1, p2
@@ -301,16 +300,14 @@ class Battle:
         self.targets: dict[str, str | None] = {"p1": None, "p2": None}
 
     @classmethod
-    def from_record(
-        cls, record: dict, species: Callable[[str], PokemonGen2], **kw
-    ) -> Battle:
+    def from_record(cls, record: dict, species: SpeciesLookup, **kw) -> Battle:
         """Build the initial state; ``species`` maps a name to its species
-        (for example ``Pokedex.get``). Levels come from the record."""
+        (for example ``Pokedex.lookup``). Levels come from the record."""
         p1 = PlayerState()
         for d in record["p1_team_details"]:
             p1.add_pokemon(
                 PokemonState(
-                    species(d["name"]),
+                    _resolved(species, d["name"]),
                     level=d.get("level", DEFAULT_LEVEL),
                     item=d.get("item") or NO_ITEM,
                 )
@@ -319,7 +316,7 @@ class Battle:
         p2 = PlayerState()
         lead = record["p2_lead_details"]
         p2_lead = PokemonState(
-            species(lead["name"]),
+            _resolved(species, lead["name"]),
             level=lead.get("level", DEFAULT_LEVEL),
             item=UNKNOWN_ITEM,
         )
@@ -375,7 +372,7 @@ class Battle:
                     raise ValueError(f"unknown pokemon {name!r} and no species given")
                 me.add_pokemon(
                     PokemonState(
-                        self._species(name), level=DEFAULT_LEVEL, item=UNKNOWN_ITEM
+                        _resolved(self._species, name), level=DEFAULT_LEVEL, item=UNKNOWN_ITEM
                     )
                 )
 
@@ -476,7 +473,11 @@ class Battle:
             lead.remove_effects(set(lead.effects) - volatile)
 
     def _action_order(self, moves: Mapping[str, Move | None]) -> list[str]:
-        """Sides in the order they acted: priority, then Speed."""
+        """Sides in the order they acted: priority, then Speed.
+
+        A NaN Speed (species without stats) compares False both ways, so on
+        equal priority the sort leaves P1 first.
+        """
 
         def key(side: str) -> tuple[int, float]:
             move = moves[side]
@@ -533,6 +534,11 @@ class Battle:
             user.pokemon.item, target.pokemon.item = target.pokemon.item, NO_ITEM
 
         user.last_move = name
+
+
+def _resolved(species: SpeciesLookup, name: str) -> PokemonGen2:
+    """The species, or a placeholder: a battle replays without the stats it lacks."""
+    return species(name) or PokemonGen2.without_stats(name)
 
 
 def _speed(player: PlayerState) -> float:
@@ -658,7 +664,7 @@ class BattleContext:
     record: dict[str, Any]
     battle: Battle
     history: tuple[TurnSnapshot, ...]
-    species: Callable[[str], PokemonGen2] = field(repr=False, compare=False)
+    species: SpeciesLookup = field(repr=False, compare=False)
     repair: Repair | None = field(default=None, repr=False, compare=False)
     _truncated: dict[int, BattleContext] = field(
         default_factory=dict, repr=False, compare=False
@@ -669,13 +675,13 @@ class BattleContext:
     def from_record(
         cls,
         record: dict[str, Any],
-        species: Callable[[str], PokemonGen2],
+        species: SpeciesLookup,
         repair: Repair | None = None,
     ) -> BattleContext:
         """Replay ``record`` turn by turn, capturing a snapshot per turn.
 
         ``species`` maps a name to its species (for example
-        ``Pokedex.get``). ``repair`` (e.g. ``knockout_detector.KnockoutDetector``)
+        ``Pokedex.lookup``). ``repair`` (e.g. ``knockout_detector.KnockoutDetector``)
         finds the P2 faints the record omits; they are applied turn by
         turn, so the history and the final state both see them, and again
         on truncated copies (:meth:`upto`). Errors from the replay
@@ -740,6 +746,10 @@ class BattleContext:
             self._truncated.clear()
             self._truncated[turn] = cached
         return cached
+
+    def new_pokemon(self, name: str) -> PokemonState:
+        """A fresh individual of a species, for Pokémon the battle has not shown."""
+        return PokemonState(_resolved(self.species, name))
 
     def cached(self, key: Hashable, compute: Callable[[], T]) -> T:
         """``compute()`` once per replay, then the remembered value.

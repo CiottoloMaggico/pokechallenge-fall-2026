@@ -17,7 +17,7 @@ detectable hidden faints that symmetry with P1's recorded faints predicts.
 An instance is the ``repair`` of ``BattleContext`` (``data.Repair``)::
 
     detector = KnockoutDetector(pokedex.find, chart).fit(timelines)
-    context = BattleContext.from_record(record, pokedex.get, detector)
+    context = BattleContext.from_record(record, pokedex.find, detector)
 """
 
 from __future__ import annotations
@@ -34,11 +34,10 @@ from data import load_records
 from domain.knockouts import (
     CATEGORICAL_FEATURES,
     DETECTOR_FEATURES,
-    SpeciesLookup,
     Transition,
     transitions,
 )
-from domain.pokedex import Pokedex, PokemonGen2
+from domain.pokedex import Pokedex, SpeciesLookup
 from domain.typechart import TypeChart
 
 DEFAULT_THRESHOLD = 0.5
@@ -101,7 +100,7 @@ class KnockoutDetector:
     def probabilities(
         self,
         timeline: Sequence[Turn],
-        species: Callable[[str], PokemonGen2] | None = None,
+        species: SpeciesLookup | None = None,
     ) -> dict[int, float]:
         """Turn index -> probability that P2's leaver fainted unseen.
 
@@ -122,9 +121,9 @@ class KnockoutDetector:
     def _score(
         self,
         timeline: Sequence[Turn],
-        species: Callable[[str], PokemonGen2] | None,
+        species: SpeciesLookup | None,
     ) -> dict[int, float]:
-        lookup = _safe(species) if species is not None else self.species
+        lookup = species if species is not None else self.species
         candidates = [
             t
             for t in transitions(timeline, "p2", lookup, self.chart)
@@ -138,9 +137,7 @@ class KnockoutDetector:
             p = self.model.predict_proba(x)[:, 1]
         return {t.index: float(v) for t, v in zip(candidates, p, strict=True)}
 
-    def __call__(
-        self, timeline: Sequence[Turn], species: Callable[[str], PokemonGen2]
-    ) -> dict[int, str]:
+    def __call__(self, timeline: Sequence[Turn], species: SpeciesLookup) -> dict[int, str]:
         """Hidden P2 faints: turn index -> name, probability >= threshold."""
         p2 = [t["p2_pokemon_state"]["name"] for t in timeline]
         return {
@@ -181,14 +178,3 @@ def _fingerprint(timeline: Sequence[Turn]) -> tuple[Any, ...]:
 def _vector(transition: Transition) -> list[float]:
     return [transition.features[name] for name in DETECTOR_FEATURES]
 
-
-def _safe(species: Callable[[str], PokemonGen2]) -> SpeciesLookup:
-    """A lookup returning None for unknown names instead of raising."""
-
-    def lookup(name: str) -> PokemonGen2 | None:
-        try:
-            return species(name)
-        except (KeyError, ValueError):
-            return None
-
-    return lookup

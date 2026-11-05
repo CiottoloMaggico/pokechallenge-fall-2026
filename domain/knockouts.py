@@ -49,7 +49,7 @@ P(faint | transition) on P1 and scores P2's transitions.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -57,7 +57,7 @@ import math
 
 from domain.damage import Combatant, DamageCalculator, Field
 from domain.moves import Move
-from domain.pokedex import TYPES, PokemonGen2
+from domain.pokedex import TYPES, PokemonGen2, SpeciesLookup
 from domain.typechart import TypeChart
 
 FAINTED = "fnt"
@@ -71,7 +71,6 @@ SIDES = ("p1", "p2")
 STATUS_CODES = {"par": 1, "slp": 2, "frz": 3, "psn": 4, "tox": 5, "brn": 6}
 
 Turn = Mapping[str, Any]
-SpeciesLookup = Callable[[str], PokemonGen2 | None]
 
 FEATURES = (
     "turn",
@@ -429,6 +428,11 @@ class _Context:
             "a_dmg_in": 0.0,
             "drop_gap": 0.0,
         }
+        attacks = move is not None and move["category"] != "status"
+        if attacks and (attacker is None or leaver is None):
+            values["a_dmg_max"] = values["x_hp_minus_max"] = MISSING
+        if attacks and (attacker is None or incoming is None):
+            values["a_dmg_in"] = values["drop_gap"] = MISSING
         if attacker is None:
             return values
         a = Combatant(
@@ -468,7 +472,7 @@ class _Context:
         if move is None or move["category"] == "status":
             return 0.0
         if attacker is None or defender is None:
-            return 0.0
+            return MISSING
         a = Combatant(
             attacker,
             boosts=_stages(self.opp.boosts[self.turn]),
@@ -603,25 +607,25 @@ def _mechanics(
         residual += 1 / 16
     if weather == "sand" and leaver is not None and not set(leaver.types) & SAND_IMMUNE:
         residual += 1 / 8
+    if weather == "sand" and leaver is None:
+        residual = MISSING
     residual -= LEFTOVERS_SHARE / 16
 
     damage = 0.0
-    if (
-        move is not None
-        and move["category"] != "status"
-        and leaver is not None
-        and attacker is not None
-    ):
-        a = Combatant(
-            attacker,
-            boosts=_stages(attacker_state.get("boosts") or {}),
-            status=_status(attacker_state["status"]),
-        )
-        d = Combatant(leaver, boosts=_stages(leaver_state.get("boosts") or {}))
-        mean = DamageCalculator(chart).expected(
-            a, d, Move.from_details(move), Field.of(weather, screens[side]), with_accuracy=True
-        )
-        damage = 0.0 if mean is None else mean / d.max_hp
+    if move is not None and move["category"] != "status":
+        if leaver is None or attacker is None:
+            damage = MISSING
+        else:
+            a = Combatant(
+                attacker,
+                boosts=_stages(attacker_state.get("boosts") or {}),
+                status=_status(attacker_state["status"]),
+            )
+            d = Combatant(leaver, boosts=_stages(leaver_state.get("boosts") or {}))
+            mean = DamageCalculator(chart).expected(
+                a, d, Move.from_details(move), Field.of(weather, screens[side]), with_accuracy=True
+            )
+            damage = 0.0 if mean is None else mean / d.max_hp
 
     drop_any = 0.0
     for r in range(before + 1, index + 1):

@@ -28,10 +28,11 @@ Values are not cached on the battle: they depend on the fitted state.
 
 from __future__ import annotations
 
+import math
 import random
 from collections.abc import Mapping
 
-from domain.battle import BattleContext, PokemonState
+from domain.battle import BattleContext
 from domain.damage import DamageCalculator
 from domain.moves import DamageKind, Move, crit_rate, damage_kind
 from domain.records import fingerprint
@@ -42,6 +43,7 @@ from features.simulation_features import (
     DuelSimulator,
     Fighter,
     outcome,
+    stats_missing,
 )
 
 MC_OUTPUTS = ("mc_seen_left", "mc_full_win")
@@ -148,8 +150,10 @@ class MonteCarloSimulation(BattleSimulation):
         ]
         hidden = self.guess(list(p2.team), p2.team_size)
         full_b = seen_b + [
-            self._fighter(PokemonState(context.species(name))) for name in hidden
+            self._fighter(context.new_pokemon(name)) for name in hidden
         ]
+        if stats_missing(team_a, full_b):
+            return {name: math.nan for name in MC_OUTPUTS}
         actives = (p1.active.pokemon.name, p2.active.pokemon.name)
         seed = int(fingerprint(battle.record)[:SEED_DIGITS], 16)
         seen_values: list[float] = []
