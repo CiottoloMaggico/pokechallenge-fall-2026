@@ -280,33 +280,44 @@ class DamageCalculator:
 ```python
 @dataclass(frozen=True)
 class SideState:
-    active: str; hp: Mapping[str, float]; status: Mapping[str, str]
-    revealed: frozenset[str]; fainted: frozenset[str]
-    boosts: Mapping[str, int]; effects: frozenset[str]
+    active: str; hp_pct: float; status: str          # of the active Pokémon
+    boosts: dict[str, int]; effects: tuple[str, ...]
+    move: Move | None; target: str | None            # fresh moves only (stale repeats removed)
+    switched: bool; voluntary_switch: bool
+    n_alive: int; n_fainted: int; n_statused: int; n_unseen: int; hp_total: float
+    spikes: bool; screens: tuple[str, ...]
 
 @dataclass(frozen=True)
 class TurnState:
-    index: int; p1: SideState; p2: SideState
-    p1_move: Move | None; p2_move: Move | None   # fresh moves only (stale repeats removed)
-    field: Field; spikes: Mapping[str, bool]
+    turn: int; p1: SideState; p2: SideState
+    def side(self, name: str) -> SideState: ...
 
+@dataclass(frozen=True)
 class BattleContext:
-    record: BattleRecord
-    species: SpeciesLookup
-    states: Sequence[TurnState]
-    def at_turn(self, turn: int) -> BattleContext: ...   # truncated view, for AtTurn features
+    battle_id: Any
+    record: dict[str, Any]                 # copy without player_won
+    battle: Battle                         # final state (team details, weather)
+    history: tuple[TurnState, ...]
+    species: SpeciesLookup                 # Callable[[str], PokemonGen2 | None], for this battle
+    repair: TimelineRepair = NO_REPAIR
+    def at_turn(self, turn: int | None) -> BattleContext: ...   # truncated replay; None: itself
 
 class BattleReplay:
-    def __init__(self, pokedex: SpeciesLookup, repair: TimelineRepair = NoRepair(),
-                 unknown: UnknownSpeciesPolicy = Strict()) -> None: ...
-    def replay(self, record: BattleRecord) -> BattleContext: ...
+    def __init__(self, pokedex: Pokedex, repair: TimelineRepair = NO_REPAIR,
+                 unknown: UnknownSpeciesPolicy = STRICT) -> None: ...
+    def replay(self, record: Mapping[str, Any]) -> BattleContext: ...
 ```
 
-- Replaces `BattleContext.from_record(record, pokedex.get, repair)` and
-  `Dataset.from_jsonl`. The replay is deterministic and pure: same record, same
-  repair state, same context.
-- The repair is applied here, once, as today (`main._repair`): every feature
-  sees repaired battles.
+- Replaces `BattleContext.from_record`. `Dataset.from_jsonl` stays and goes
+  through `BattleReplay`, with the `Missing` policy by default. The replay is
+  deterministic: same record, same repair state, same context.
+- `player_won` is removed first, so neither the repair nor a feature can read
+  it.
+- The repair is applied here, as today (`main._repair`), and again on each
+  truncated copy made by `at_turn`: every feature sees repaired battles.
+- An impossible timeline raises `ReplayError` (today: an empty one).
+  `Dataset` turns replay failures into `DataError` with the battle id, except
+  `UnknownSpeciesError`.
 
 ### 3.6 Repair protocol (`domain/repair.py`)
 
@@ -316,12 +327,14 @@ care.
 
 ```python
 class TimelineRepair(Protocol):
-    def probabilities(self, record: BattleRecord) -> Mapping[int, float]: ...
-    def repairs(self, record: BattleRecord) -> Mapping[int, str]: ...
+    def probabilities(self, record: Mapping[str, Any]) -> Mapping[int, float]: ...
+    def repairs(self, record: Mapping[str, Any]) -> Mapping[int, str]: ...
     def describe(self) -> dict[str, Any]: ...   # JSON: name, version, params (saved in runs)
 
 class NoRepair:                                 # identity, for tests and baselines
     ...
+
+NO_REPAIR = NoRepair()
 ```
 
 - No `fit` in the protocol: deterministic repairs need none, learned ones are
@@ -330,14 +343,18 @@ class NoRepair:                                 # identity, for tests and baseli
 - `probabilities`: turn index → P(the P2 Pokémon that left at that row
   fainted). Used by the repair and by features (`p2_hidden_ko_unsure`, `smat_hp`).
 - `repairs`: turn index → name of the Pokémon to mark as fainted
-  (`probability >= threshold`).
+  (`probability >= threshold` in the detector). The threshold is not part of the
+  protocol: features that need it compare `probabilities` with `repairs`.
 - A repair never sees the outcome (`player_won`): it is label-free by contract,
   which is why a detector may be trained once on all of train.
-- Results are cached by `fingerprint` inside the implementation.
-- The registry `addons/__init__.py` maps names to factories; the CLI selects
-  one with `--repair none | rule | model=<artifact>` (§3.8).
-- `describe()` is saved in every run of the main model, and `predict` refuses
-  a run whose repair differs from the one requested.
+- Results are cached inside the implementation. Today's detector
+  (`DetectorRepair` in `knockout_detector.py`, the adapter until step 7) uses a
+  key of the timeline (each row's actives, HP, status and move names), not
+  `fingerprint`; step 7 checks that key.
+- From step 7, the registry `addons/__init__.py` maps names to factories and the
+  CLI selects one with `--repair none | rule | model=<artifact>` (§3.8).
+- From step 4a, `describe()` is saved in every run of the main model; `predict`
+  refuses a run whose repair differs from the one requested (step 7).
 
 ### 3.7 Transitions (`domain/transitions.py`)
 
@@ -352,13 +369,16 @@ class Transition:
 
 class TransitionExtractor:
     def __init__(self, pokedex: SpeciesLookup, damage: DamageCalculator) -> None: ...
-    def extract(self, record: BattleRecord, side: Literal["p1", "p2"]) -> list[Transition]: ...
+    def extract(self, record: Mapping[str, Any], side: Literal["p1", "p2"]) -> list[Transition]: ...
 ```
 
-- Moves the description of a switch out of `domain/knockouts.py` (today 600
-  lines mixing description and the column list). P1 faints skip the `fnt` row
-  so they look like hidden P2 faints (the alignment variant was rejected and
-  is not kept).
+- The description of a switch moved out of `domain/knockouts.py`; the Gen 2
+  field and end-of-turn rules are in `domain/transition_mechanics.py`. P1 faints
+  skip the `fnt` row so they look like hidden P2 faints (the alignment variant
+  was rejected and is not kept).
+- `SpeciesLookup` is a callable, so an extractor is bound to one lookup: fitting
+  uses `pokedex.find`, scoring a battle uses `pokedex.lookup(record, Missing())`,
+  which adds the stats the battle itself carries.
 - Columns: the full set (`ALL_COLUMNS`, 53) is computed; detectors choose a
   subset. Tests: one fixture per case (P1 faint, double KO, voluntary switch,
   phazing, Explosion).
@@ -410,19 +430,20 @@ feature set, model and parameters, threshold, hash of the training file, the
 
 ```python
 class ModelKnockoutRepair(TimelineRepair):          # addons/knockouts_model.py
-    def __init__(self, artifact: Path, extractor: TransitionExtractor) -> None: ...
-    # loads the TrainedRun once, scores the P2 candidate transitions of a record,
-    # caches by fingerprint; describe() reads info.json
+    def __init__(self, artifact: Path, pokedex: Pokedex, damage: DamageCalculator) -> None: ...
+    # loads the TrainedRun once, scores the P2 candidate transitions of a record
+    # with an extractor for that battle's lookup (§3.7), caches (key: §3.6);
+    # describe() reads info.json
 
 class RuleKnockoutRepair(TimelineRepair):           # addons/knockouts_rule.py
-    def __init__(self, extractor: TransitionExtractor, margin: float = 0.0) -> None: ...
+    def __init__(self, pokedex: Pokedex, damage: DamageCalculator, margin: float = 0.0) -> None: ...
     # deterministic: faint when the expected damage covers the leaver's HP and the
     # replacement entered unhurt (the compact_v2 rule); probabilities are 0 / 1
 ```
 
 - Today's `knockout_detector.py` splits into the task, the feature sets, the
-  model spec and `ModelKnockoutRepair`; `domain/knockouts.py` keeps only the
-  transition description (§3.7).
+  model spec and `ModelKnockoutRepair`; `domain/knockouts.py` holds only the
+  detector's column lists until step 7, which deletes them.
 - Main-task CV with a detector trained on all of train is allowed (label-free);
   `--refit-detector-per-fold` retrains the artifact inside each outer fold, to
   check it (no difference today: 0.5420 vs 0.5419).
@@ -440,12 +461,19 @@ need (§10). Until then the current bridge (`features/v11_bridge.py`,
 
 ```
 python -m domain build-pokedex input/train.jsonl --out results/cache/species.json
-python -m domain replay input/train.jsonl --battle 42 --repair none|rule   # prints the states
-python -m domain check input/train.jsonl input/test.jsonl                  # unknown species, invalid rows
+python -m domain replay input/train.jsonl --battle 42 [--pokedex results/cache/species.json]
+python -m domain check input/train.jsonl input/test.jsonl   # unknown species, invalid rows
 ```
 
-The domain CLI only knows deterministic addons; replaying with a learned
-detector goes through `python main.py replay --repair model=<artifact>`.
+- `domain` never imports addons, so `python -m domain replay` shows the battle
+  without repairs and has no `--repair` option; a repaired replay goes through
+  `python main.py replay --repair rule | model=<artifact>` (step 7).
+- `replay` loads the Pokédex written by `build-pokedex`, so replaying a test
+  battle never builds one from the test file; `check` builds it from its first
+  file only.
+- `check` lists every species without stats and exits 0, since the replay
+  handles them with `Missing`; it does not use `Strict`, which would stop at the
+  first one. An invalid row stops it with a one-line message and exit code 2.
 
 ## 4. Features
 

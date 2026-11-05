@@ -92,7 +92,7 @@ manual species file and the random replacement; `python -m domain build-pokedex`
 
 **Do**
 - The current detector keeps working through an adapter implementing
-  `TimelineRepair` (it moves for real in step 6).
+  `TimelineRepair` (it moves for real in step 7).
 - `domain` imports only stdlib and numpy; add `tests/test_architecture.py`
   for the domain rule now.
 - Tests per transition case with the fixtures (P1 faint skips the `fnt` row,
@@ -168,6 +168,11 @@ commands `detector evaluate | train | tune`, artifact
 `addons/knockouts_model.py` (`ModelKnockoutRepair`) and
 `addons/knockouts_rule.py` (deterministic), `--repair none | rule | model=<path>`.
 Delete `knockout_detector.py` and the column lists of `domain/knockouts.py`.
+
+**Do**
+- Check whether the detector's input uses anything outside the timeline; if not,
+  the timeline key is correct, document why; if yes, switch to fingerprint with
+  a golden check, and report the 5 shared keys.
 
 **Acceptance**
 - `detector evaluate --features ko_domain30 --models hgb_ko --seeds 42 1 2`
