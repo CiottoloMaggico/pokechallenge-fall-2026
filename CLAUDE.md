@@ -20,10 +20,11 @@ makes them order-independent.
   `python tools/golden.py export --out results/golden/candidate`
   `python tools/golden.py check results/golden/reference results/golden/candidate`
 - Full regression (only where a step says so, ~30 min):
-  `python main.py evaluate --features compact_v5 --models logreg ensemble_from_lr --seeds 33 66 99`
-  expected (measured before the logreg seed fix of step 1, to be replaced by
-  the baseline below): ensemble_from_lr 0.7202 / 0.5401, logreg 0.7186 / 0.5425.
-  Baseline of step 1 (commit 3f87d8c, run folder: `<to fill>`): `<to fill>`.
+  `python main.py evaluate --features compact_v5 --models logreg ensemble_from_lr --seeds 33 66 133`
+  Baseline of step 1 (commit 3f87d8c, run folder:
+  `results/reference_runs/evaluate_2026-11-05_2100`): ensemble_from_lr 0.7202 /
+  0.5401, logreg 0.7186 / 0.5425 (accuracy / log loss). Every model except
+  logreg (and `ensemble`, which contains it) must match that run fold by fold.
   Re-measured once more after the Pokédex change of step 2.
 
 ## Rules that must never be broken
