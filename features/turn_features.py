@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 
 from domain.battle import BattleContext
-from feature_set import Feature
+from interfaces import Feature
 
 SideValue = Callable[[BattleContext, str], float]
 ContextValue = Callable[[BattleContext], float]

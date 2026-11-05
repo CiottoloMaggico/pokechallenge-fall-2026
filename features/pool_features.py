@@ -36,9 +36,9 @@ import collections
 from collections.abc import Mapping, Sequence
 
 from domain.battle import BattleContext, PlayerState
-from feature_set import Feature
 from features.encoding_features import TeamEncoding
 from features.turn_features import check_turn
+from interfaces import Feature
 
 TEAM_SIZE = 6
 FAINTED = "fnt"
@@ -176,7 +176,7 @@ class PoolBulk(Feature[BattleContext]):
         unrevealed = p2.team_size - len(p2.team)
         if unrevealed:
             team = self.pool.most_likely(p2_revealed(context))
-            hidden = [n for n in team if n not in p2.team] if team else []
+            hidden = [n for n in sorted(team) if n not in p2.team] if team else []
             values = []
             for name in hidden[:unrevealed]:
                 pokemon = context.new_pokemon(name)

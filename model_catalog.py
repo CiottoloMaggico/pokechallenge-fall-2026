@@ -30,6 +30,7 @@ import importlib.util
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
+import registry
 from model import Model
 from models import (
     catboost_model,
@@ -44,9 +45,11 @@ from models.ensemble import DEFAULT_MEMBERS
 from models.ensemble import build as build_ensemble
 from models.preprocessing import MissingDependencyError
 from models.space import Trial
+from registry import ENSEMBLES, MODELS
 
 __all__ = [
-    "BUILDERS",
+    "ENSEMBLES",
+    "MODELS",
     "SEARCH_SPACES",
     "MissingDependencyError",
     "available",
@@ -65,14 +68,6 @@ def ensemble(
     return build_ensemble(name, built, weights)
 
 
-# named ensembles: name -> members (all averaged with equal weights)
-ENSEMBLES: dict[str, tuple[str, ...]] = {
-    "ensemble_boost": ("logreg", "lightgbm", "xgboost", "catboost"),
-    "ensemble_all": ("logreg", "hgb", "lightgbm", "xgboost", "catboost"),
-    "ensemble_from_lr": ("gb_lr", "catboost_lr", "lightgbm_lr", "xgboost_lr"),
-}
-
-
 def _named_ensemble(key: str) -> Callable[..., Model]:
     def builder(name: str = key, weights: Sequence[float] | None = None) -> Model:
         return ensemble(name, ENSEMBLES[key], weights)
@@ -80,42 +75,36 @@ def _named_ensemble(key: str) -> Callable[..., Model]:
     return builder
 
 
-BUILDERS: dict[str, Callable[..., Model]] = {
-    "logreg": logreg.build,
-    "hgb": hgb.build,
-    "lightgbm": lightgbm_model.build,
-    "xgboost": xgboost_model.build,
-    "catboost": catboost_model.build,
-    "gb_lr": from_logreg.build_sklearn,
-    "catboost_lr": from_logreg.build_catboost,
-    "lightgbm_lr": from_logreg.build_lightgbm,
-    "xgboost_lr": from_logreg.build_xgboost,
-    "blend_v11": logit_blend.build,
-    "ensemble": ensemble,
-    **{key: _named_ensemble(key) for key in ENSEMBLES},
-}
+registry.model("logreg", logreg.search_space)(logreg.build)
+registry.model("hgb", hgb.search_space)(hgb.build)
+registry.model("lightgbm", lightgbm_model.search_space, (lightgbm_model.LIBRARY,))(
+    lightgbm_model.build
+)
+registry.model("xgboost", xgboost_model.search_space, (xgboost_model.LIBRARY,))(xgboost_model.build)
+registry.model("catboost", catboost_model.search_space, (catboost_model.LIBRARY,))(
+    catboost_model.build
+)
+registry.model("gb_lr", from_logreg.search_space_sklearn)(from_logreg.build_sklearn)
+registry.model("catboost_lr", from_logreg.search_space_catboost, (catboost_model.LIBRARY,))(
+    from_logreg.build_catboost
+)
+registry.model("lightgbm_lr", from_logreg.search_space_lightgbm, (lightgbm_model.LIBRARY,))(
+    from_logreg.build_lightgbm
+)
+registry.model("xgboost_lr", from_logreg.search_space_xgboost, (xgboost_model.LIBRARY,))(
+    from_logreg.build_xgboost
+)
+registry.model("blend_v11")(logit_blend.build)
+registry.model("ensemble")(ensemble)
+for _name, _members in (
+    ("ensemble_boost", ("logreg", "lightgbm", "xgboost", "catboost")),
+    ("ensemble_all", ("logreg", "hgb", "lightgbm", "xgboost", "catboost")),
+    ("ensemble_from_lr", ("gb_lr", "catboost_lr", "lightgbm_lr", "xgboost_lr")),
+):
+    registry.ensemble(_name, _members)(_named_ensemble(_name))
 
-# model name -> hyperparameter search space (see models/space.py)
 SEARCH_SPACES: dict[str, Callable[[Trial], dict[str, Any]]] = {
-    "logreg": logreg.search_space,
-    "hgb": hgb.search_space,
-    "lightgbm": lightgbm_model.search_space,
-    "xgboost": xgboost_model.search_space,
-    "catboost": catboost_model.search_space,
-    "gb_lr": from_logreg.search_space_sklearn,
-    "catboost_lr": from_logreg.search_space_catboost,
-    "lightgbm_lr": from_logreg.search_space_lightgbm,
-    "xgboost_lr": from_logreg.search_space_xgboost,
-}
-
-# model name -> optional library it needs
-REQUIRED_MODULE = {
-    "lightgbm": lightgbm_model.LIBRARY,
-    "xgboost": xgboost_model.LIBRARY,
-    "catboost": catboost_model.LIBRARY,
-    "catboost_lr": catboost_model.LIBRARY,
-    "lightgbm_lr": lightgbm_model.LIBRARY,
-    "xgboost_lr": xgboost_model.LIBRARY,
+    spec.name: spec.search_space for spec in MODELS.values() if spec.search_space is not None
 }
 
 
@@ -124,12 +113,7 @@ def build(model: str, /, **params: Any) -> Model:
 
     ``name=`` among ``params`` renames the built model (e.g. "hgb-tuned").
     """
-    try:
-        builder = BUILDERS[model]
-    except KeyError:
-        choices = sorted(BUILDERS)
-        raise KeyError(f"unknown model {model!r}; choose from {choices}") from None
-    return builder(**params)
+    return MODELS[model].build(**params)
 
 
 def build_tuned(model: str, tuned: Mapping[str, Mapping[str, Any]]) -> Model:
@@ -153,12 +137,7 @@ def build_tuned(model: str, tuned: Mapping[str, Mapping[str, Any]]) -> Model:
 
 def available() -> list[str]:
     """Catalog names whose libraries are all installed."""
-    return [name for name in BUILDERS if all(map(_installed, _needs(name)))]
-
-
-def _needs(name: str) -> tuple[str, ...]:
-    members = ENSEMBLES.get(name, (name,))
-    return tuple(REQUIRED_MODULE[m] for m in members if m in REQUIRED_MODULE)
+    return [spec.name for spec in MODELS.values() if all(map(_installed, spec.requires))]
 
 
 def _installed(module: str) -> bool:

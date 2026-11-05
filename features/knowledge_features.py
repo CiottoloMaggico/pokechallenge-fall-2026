@@ -39,7 +39,6 @@ from domain.team_knowledge import (
     complete_team,
 )
 from domain.typechart import TypeChart
-from feature_set import Feature
 from features.matchup_features import ttk_advantage
 from features.simulation_features import (
     TEAM_SIZE,
@@ -53,6 +52,7 @@ from features.simulation_features import (
 from features.team_features import MAX_BST, HiddenTeamStrength
 from features.turn_features import check_turn
 from features.wincon_features import CURSE, HEALING, SETUP
+from interfaces import Feature
 
 OUTPUTS = (
     "kb_ttk_adv",
@@ -167,7 +167,7 @@ class TeamKnowledgeFeatures(Feature[BattleContext]):
             return revealed, []
         team = view.identify(revealed, self.min_share)
         if team is None:
-            return None, self.guesser.guess(list(revealed), p2.team_size)
+            return None, self.guesser.guess(sorted(revealed), p2.team_size)
         return team, sorted(team - revealed)
 
     def _attacks(

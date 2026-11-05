@@ -37,8 +37,8 @@ from domain.battle import BattleContext
 from domain.damage import Combatant, DamageCalculator
 from domain.moves import Move
 from domain.typechart import TypeChart
-from feature_set import Feature
 from features.turn_features import check_turn
+from interfaces import Feature
 
 TEAM_SIZE = 6
 GHOST_HP = 0.5

@@ -56,12 +56,13 @@ from sklearn.model_selection import StratifiedGroupKFold
 
 import feature_catalog
 import model_catalog
+from artifacts import TrainedRun, save_runs
 from data import Dataset
 from domain.battle import BattleContext
 from domain.pokedex import Pokedex, species_without_stats
 from domain.repair import TimelineRepair
 from feature_set import FeatureSet
-from gym import FoldData, Gym, GymResult, TrainedRun, prepare_folds, save_runs, seed_table
+from gym import FoldData, Gym, GymResult, prepare_folds, seed_table
 from knockout_detector import detector_from_files
 from model import Model
 from models.ensemble import DEFAULT_MEMBERS
@@ -216,7 +217,8 @@ def _seeds(args: argparse.Namespace) -> list[int]:
 def train(args: argparse.Namespace) -> int:
     """Fit every combination on all training data and save the runs."""
     pokedex = Pokedex.from_json(args.pokedex)
-    dataset = Dataset.from_jsonl(args.train, pokedex, repair=_repair(args))
+    repair = _repair(args)
+    dataset = Dataset.from_jsonl(args.train, pokedex, repair=repair)
     gym = Gym(
         _models(args.models, args.params), _feature_sets(args.features, args.turns)
     )
@@ -225,6 +227,7 @@ def train(args: argparse.Namespace) -> int:
         dataset.labels,
         unlabeled=_unlabeled(args, pokedex),
         groups=dataset.duplicate_groups(),
+        repair=repair.describe(),
     )
     for path in save_runs(runs, args.out):
         print(f"saved {path}")
@@ -398,7 +401,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--models",
             nargs="+",
             required=True,
-            choices=sorted(model_catalog.BUILDERS),
+            choices=sorted(model_catalog.MODELS),
         )
         sub.add_argument(
             "--turns",

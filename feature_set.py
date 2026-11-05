@@ -63,18 +63,16 @@ from __future__ import annotations
 import copy
 import math
 import random
-from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from numbers import Real
 from typing import Any, Generic, TypeVar
+
+from interfaces import Feature, FeatureError, FeatureNotFittedError, FeatureValue, Row
 
 BattleT = TypeVar("BattleT")
 
-FeatureValue = tuple[str, float]
 FeatureFn = Callable[[BattleT], FeatureValue]
-Row = dict[str, float]
 
 SIDES = ("p1", "p2")
 DEFAULT_INNER_FOLDS = 5
@@ -96,119 +94,8 @@ class ErrorPolicy(Enum):
     NAN = "nan"
 
 
-class FeatureError(RuntimeError):
-    """A feature failed or returned an invalid value."""
-
-    def __init__(self, feature_id: str, message: str) -> None:
-        super().__init__(f"feature {feature_id!r}: {message}")
-        self.feature_id = feature_id
-
-
 class FeatureConflictError(KeyError):
     """Two features claimed the same name under ConflictPolicy.RAISE."""
-
-
-class FeatureNotFittedError(RuntimeError):
-    """A feature that needs ``fit`` was used before being fitted.
-
-    This is a configuration error, so it is raised whatever the
-    ErrorPolicy.
-    """
-
-
-# ----------------------------------------------------------------------
-# features
-# ----------------------------------------------------------------------
-class Feature(ABC, Generic[BattleT]):
-    """Base class for features that need more than a plain function.
-
-    Subclasses implement :meth:`compute`, returning ``{name: value}``
-    with one or more outputs. Optionally they:
-
-    * override :attr:`output_names` to declare their columns, which lets
-      the FeatureSet detect name conflicts at registration and fill the
-      right columns with NaN under ``ErrorPolicy.NAN``;
-    * set ``requires_fit = True`` and implement :meth:`_fit` to learn
-      state from battles before computing;
-    * also set ``uses_labels = True`` if :meth:`_fit` needs the labels.
-
-    The learned state is saved with :meth:`get_state` (by default every
-    instance attribute, so keep it picklable) and restored with
-    :meth:`set_state`.
-    """
-
-    requires_fit: bool = False
-    uses_labels: bool = False
-
-    def __init__(self, feature_id: str | None = None) -> None:
-        self._feature_id = feature_id or type(self).__name__
-        self._fitted = False
-
-    @property
-    def feature_id(self) -> str:
-        """Registry id of this feature (defaults to the class name)."""
-        return self._feature_id
-
-    @property
-    def output_names(self) -> tuple[str, ...] | None:
-        """Names of the produced columns, or None if known only at runtime."""
-        return None
-
-    @property
-    def is_fitted(self) -> bool:
-        return self._fitted or not self.requires_fit
-
-    def fit(
-        self, battles: Sequence[BattleT], labels: Sequence[int] | None = None
-    ) -> Feature[BattleT]:
-        """Learn the feature's state; return ``self``.
-
-        ``labels`` must be given (aligned with ``battles``) if and only
-        if the feature declares ``uses_labels``.
-        """
-        if self.uses_labels:
-            if labels is None or len(labels) != len(battles):
-                raise ValueError(
-                    f"feature {self.feature_id!r} needs one label per battle"
-                )
-        elif labels is not None:
-            raise ValueError(
-                f"feature {self.feature_id!r} does not use labels: do not pass them"
-            )
-        self._fit(battles, labels)
-        self._fitted = True
-        return self
-
-    def _fit(  # noqa: B027
-        self, battles: Sequence[BattleT], labels: Sequence[int] | None
-    ) -> None:
-        """Hook for stateful features; stateless ones do nothing."""
-
-    def reset(self) -> None:
-        """Forget the fitted flag (used on clones before refitting)."""
-        self._fitted = False
-
-    def get_state(self) -> dict[str, Any]:
-        """Learned state, for saving a trained model (default: attributes)."""
-        return copy.deepcopy(vars(self))
-
-    def set_state(self, state: dict[str, Any]) -> None:
-        """Restore a state returned by :meth:`get_state`."""
-        vars(self).update(copy.deepcopy(state))
-
-    @abstractmethod
-    def compute(self, battle: BattleT) -> Mapping[str, float]:
-        """Return ``{name: value}`` for one battle."""
-
-    def __call__(self, battle: BattleT) -> Row:
-        if not self.is_fitted:
-            raise FeatureNotFittedError(
-                f"feature {self.feature_id!r} needs fit() before use"
-            )
-        return _validate(self.feature_id, self.compute(battle))
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.feature_id!r})"
 
 
 class FunctionFeature(Feature[BattleT]):
@@ -373,12 +260,10 @@ class FeatureSet(Generic[BattleT]):
 
         battles = list(battles)
         self.fit(battles, labels, unlabeled)
-        # features with ``inner_oof = False`` never output in-sample values for
-        # their own training battles (e.g. NaN), so they skip the inner folds
         label_aware = [
             f
             for f, e in self._entries.items()
-            if e.feature.uses_labels and getattr(e.feature, "inner_oof", True)
+            if e.feature.uses_labels and e.feature.inner_oof
         ]
         if not label_aware or labels is None:
             return pd.DataFrame(self.extract_many(battles))
@@ -462,16 +347,9 @@ class FeatureSet(Generic[BattleT]):
         return [self.extract(battle) for battle in battles]
 
     def _prepare(self, battles: list[BattleT]) -> None:
-        """Let batch features compute all the battles at once.
-
-        A feature may define ``prepare(battles)``: it is called with every
-        battle before the row-by-row extraction (e.g. a whole external
-        pipeline run once on the batch, then read back by ``compute``).
-        """
+        """Let batch features compute all the battles at once."""
         for entry in self._entries.values():
-            prepare = getattr(entry.feature, "prepare", None)
-            if callable(prepare):
-                prepare(battles)
+            entry.feature.prepare(battles)
 
     def to_frame(
         self,
@@ -507,6 +385,20 @@ class FeatureSet(Generic[BattleT]):
                 raise KeyError(f"no feature registered as {fid!r}")
             subset._entries[fid] = self._entries[fid]
         return subset
+
+    def without(
+        self, feature_ids: Iterable[str], name: str | None = None
+    ) -> FeatureSet[BattleT]:
+        """Return a new set without the given registry ids, keeping the order.
+
+        The new set is called ``name`` (default ``"<name>[subset]"``).
+        Features are shared, so their fitted state is kept.
+        """
+        drops = set(feature_ids)
+        missing = drops - set(self._entries)
+        if missing:
+            raise KeyError(f"{self._name}: no features {sorted(missing)} to drop")
+        return self.select([f for f in self._entries if f not in drops], name)
 
     def merge(
         self, other: FeatureSet[BattleT], name: str | None = None
@@ -649,6 +541,7 @@ class _Renamed(Feature[BattleT]):
         self._inner = inner
         self.requires_fit = inner.requires_fit
         self.uses_labels = inner.uses_labels
+        self.inner_oof = inner.inner_oof
 
     @property
     def output_names(self) -> tuple[str, ...] | None:
@@ -664,6 +557,9 @@ class _Renamed(Feature[BattleT]):
         self._inner.fit(battles, labels)
         return self
 
+    def prepare(self, battles: Sequence[BattleT]) -> None:
+        self._inner.prepare(battles)
+
     def reset(self) -> None:
         super().reset()
         self._inner.reset()
@@ -676,26 +572,6 @@ class _Renamed(Feature[BattleT]):
 
     def compute(self, battle: BattleT) -> Mapping[str, float]:
         return self._inner.compute(battle)
-
-
-# ----------------------------------------------------------------------
-# validation helpers
-# ----------------------------------------------------------------------
-def _validate(feature_id: str, values: object) -> Row:
-    """Check that a feature returned ``{non-empty str: number}``."""
-    if not isinstance(values, Mapping) or not values:
-        raise FeatureError(feature_id, "must return a non-empty {name: value} map")
-    row: Row = {}
-    for name, value in values.items():
-        if not isinstance(name, str) or not name:
-            raise FeatureError(feature_id, "names must be non-empty strings")
-        if not isinstance(value, Real):
-            raise FeatureError(
-                feature_id,
-                f"value of {name!r} must be a number, got {type(value).__name__}",
-            )
-        row[name] = float(value)
-    return row
 
 
 def _inner_fold_ids(

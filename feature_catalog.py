@@ -1,7 +1,7 @@
 """Concrete features and the named feature sets built from them.
 
-Each feature set has a builder registered in :data:`FEATURE_SETS`, so
-the main program and saved runs can rebuild a set from its name::
+Each feature set has a builder declared with ``@feature_set`` (``registry``),
+so the main program and saved runs can rebuild a set from its name::
 
     features = build("core")          # sampled at the last recorded turn
     features = build("core@t10")      # the same features at turn 10
@@ -54,13 +54,13 @@ v5 18; accuracy and log loss equal to the originals within noise.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from functools import cache
 from pathlib import Path
 
 from domain.battle import BattleContext
 from domain.typechart import TypeChart
-from feature_set import Feature, FeatureSet, FeatureValue
+from feature_set import FeatureSet
 from features.encoding_features import OpponentSpeciesEncoding, TeamEncoding
 from features.field_features import boost_sum, substitute_up, trapped
 from features.hazard_features import (
@@ -107,11 +107,25 @@ from features.switch_features import (
 )
 from features.team_features import HiddenTeamStrength, hpw_def, hpw_spd, snorlax_diff
 from features.turn_features import AtTurn, share_difference, side_difference
+from interfaces import Feature, FeatureValue
+from registry import FEATURE_SETS, feature_set, parse_name, set_name
+from registry import build_feature_set as build
 
-TURN_SEPARATOR = "@t"
+__all__ = ["FEATURE_SETS", "build", "parse_name", "type_chart"]
+
 TYPE_CHART_PATH = Path(__file__).resolve().parent / "assets" / "type_chart_gen2.csv"
 
-Builder = Callable[[int | None], FeatureSet[BattleContext]]
+# columns dropped by the multi-seed revalidation (see the module docstring)
+REVALIDATION_DROPS: dict[str, tuple[str, ...]] = {
+    "compact": ("hidden_team_strength", "opponent_species_encoding", "mv_res"),
+    "compact_v2": ("hidden_knockout_probability", "ghost_ko_50", "act_duel", "mv_res"),
+    "compact_v3": ("p2_hidden_ko_det", "ghost_ko_50", "act_duel", "mv_res"),
+    "compact_v4": ("p2_hidden_ko_det", "ghost_ko_50", "act_duel", "mv_res"),
+    "compact_v5": (
+        "p2_hidden_ko_det", "material_hp", "mv_res", "hp_healed", "ghost_ko_50",
+        "act_duel", "alive_gain_10_30", "eff_trapped",
+    ),
+}
 
 
 def hp_diff_t30(context: BattleContext) -> FeatureValue:
@@ -124,6 +138,7 @@ def hp_diff_t30(context: BattleContext) -> FeatureValue:
     return "hp_diff_t30", last.p1.hp_total - last.p2.hp_total
 
 
+@feature_set("hp30")
 def hp30(turn: int | None = None) -> FeatureSet[BattleContext]:
     """Only the HP difference at the last recorded turn."""
     if turn is not None:
@@ -133,18 +148,22 @@ def hp30(turn: int | None = None) -> FeatureSet[BattleContext]:
     return features
 
 
+@feature_set("material")
 def material(turn: int | None = None) -> FeatureSet[BattleContext]:
     return _feature_set("material", turn, material_features(turn))
 
 
+@feature_set("hazards")
 def hazards(turn: int | None = None) -> FeatureSet[BattleContext]:
     return _feature_set("hazards", turn, hazard_features(turn))
 
 
+@feature_set("switch")
 def switch(turn: int | None = None) -> FeatureSet[BattleContext]:
     return _feature_set("switch", turn, [NextSwitchProbability(turn)])
 
 
+@feature_set("core")
 def core(turn: int | None = None) -> FeatureSet[BattleContext]:
     features = [
         *material_features(turn),
@@ -154,7 +173,8 @@ def core(turn: int | None = None) -> FeatureSet[BattleContext]:
     return _feature_set("core", turn, features)
 
 
-def compact(turn: int | None = None) -> FeatureSet[BattleContext]:
+@feature_set("compact_orig")
+def compact_orig(turn: int | None = None) -> FeatureSet[BattleContext]:
     """The 14 features kept by the incremental selection."""
     features: list[Feature[BattleContext]] = [
         AtTurn("material_hp", side_difference(hp_share), turn),
@@ -173,9 +193,16 @@ def compact(turn: int | None = None) -> FeatureSet[BattleContext]:
         HiddenTeamStrength(turn),
         OpponentSpeciesEncoding(turn),
     ]
-    return _feature_set("compact", turn, features)
+    return _feature_set("compact_orig", turn, features)
 
 
+@feature_set("compact")
+def compact(turn: int | None = None) -> FeatureSet[BattleContext]:
+    """compact after the multi-seed revalidation."""
+    return compact_orig(turn).without(REVALIDATION_DROPS["compact"], set_name("compact", turn))
+
+
+@feature_set("compact_plus")
 def compact_plus(turn: int | None = None) -> FeatureSet[BattleContext]:
     """``compact`` plus ``te_p1_team``, ``te_pair_mean``, ``sim_seen_left``."""
     extra = _feature_set(
@@ -186,9 +213,10 @@ def compact_plus(turn: int | None = None) -> FeatureSet[BattleContext]:
             BattleSimulation(type_chart(), turn, outputs=("sim_seen_left",)),
         ],
     )
-    return compact(turn).merge(extra, name=set_name("compact_plus", turn))
+    return compact_orig(turn).merge(extra, name=set_name("compact_plus", turn))
 
 
+@feature_set("compact_ko")
 def compact_ko(turn: int | None = None) -> FeatureSet[BattleContext]:
     """The 18 features on the knockout-repaired replay."""
     chart = type_chart()
@@ -214,7 +242,8 @@ def compact_ko(turn: int | None = None) -> FeatureSet[BattleContext]:
     return _feature_set("compact_ko", turn, features)
 
 
-def compact_v2(turn: int | None = None) -> FeatureSet[BattleContext]:
+@feature_set("compact_v2_orig")
+def compact_v2_orig(turn: int | None = None) -> FeatureSet[BattleContext]:
     """compact_ko re-selected on the corrected replay (19 features)."""
     chart = type_chart()
     features: list[Feature[BattleContext]] = [
@@ -236,24 +265,48 @@ def compact_v2(turn: int | None = None) -> FeatureSet[BattleContext]:
         BattleSimulation(chart, turn, outputs=("sim_seen_left",)),
         HiddenKnockoutProbability(chart, turn),
     ]
-    return _feature_set("compact_v2", turn, features)
+    return _feature_set("compact_v2_orig", turn, features)
 
 
-def compact_v3(turn: int | None = None) -> FeatureSet[BattleContext]:
+@feature_set("compact_v2")
+def compact_v2(turn: int | None = None) -> FeatureSet[BattleContext]:
+    """compact_v2 after the multi-seed revalidation."""
+    drops = REVALIDATION_DROPS["compact_v2"]
+    return compact_v2_orig(turn).without(drops, set_name("compact_v2", turn))
+
+
+@feature_set("compact_v3_orig")
+def compact_v3_orig(turn: int | None = None) -> FeatureSet[BattleContext]:
     """compact_v2 with the learned detector's expected knockouts (19)."""
-    return _feature_set("compact_v3", turn, _compact_v3_features(turn))
+    return _feature_set("compact_v3_orig", turn, _compact_v3_features(turn))
 
 
-def compact_v4(turn: int | None = None) -> FeatureSet[BattleContext]:
+@feature_set("compact_v3")
+def compact_v3(turn: int | None = None) -> FeatureSet[BattleContext]:
+    """compact_v3 after the multi-seed revalidation."""
+    drops = REVALIDATION_DROPS["compact_v3"]
+    return compact_v3_orig(turn).without(drops, set_name("compact_v3", turn))
+
+
+@feature_set("compact_v4_orig")
+def compact_v4_orig(turn: int | None = None) -> FeatureSet[BattleContext]:
     """compact_v3 plus the knockouts the repair left unmarked (20)."""
     features = [
         *_compact_v3_features(turn),
         AtTurn("p2_hidden_ko_unsure", unsure_hidden_knockouts, turn),
     ]
-    return _feature_set("compact_v4", turn, features)
+    return _feature_set("compact_v4_orig", turn, features)
 
 
-def compact_v5(turn: int | None = None) -> FeatureSet[BattleContext]:
+@feature_set("compact_v4")
+def compact_v4(turn: int | None = None) -> FeatureSet[BattleContext]:
+    """compact_v4 after the multi-seed revalidation."""
+    drops = REVALIDATION_DROPS["compact_v4"]
+    return compact_v4_orig(turn).without(drops, set_name("compact_v4", turn))
+
+
+@feature_set("compact_v5_orig")
+def compact_v5_orig(turn: int | None = None) -> FeatureSet[BattleContext]:
     """compact_v4 re-selected with logistic regression on the pool features (26)."""
     chart = type_chart()
     hpw_turn = 20 if turn is None else min(20, turn)
@@ -283,9 +336,17 @@ def compact_v5(turn: int | None = None) -> FeatureSet[BattleContext]:
         AtTurn("alive_gain_10_30", alive_gain_10_30, turn),
         AtTurn("p2_fainted", p2_fainted, turn),
     ]
-    return _feature_set("compact_v5", turn, features)
+    return _feature_set("compact_v5_orig", turn, features)
 
 
+@feature_set("compact_v5")
+def compact_v5(turn: int | None = None) -> FeatureSet[BattleContext]:
+    """compact_v5 after the multi-seed revalidation."""
+    drops = REVALIDATION_DROPS["compact_v5"]
+    return compact_v5_orig(turn).without(drops, set_name("compact_v5", turn))
+
+
+@feature_set("selection_pool")
 def selection_pool(turn: int | None = None) -> FeatureSet[BattleContext]:
     """compact_v3 and the other candidate features, for ``selection.py``.
 
@@ -353,47 +414,7 @@ def type_chart() -> TypeChart:
     return TypeChart.from_csv(TYPE_CHART_PATH)
 
 
-# columns dropped by the multi-seed revalidation (see the module docstring)
-REVALIDATION_DROPS: dict[str, tuple[str, ...]] = {
-    "compact": ("hidden_team_strength", "opponent_species_encoding", "mv_res"),
-    "compact_v2": ("hidden_knockout_probability", "ghost_ko_50", "act_duel", "mv_res"),
-    "compact_v3": ("p2_hidden_ko_det", "ghost_ko_50", "act_duel", "mv_res"),
-    "compact_v4": ("p2_hidden_ko_det", "ghost_ko_50", "act_duel", "mv_res"),
-    "compact_v5": (
-        "p2_hidden_ko_det", "material_hp", "mv_res", "hp_healed", "ghost_ko_50",
-        "act_duel", "alive_gain_10_30", "eff_trapped",
-    ),
-}
-
-
-def _revalidated(base: str, original: Builder) -> Builder:
-    """``original`` without its ``REVALIDATION_DROPS`` (same set name)."""
-    drops = REVALIDATION_DROPS[base]
-
-    def build(turn: int | None = None) -> FeatureSet[BattleContext]:
-        full = original(turn)
-        missing = set(drops) - set(full.feature_ids)
-        if missing:
-            raise KeyError(f"{base}: no features {sorted(missing)} to drop")
-        return full.select(
-            [f for f in full.feature_ids if f not in drops], name=set_name(base, turn)
-        )
-
-    build.__doc__ = f"{base} after the multi-seed revalidation (drops {', '.join(drops)})."
-    return build
-
-
-def _renamed(base: str, original: Builder) -> Builder:
-    """``original`` under the name ``<base>_orig``."""
-
-    def build(turn: int | None = None) -> FeatureSet[BattleContext]:
-        full = original(turn)
-        return full.select(list(full.feature_ids), name=set_name(f"{base}_orig", turn))
-
-    build.__doc__ = f"{base} as it was before the multi-seed revalidation."
-    return build
-
-
+@feature_set("compact_v5_v11")
 def compact_v5_v11(turn: int | None = None) -> FeatureSet[BattleContext]:
     """compact_v5 + ``v11_proba`` (``features/v11_bridge.py``), for the
     ``blend_v11`` model only: v11 is trained inside each fold, the column is
@@ -402,72 +423,14 @@ def compact_v5_v11(turn: int | None = None) -> FeatureSet[BattleContext]:
 
     if turn is not None:
         raise ValueError("compact_v5_v11 is only defined at the last turn")
-    base = FEATURE_SETS["compact_v5"](None)
+    base = compact_v5(None)
     extra = _feature_set("v11", None, [V11Probability()])
     return base.merge(extra, name="compact_v5_v11")
-
-
-FEATURE_SETS: dict[str, Builder] = {
-    "hp30": hp30,
-    "material": material,
-    "hazards": hazards,
-    "switch": switch,
-    "core": core,
-    "compact": _revalidated("compact", compact),
-    "compact_plus": compact_plus,
-    "compact_ko": compact_ko,
-    "compact_v2": _revalidated("compact_v2", compact_v2),
-    "compact_v3": _revalidated("compact_v3", compact_v3),
-    "compact_v4": _revalidated("compact_v4", compact_v4),
-    "compact_v5": _revalidated("compact_v5", compact_v5),
-    "compact_orig": _renamed("compact", compact),
-    "compact_v2_orig": _renamed("compact_v2", compact_v2),
-    "compact_v3_orig": _renamed("compact_v3", compact_v3),
-    "compact_v4_orig": _renamed("compact_v4", compact_v4),
-    "compact_v5_orig": _renamed("compact_v5", compact_v5),
-    "compact_v5_v11": compact_v5_v11,
-    "selection_pool": selection_pool,
-}
-
-
-def set_name(base: str, turn: int | None) -> str:
-    """``base`` or ``base@t<turn>``."""
-    return base if turn is None else f"{base}{TURN_SEPARATOR}{turn}"
-
-
-def parse_name(name: str) -> tuple[str, int | None]:
-    """Split ``"core@t10"`` into ``("core", 10)``; no suffix gives None."""
-    base, separator, turn = name.partition(TURN_SEPARATOR)
-    if not separator:
-        return name, None
-    if not turn.isdigit() or int(turn) < 1:
-        raise ValueError(f"invalid turn in feature set name {name!r}")
-    return base, int(turn)
-
-
-def build(name: str, turn: int | None = None) -> FeatureSet[BattleContext]:
-    """Build a feature set from its name (``"core"``, ``"core@t10"``).
-
-    ``turn`` can be given separately instead of the ``@t`` suffix.
-    """
-    base, parsed = parse_name(name)
-    if parsed is not None and turn is not None and parsed != turn:
-        raise ValueError(f"{name!r} conflicts with turn={turn}")
-    try:
-        builder = FEATURE_SETS[base]
-    except KeyError:
-        choices = sorted(FEATURE_SETS)
-        raise KeyError(f"unknown feature set {base!r}; choose from {choices}") from None
-    features = builder(parsed if parsed is not None else turn)
-    expected = set_name(base, parsed if parsed is not None else turn)
-    if features.name != expected:
-        raise ValueError(f"builder {base!r} returned feature set {features.name!r}")
-    return features
 
 
 def _feature_set(
     base: str, turn: int | None, features: Iterable[Feature[BattleContext]]
 ) -> FeatureSet[BattleContext]:
-    feature_set = FeatureSet[BattleContext](set_name(base, turn))
-    feature_set.register_all(features)
-    return feature_set
+    built = FeatureSet[BattleContext](set_name(base, turn))
+    built.register_all(features)
+    return built

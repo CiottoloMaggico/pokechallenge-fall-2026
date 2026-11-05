@@ -16,8 +16,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from domain.battle import BattleContext, TurnState
-from feature_set import Feature
 from features.turn_features import AtTurn, check_turn, opponent, share_difference
+from interfaces import Feature
 
 DEFAULT_SMOOTHING = 5.0
 MAX_TURNS = 30

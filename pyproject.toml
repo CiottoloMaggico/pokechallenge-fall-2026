@@ -18,6 +18,7 @@ select = ["E", "F", "W", "I", "UP", "B"]
 typeCheckingMode = "basic"
 strict = [
     "domain",
+    "interfaces.py",
 ]
 include = ["."]
 exclude = [".env", "results", "runs", "input", "**/__pycache__"]
