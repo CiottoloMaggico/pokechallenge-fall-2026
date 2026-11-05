@@ -56,6 +56,9 @@ pokechallenge/
 │   ├── battle.py               # BattleReplay, BattleContext, TurnState
 │   ├── repair.py               # TimelineRepair protocol + NoRepair
 │   ├── transitions.py          # Transition, TransitionExtractor (switch description)
+│   ├── transition_mechanics.py # Gen 2 field and end-of-turn rules of the transitions
+│   ├── knockouts.py            # detector column lists, deleted in step 7
+│   ├── team_knowledge.py       # team and move archive read from replayed battles
 │   └── __main__.py             # `python -m domain …`: build-pokedex, replay, check
 ├── addons/
 │   ├── __init__.py             # registry: "none", "rule", "model" -> factory
@@ -176,29 +179,36 @@ error is raised only when the program cannot continue; the CLI turns
 
 ```python
 @dataclass(frozen=True)
-class Species:
+class PokemonGen2:
     name: str
     types: tuple[str, ...]          # "notype" removed
-    base: Mapping[str, int]         # hp, atk, def, spa, spd, spe
-    @property
-    def base_stat_total(self) -> int: ...
-
-class SpeciesLookup(Protocol):
-    def find(self, name: str) -> Species | None: ...
-    def get(self, name: str) -> Species: ...      # raises UnknownSpeciesError
-
-class Pokedex(SpeciesLookup):
+    base_hp: float; base_atk: float; base_def: float
+    base_spa: float; base_spd: float; base_spe: float   # NaN for without_stats
     @classmethod
-    def from_json(cls, path: Path) -> Pokedex: ...
-    def to_json(self, path: Path) -> None: ...
+    def without_stats(cls, name: str) -> PokemonGen2: ...
+    @property
+    def has_stats(self) -> bool: ...
+    @property
+    def base_stat_total(self) -> float: ...
+
+SpeciesLookup = Callable[[str], PokemonGen2 | None]
+
+class Pokedex:
+    @classmethod
+    def from_json(cls, path: str | Path) -> Pokedex: ...
+    def to_json(self, path: str | Path) -> None: ...
+    def find(self, name: str) -> PokemonGen2 | None: ...
+    def get(self, name: str) -> PokemonGen2: ...      # raises UnknownSpeciesError
+    def for_battle(self, record: Mapping[str, Any]) -> Pokedex: ...
+    def lookup(self, record: Mapping[str, Any], unknown: UnknownSpeciesPolicy) -> SpeciesLookup: ...
     def __len__(self) -> int: ...
 
 class PokedexBuilder:
-    def add_records(self, records: Iterable[BattleRecord]) -> PokedexBuilder: ...
-    def build(self) -> Pokedex: ...               # conflicting duplicates -> DomainError
+    def add_records(self, records: Iterable[Mapping[str, Any]]) -> PokedexBuilder: ...
+    def build(self, source_sha256: str | None = None) -> Pokedex: ...   # conflict -> PokedexError
 
 class UnknownSpeciesPolicy(Protocol):
-    def resolve(self, name: str, record: BattleRecord, pokedex: Pokedex) -> Species | None: ...
+    def resolve(self, name: str, record: Mapping[str, Any], pokedex: Pokedex) -> PokemonGen2 | None: ...
 ```
 
 **Data source rule.** The Pokédex is built only from battle records in the
@@ -215,9 +225,13 @@ supplied by the competition) is the only other input file.
 - `Pokedex.for_battle(record)` adds the species whose stats are in the battle
   itself (P1 team, P2 lead): reading the input battle, not fitting on it, so
   it is allowed for validation and test battles.
-- Policies: `Strict` (raise `UnknownSpeciesError`, for `check`), `Missing`
-  (default: return `None`; features that need stats give NaN, damage is not
-  computed). Today's seeded random replacement is dropped: it invents data.
+- `Pokedex.lookup(record, policy)` is the `SpeciesLookup` of one battle: its
+  `for_battle` species, then the policy.
+- Policies: `Strict` (raise `UnknownSpeciesError`; default of `BattleReplay`, for
+  callers that must refuse such a battle), `Missing` (default of `Dataset`: return
+  `None`; features that need stats give NaN, damage is not computed). Both
+  `check` commands use `Missing` and list these species instead of stopping at
+  the first (§3.9). Today's seeded random replacement is dropped: it invents data.
 - Removing the manual file and the random replacement can move the results:
   measure it right after this step (§9) with the corrected test and accept the
   new numbers as the regression baseline.
