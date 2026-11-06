@@ -36,8 +36,8 @@ import collections
 from collections.abc import Mapping, Sequence
 
 from domain.battle import BattleContext, PlayerState
-from features.encoding_features import TeamEncoding
-from features.turn_features import check_turn
+from features.core.encoding import TeamEncoding
+from features.core.turn import check_turn
 from interfaces import Feature
 
 TEAM_SIZE = 6

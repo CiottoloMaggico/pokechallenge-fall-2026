@@ -26,7 +26,7 @@ from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from domain.battle import BattleContext, PlayerState
-from features.turn_features import check_turn
+from features.core.turn import check_turn
 from interfaces import Feature
 
 DEFAULT_C = 0.01

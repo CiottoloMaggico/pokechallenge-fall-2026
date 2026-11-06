@@ -54,7 +54,6 @@ from pathlib import Path
 import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 
-import feature_catalog
 import model_catalog
 from artifacts import TrainedRun, save_runs
 from data import Dataset
@@ -62,6 +61,7 @@ from domain.battle import BattleContext
 from domain.pokedex import Pokedex, species_without_stats
 from domain.repair import TimelineRepair
 from feature_set import FeatureSet
+from features import sets as feature_sets
 from gym import FoldData, Gym, GymResult, prepare_folds, seed_table
 from knockout_detector import detector_from_files
 from model import Model
@@ -236,7 +236,7 @@ def train(args: argparse.Namespace) -> int:
 
 def tune(args: argparse.Namespace) -> int:
     """Search the hyperparameters of one model on one feature set."""
-    features = feature_catalog.build(args.features)
+    features = feature_sets.build(args.features)
     unlabeled_tag = "_unl" if args.test else ""
     cache = (
         args.storage_dir
@@ -283,7 +283,7 @@ def predict(args: argparse.Namespace) -> int:
     """Predict the test battles with a saved run and write a submission."""
     pokedex = Pokedex.from_json(args.pokedex)
     test = Dataset.from_jsonl(args.test, pokedex, repair=_repair(args))
-    features = feature_catalog.build(TrainedRun.saved_feature_set(args.run))
+    features = feature_sets.build(TrainedRun.saved_feature_set(args.run))
     run = TrainedRun.load(args.run, features, sample_battles=test.contexts[:5])
     proba = run.predict_proba(test.contexts)
     submission = pd.DataFrame(
@@ -309,12 +309,12 @@ def _feature_sets(
 ) -> list[FeatureSet[BattleContext]]:
     """Every named set, once per requested turn (or at the last turn)."""
     sampled: Sequence[int | None] = turns or [None]
-    return [feature_catalog.build(name, turn) for name in names for turn in sampled]
+    return [feature_sets.build(name, turn) for name in names for turn in sampled]
 
 
 def _accuracy_by_turn(summary: pd.DataFrame) -> pd.DataFrame:
     """Mean accuracy with turns as rows and ``set / model`` as columns."""
-    parsed = summary["feature_set"].map(feature_catalog.parse_name)
+    parsed = summary["feature_set"].map(feature_sets.parse_name)
     table = summary.assign(
         turn=[turn for _, turn in parsed],
         series=[
@@ -342,7 +342,7 @@ def _repair(args: argparse.Namespace) -> TimelineRepair:
 @cache
 def _detector(pokedex_path: Path, train: Path, test: Path | None) -> TimelineRepair:
     pokedex = Pokedex.from_json(pokedex_path)
-    return detector_from_files(pokedex, feature_catalog.type_chart(), (train, test))
+    return detector_from_files(pokedex, feature_sets.type_chart(), (train, test))
 
 
 def _report_fold(done: int, total: int, seconds: float) -> None:
@@ -395,7 +395,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--features",
             nargs="+",
             required=True,
-            choices=sorted(feature_catalog.FEATURE_SETS),
+            choices=sorted(feature_sets.FEATURE_SETS),
         )
         sub.add_argument(
             "--models",

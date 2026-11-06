@@ -15,8 +15,8 @@ from data import Dataset
 from domain.pokedex import PokedexBuilder
 from domain.records import read_records
 from domain.repair import NO_REPAIR
-from feature_catalog import build
 from feature_set import FeatureSet
+from features.sets import build
 from gym import Gym
 from interfaces import Feature
 

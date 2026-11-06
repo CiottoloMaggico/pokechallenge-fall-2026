@@ -8,20 +8,20 @@ from pathlib import Path
 
 import pytest
 
-import feature_catalog
 from data import Dataset
 from domain.battle import BattleContext
 from domain.pokedex import Pokedex, PokedexBuilder, species_without_stats
-from features.matchup_features import TeamMatchup, active_duel, ttk_advantage
-from features.montecarlo_features import MC_OUTPUTS, MonteCarloSimulation
-from features.move_features import resisted_share
-from features.pool_features import PoolBulk
-from features.simulation_features import BattleSimulation
-from features.team_features import HiddenTeamStrength, hpw_spd
-from features.wincon_features import _sets_up
+from features import sets as feature_sets
+from features.core.matchup import TeamMatchup, active_duel, ttk_advantage
+from features.core.montecarlo import MC_OUTPUTS, MonteCarloSimulation
+from features.core.moves import resisted_share
+from features.core.pool import PoolBulk
+from features.core.simulation import BattleSimulation
+from features.core.team import HiddenTeamStrength, hpw_spd
+from features.core.wincon import _sets_up
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "battles.jsonl"
-CHART = feature_catalog.type_chart()
+CHART = feature_sets.type_chart()
 EXCLUDED_SETS = {"compact_v5_v11"}  # needs the external v11 repository
 
 
@@ -55,10 +55,10 @@ def test_fixtures_contain_species_without_stats(records: list[dict], pokedex: Po
     assert species_without_stats(records, pokedex)
 
 
-@pytest.mark.parametrize("name", sorted(set(feature_catalog.FEATURE_SETS) - EXCLUDED_SETS))
+@pytest.mark.parametrize("name", sorted(set(feature_sets.FEATURE_SETS) - EXCLUDED_SETS))
 def test_every_feature_set_survives(name: str, contexts: tuple[BattleContext, ...]) -> None:
     labels = [i % 2 for i in range(len(contexts))]
-    features = feature_catalog.build(name)
+    features = feature_sets.build(name)
     features.fit(contexts, labels)
     table = features.to_frame(contexts)
     assert len(table) == len(contexts)

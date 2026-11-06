@@ -34,7 +34,6 @@ import numpy as np
 from sklearn.metrics import log_loss, roc_auc_score
 from sklearn.model_selection import StratifiedGroupKFold
 
-import feature_catalog
 from data import Dataset
 from domain.battle import BattleContext
 from domain.pokedex import Pokedex
@@ -43,7 +42,8 @@ from domain.team_knowledge import (
     KnowledgeView,
     TeamKnowledge,
 )
-from features.team_features import HiddenTeamStrength
+from features import sets as feature_sets
+from features.core.team import HiddenTeamStrength
 from knockout_detector import detector_from_files
 
 CUT = 15
@@ -63,7 +63,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     pokedex = Pokedex.from_json(args.pokedex)
-    chart = feature_catalog.type_chart()
+    chart = feature_sets.type_chart()
     detector = detector_from_files(pokedex, chart, (args.train,))
     train = Dataset.from_jsonl(args.train, pokedex, repair=detector)
     contexts = list(train.contexts)

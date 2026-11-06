@@ -1,7 +1,7 @@
 """Names -> feature sets and models, filled by decorators where they are declared.
 
 A registry is filled when the module that declares its entries is imported
-(``feature_catalog``, ``model_catalog``).
+(``features.sets``, ``model_catalog``).
 """
 
 from __future__ import annotations

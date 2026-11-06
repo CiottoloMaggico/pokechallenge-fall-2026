@@ -14,8 +14,8 @@ from domain.pokedex import Pokedex, PokedexBuilder
 from domain.records import read_records, without_label
 from domain.repair import TimelineRepair
 from domain.typechart import TypeChart
-from features.knockout_features import expected_hidden_knockouts, unsure_hidden_knockouts
-from features.pool_features import soft_material_hp
+from features.core.knockouts import expected_hidden_knockouts, unsure_hidden_knockouts
+from features.core.pool import soft_material_hp
 from knockout_detector import (
     DEFAULT_THRESHOLD,
     DetectorRepair,

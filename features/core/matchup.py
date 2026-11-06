@@ -26,8 +26,8 @@ from domain.battle import BattleContext, LeadState, PlayerState, PokemonState
 from domain.damage import STAGE_MULTIPLIER, Combatant, DamageCalculator, Field
 from domain.moves import Move
 from domain.typechart import TypeChart
-from features.simulation_features import is_attack, stab_moves, turns_lost
-from features.turn_features import check_turn
+from features.core.simulation import is_attack, stab_moves, turns_lost
+from features.core.turn import check_turn
 from interfaces import Feature
 
 NO_KO = 99

@@ -17,10 +17,10 @@ from pathlib import Path
 
 import numpy as np
 
-import feature_catalog
 from data import Dataset
 from domain.pokedex import Pokedex
-from features.montecarlo_features import MC_OUTPUTS, MonteCarloSimulation
+from features import sets as feature_sets
+from features.core.montecarlo import MC_OUTPUTS, MonteCarloSimulation
 from gym import prepare_folds
 from knockout_detector import detector_from_files
 from selection import RepeatedGroupFolds, Selector, paired_t
@@ -61,14 +61,14 @@ def main() -> int:
     args = parser.parse_args()
 
     pokedex = Pokedex.from_json(args.pokedex)
-    chart = feature_catalog.type_chart()
+    chart = feature_sets.type_chart()
     detector = detector_from_files(pokedex, chart, (args.train,))
     full = Dataset.from_jsonl(args.train, pokedex, repair=detector)
     rng = np.random.default_rng(args.seed)
     picked = np.sort(rng.choice(len(full), size=args.battles, replace=False))
     data = full.subset(list(picked))
 
-    pool = feature_catalog.build("selection_pool_v5")
+    pool = feature_sets.build("selection_pool_v5")
     pool.register(MonteCarloSimulation(chart, runs=args.runs))
     folds = prepare_folds(
         pool,

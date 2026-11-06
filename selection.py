@@ -42,14 +42,13 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import numpy as np
-from scipy import stats
 from sklearn.metrics import accuracy_score, log_loss
 from sklearn.model_selection import StratifiedGroupKFold
 
-import feature_catalog
 import model_catalog
 from data import Dataset
 from domain.pokedex import Pokedex
+from features import sets as feature_sets
 from gym import FoldData, corrected_ttest, prepare_folds
 from knockout_detector import detector_from_files
 
@@ -195,7 +194,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     pokedex = Pokedex.from_json(args.pokedex)
-    chart = feature_catalog.type_chart()
+    chart = feature_sets.type_chart()
     detector = detector_from_files(pokedex, chart, (args.train,))  # as main.py
     train = Dataset.from_jsonl(args.train, pokedex, repair=detector)
     unlabeled = (
@@ -203,13 +202,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.test
         else ()
     )
-    start = feature_catalog.build(args.start).declared_columns
+    start = feature_sets.build(args.start).declared_columns
     if start is None:
         raise SystemExit(f"{args.start!r} does not declare its columns")
     seeds = [args.seed + 11 * k for k in range(args.repeats)]
     began = time.perf_counter()
     folds = prepare_folds(
-        feature_catalog.build(args.pool),
+        feature_sets.build(args.pool),
         train.contexts,
         train.labels,
         RepeatedGroupFolds(args.folds, seeds),

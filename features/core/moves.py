@@ -16,7 +16,7 @@ import math
 from domain.battle import BattleContext
 from domain.moves import DamageKind, Move, attack_type, damage_kind
 from domain.typechart import TypeChart
-from features.turn_features import AtTurn, opponent
+from features.core.turn import AtTurn, opponent
 
 UTILITY_ATTACKS = frozenset({"rapidspin"})  # used to clear Spikes, not to hurt
 

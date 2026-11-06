@@ -39,18 +39,18 @@ PROBA = "p_player_won"
 def old_base(blend_run: Path, out: Path) -> None:
     """Predict the test with the base saved inside the blend, using the current directory's code."""
     sys.path.insert(0, str(Path.cwd()))
-    import feature_catalog
     from data import Dataset
     from domain.pokedex import Pokedex
+    from features import sets as feature_sets
     from knockout_detector import detector_from_files
 
     pokedex = Pokedex.from_json("assets/species.json")
     train, test = Path("input/train.jsonl"), Path("input/test.jsonl")
-    detector = detector_from_files(pokedex, feature_catalog.type_chart(), (train,))
+    detector = detector_from_files(pokedex, feature_sets.type_chart(), (train,))
     contexts = Dataset.from_jsonl(test, pokedex, repair=detector)
     state = pickle.loads((blend_run / "feature_state.pkl").read_bytes())
     del state[V11_FEATURE]
-    features = feature_catalog.build("compact_v5")
+    features = feature_sets.build("compact_v5")
     features.set_state(state)
     table = features.to_frame(contexts.contexts)
     columns = json.loads((blend_run / "run.json").read_text())["columns"]

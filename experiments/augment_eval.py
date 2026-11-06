@@ -25,10 +25,10 @@ from pathlib import Path
 import numpy as np
 from sklearn.model_selection import StratifiedGroupKFold
 
-import feature_catalog
 from data import Dataset, load_records
 from domain.pokedex import Pokedex
 from experiments.mc_eval import COMPACT_V5
+from features import sets as feature_sets
 from gym import prepare_folds
 from knockout_detector import detector_from_files
 from selection import Selector, paired_t
@@ -66,7 +66,7 @@ def main() -> int:
     args = parser.parse_args()
 
     pokedex = Pokedex.from_json(args.pokedex)
-    chart = feature_catalog.type_chart()
+    chart = feature_sets.type_chart()
     detector = detector_from_files(pokedex, chart, (args.train,))
     records = load_records(args.train)
     rng = np.random.default_rng(args.seed)
@@ -103,7 +103,7 @@ def main() -> int:
         rows = np.flatnonzero(np.isin(row_groups, train_groups))
         aug_folds.append((rows, va))
 
-    pool = feature_catalog.build("selection_pool_v5")
+    pool = feature_sets.build("selection_pool_v5")
     base_data = prepare_folds(
         pool,
         base.contexts,

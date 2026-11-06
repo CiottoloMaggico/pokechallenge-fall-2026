@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from domain.battle import NO_STATUS, BattleContext, PlayerState, PokemonState
 from domain.moves import Move
-from features.turn_features import AtTurn, side_difference
+from features.core.turn import AtTurn, side_difference
 
 SLEEP = "slp"
 TEAM_SIZE = 6

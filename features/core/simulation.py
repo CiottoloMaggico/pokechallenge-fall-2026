@@ -35,7 +35,7 @@ from domain.battle import BattleContext, PokemonState
 from domain.damage import Combatant, DamageCalculator
 from domain.moves import SELF_KO_MOVES, DamageKind, Move, damage_kind
 from domain.typechart import TypeChart
-from features.team_features import HiddenTeamStrength
+from features.core.team import HiddenTeamStrength
 
 OUTPUTS = ("sim_seen_left", "sim_full_win")
 MAX_DUELS = 15

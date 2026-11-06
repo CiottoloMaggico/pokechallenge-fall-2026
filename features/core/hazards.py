@@ -10,7 +10,7 @@ neither player did it).
 from __future__ import annotations
 
 from domain.battle import BattleContext, SideState, TurnState
-from features.turn_features import AtTurn, opponent, share_difference
+from features.core.turn import AtTurn, opponent, share_difference
 
 SPIKES = "spikes"
 RAPID_SPIN = "rapidspin"

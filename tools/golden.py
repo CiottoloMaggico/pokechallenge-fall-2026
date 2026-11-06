@@ -45,11 +45,11 @@ def _export(out: Path, train: Path) -> None:
     from sklearn.metrics import log_loss
     from sklearn.model_selection import StratifiedGroupKFold
 
-    import feature_catalog
     import model_catalog
     from data import Dataset
     from domain.pokedex import PokedexBuilder
     from domain.records import read_records, without_label
+    from features import sets as feature_sets
     from gym import make_splits, prepare_folds
     from knockout_detector import detector_from_files
 
@@ -63,7 +63,7 @@ def _export(out: Path, train: Path) -> None:
                         for s in ("hp", "atk", "def", "spa", "spd", "spe")}})
     pd.DataFrame(rows).sort_values("name").to_csv(out / "species.csv", index=False)
 
-    repair = detector_from_files(pokedex, feature_catalog.type_chart(), (train,))
+    repair = detector_from_files(pokedex, feature_sets.type_chart(), (train,))
     records = [without_label(json.loads(line)) for line in train.open()]
     rows = []
     for record in records:
@@ -78,7 +78,7 @@ def _export(out: Path, train: Path) -> None:
     ids, y, groups = np.asarray(dataset.ids), dataset.labels, dataset.duplicate_groups()
     splitter = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=SEED)
     splits = make_splits(splitter, y, groups)
-    folds = prepare_folds(feature_catalog.build(FEATURE_SET), dataset.contexts, y, splitter,
+    folds = prepare_folds(feature_sets.build(FEATURE_SET), dataset.contexts, y, splitter,
                           groups=groups)
     oof = []
     for k, ((tr, va), (x_train, y_train, x_valid, _)) in enumerate(zip(splits, folds, strict=True)):

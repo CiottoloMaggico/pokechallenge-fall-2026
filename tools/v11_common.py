@@ -31,10 +31,10 @@ from sklearn.model_selection import StratifiedGroupKFold
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import feature_catalog  # noqa: E402
 import model_catalog  # noqa: E402
 from data import Dataset  # noqa: E402
 from domain.pokedex import Pokedex  # noqa: E402
+from features import sets as feature_sets  # noqa: E402
 from gym import corrected_ttest, prepare_folds  # noqa: E402
 from knockout_detector import detector_from_files  # noqa: E402
 from tuning import load_params  # noqa: E402
@@ -82,7 +82,7 @@ def _build_seed(seed: int) -> tuple[int, list]:
     started = time.perf_counter()
     splitter = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=seed)
     folds = prepare_folds(
-        feature_catalog.build(FEATURE_SET), ds.contexts, ds.labels, splitter,
+        feature_sets.build(FEATURE_SET), ds.contexts, ds.labels, splitter,
         groups=ds.duplicate_groups(),
         progress=lambda d, t, s: print(f"  seed {seed}: fold {d}/{t} ready ({s:.0f} s)", flush=True),
     )
@@ -106,7 +106,7 @@ def fold_tables(args: argparse.Namespace, seeds: list[int]) -> dict[int, list]:
     if todo:
         print(f"building the fold tables of seeds {todo} (v11 is refitted in every fold)", flush=True)
         pokedex = Pokedex.from_json(args.pokedex)
-        detector = detector_from_files(pokedex, feature_catalog.type_chart(), (args.train,))
+        detector = detector_from_files(pokedex, feature_sets.type_chart(), (args.train,))
         _SHARED.update(dataset=Dataset.from_jsonl(args.train, pokedex, repair=detector), cache=args.cache)
         if os.environ.get("V11_FEATURES") == "shared" and os.environ.get("V11_FAKE") != "1":
             from features.v11_bridge import _shared_rows, configure

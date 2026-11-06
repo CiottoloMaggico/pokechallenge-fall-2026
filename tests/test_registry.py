@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-import feature_catalog
 import model_catalog
+from features import sets as feature_sets
 from registry import ENSEMBLES, MODELS, Registry, build_feature_set, parse_name, set_name
 
 COMPACT_V5_COLUMNS = [
@@ -69,15 +69,15 @@ def test_a_fixed_set_refuses_a_turn() -> None:
 
 
 def test_revalidated_sets_keep_their_columns_and_order() -> None:
-    assert feature_catalog.build("compact_v5").declared_columns == COMPACT_V5_COLUMNS
+    assert feature_sets.build("compact_v5").declared_columns == COMPACT_V5_COLUMNS
 
 
 @pytest.mark.parametrize(
     "base", ["compact", "compact_v2", "compact_v3", "compact_v4", "compact_v5"]
 )
 def test_originals_keep_the_dropped_features(base: str) -> None:
-    kept = feature_catalog.build(base)
-    original = feature_catalog.build(f"{base}_orig")
+    kept = feature_sets.build(base)
+    original = feature_sets.build(f"{base}_orig")
     assert original.name == f"{base}_orig"
     assert set(kept.feature_ids) < set(original.feature_ids)
 

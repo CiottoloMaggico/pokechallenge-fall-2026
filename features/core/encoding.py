@@ -26,9 +26,9 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 
 from domain.battle import BattleContext
-from features.knockout_features import expected_hidden_knockouts
-from features.material_features import alive_share, healthy_share, hp_share
-from features.turn_features import check_turn
+from features.core.knockouts import expected_hidden_knockouts
+from features.core.material import alive_share, healthy_share, hp_share
+from features.core.turn import check_turn
 from interfaces import Feature
 
 DEFAULT_SMOOTHING = 30.0

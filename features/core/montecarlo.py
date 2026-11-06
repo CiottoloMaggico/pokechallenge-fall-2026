@@ -1,6 +1,6 @@
 """Monte Carlo version of the rest-of-battle simulation (prototype).
 
-:class:`features.simulation_features.BattleSimulation` plays each duel with
+:class:`features.core.simulation.BattleSimulation` plays each duel with
 expected damage: a Pokémon needs ``ceil(hp / mean)`` hits. Here every duel
 is played ``runs`` times with random outcomes instead:
 
@@ -37,7 +37,7 @@ from domain.damage import DamageCalculator
 from domain.moves import DamageKind, Move, crit_rate, damage_kind
 from domain.records import fingerprint
 from domain.typechart import TypeChart
-from features.simulation_features import (
+from features.core.simulation import (
     TEAM_SIZE,
     BattleSimulation,
     DuelSimulator,

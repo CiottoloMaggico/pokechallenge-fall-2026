@@ -39,8 +39,8 @@ from domain.team_knowledge import (
     complete_team,
 )
 from domain.typechart import TypeChart
-from features.matchup_features import ttk_advantage
-from features.simulation_features import (
+from features.core.matchup import ttk_advantage
+from features.core.simulation import (
     TEAM_SIZE,
     DuelSimulator,
     Fighter,
@@ -49,9 +49,9 @@ from features.simulation_features import (
     outcome,
     stats_missing,
 )
-from features.team_features import MAX_BST, HiddenTeamStrength
-from features.turn_features import check_turn
-from features.wincon_features import CURSE, HEALING, SETUP
+from features.core.team import MAX_BST, HiddenTeamStrength
+from features.core.turn import check_turn
+from features.core.wincon import CURSE, HEALING, SETUP
 from interfaces import Feature
 
 OUTPUTS = (

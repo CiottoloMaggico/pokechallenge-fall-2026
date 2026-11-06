@@ -25,7 +25,7 @@ import math
 from collections.abc import Mapping, Sequence
 
 from domain.battle import BattleContext, PlayerState
-from features.turn_features import AtTurn, check_turn
+from features.core.turn import AtTurn, check_turn
 from interfaces import Feature
 
 MAX_BST = 600
