@@ -9,8 +9,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from model import EstimatorModel, Model
+from interfaces import Model
+from models.core.estimator import EstimatorModel
 from models.space import Trial
+from registry import model
 
 PARAMS: dict[str, Any] = {
     "C": 0.05,
@@ -21,6 +23,15 @@ PARAMS: dict[str, Any] = {
 }
 
 
+def search_space(trial: Trial) -> dict[str, Any]:
+    """Regularisation strength and type (L1 or L2)."""
+    return {
+        "C": trial.suggest_float("C", 1e-3, 10.0, log=True),
+        "l1_ratio": trial.suggest_categorical("l1_ratio", [0.0, 1.0]),
+    }
+
+
+@model("logreg", space=search_space)
 def build(name: str = "logreg", **params: Any) -> Model:
     """The imputer (median) also drops columns that are entirely NaN."""
     estimator = make_pipeline(
@@ -29,11 +40,3 @@ def build(name: str = "logreg", **params: Any) -> Model:
         LogisticRegression(**{**PARAMS, **params}),
     )
     return EstimatorModel(name, estimator)
-
-
-def search_space(trial: Trial) -> dict[str, Any]:
-    """Regularisation strength and type (L1 or L2)."""
-    return {
-        "C": trial.suggest_float("C", 1e-3, 10.0, log=True),
-        "l1_ratio": trial.suggest_categorical("l1_ratio", [0.0, 1.0]),
-    }

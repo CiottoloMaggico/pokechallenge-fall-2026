@@ -82,7 +82,7 @@ pokechallenge/
 │   │   ├── logit_blend.py      # LogitBlend (model + probability column)
 │   │   └── preprocessing.py    # DropEmptyColumns, require(), MissingDependencyError
 │   ├── logreg.py  hgb.py  lightgbm.py  xgboost.py  catboost.py
-│   ├── gb_lr.py  catboost_lr.py  lightgbm_lr.py  xgboost_lr.py
+│   ├── gb_lr.py  catboost_lr.py  lightgbm_lr.py  xgboost_lr.py  blend_v11.py
 │   └── ensembles.py            # ensemble, ensemble_from_lr, …
 ├── interfaces.py               # Feature, FeatureSource protocols (Model, Splitter, Probe: steps 5-6)
 ├── feature_set.py              # FeatureSet, at the root while the v11 bridge imports it (§4.2)
@@ -618,11 +618,15 @@ def gb_lr(**params: Any) -> Model: ...
 def ensemble_from_lr(**params: Any) -> Model: ...    # requires = those of its members
 ```
 
-- Replaces `BUILDERS`, `SEARCH_SPACES`, `REQUIRED_MODULE`, `ENSEMBLES` of
-  `model_catalog.py` with one declaration per model. `build(name, **params)`,
-  `build_tuned(name, params_files)` and `available()` stay as registry functions.
-- Since step 4a `registry.py` holds `ModelSpec`, `@model` and `@ensemble`, and
-  `model_catalog.py` registers through them; step 5 moves the declarations.
+- Replaced `BUILDERS`, `SEARCH_SPACES`, `REQUIRED_MODULE`, `ENSEMBLES` of the
+  old `model_catalog.py` with one declaration per model. `build(name, **params)`,
+  `build_tuned(name, tuned)`, `available()` and `search_spaces()` are registry
+  functions; `import models` registers every model and re-exports them.
+- `ModelSpec`, `@model` and `@ensemble` live in `registry.py` (since step 4a).
+  An ensemble is declared after its members (`models/__init__.py` imports
+  `ensembles` last) because it takes its `requires` from them.
+- `Model` is in `interfaces.py`; `EstimatorModel` and `EnsembleModel` are in
+  `models/core/`. `models/space.py` (the `Trial` protocol) stays as it was.
 
 ## 6. Application
 

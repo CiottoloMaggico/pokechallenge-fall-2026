@@ -13,8 +13,7 @@ from typing import Any, cast
 import numpy as np
 import pandas as pd
 
-from interfaces import FeatureSource, FittableFeatureSource, is_stateful
-from model import Model
+from interfaces import FeatureSource, FittableFeatureSource, Model, is_stateful
 
 RUN_MODEL_FILE = "model.pkl"
 RUN_INFO_FILE = "run.json"

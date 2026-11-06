@@ -6,9 +6,10 @@ from typing import Any
 
 from sklearn.ensemble import HistGradientBoostingClassifier
 
-from model import Model
-from models.preprocessing import tree_model
+from interfaces import Model
+from models.core.preprocessing import tree_model
 from models.space import Trial
+from registry import model
 
 PARAMS: dict[str, Any] = {
     "max_iter": 1500,
@@ -34,6 +35,18 @@ SHALLOW_PARAMS: dict[str, Any] = {
 }
 
 
+def search_space(trial: Trial) -> dict[str, Any]:
+    return {
+        "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.2, log=True),
+        "max_iter": trial.suggest_int("max_iter", 100, 2000, log=True),
+        "max_leaf_nodes": trial.suggest_int("max_leaf_nodes", 4, 63, log=True),
+        "min_samples_leaf": trial.suggest_int("min_samples_leaf", 10, 300, log=True),
+        "l2_regularization": trial.suggest_float("l2_regularization", 1e-3, 10.0, log=True),
+        "max_features": trial.suggest_float("max_features", 0.2, 1.0),
+    }
+
+
+@model("hgb", space=search_space)
 def build(name: str = "hgb", **params: Any) -> Model:
     return tree_model(name, HistGradientBoostingClassifier(**{**PARAMS, **params}))
 
@@ -41,16 +54,3 @@ def build(name: str = "hgb", **params: Any) -> Model:
 def build_shallow(name: str = "hgb_shallow", **params: Any) -> Model:
     """Shallow boosting (``SHALLOW_PARAMS``), meant to be blended with logreg."""
     return build(name, **{**SHALLOW_PARAMS, **params})
-
-
-def search_space(trial: Trial) -> dict[str, Any]:
-    return {
-        "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.2, log=True),
-        "max_iter": trial.suggest_int("max_iter", 100, 2000, log=True),
-        "max_leaf_nodes": trial.suggest_int("max_leaf_nodes", 4, 63, log=True),
-        "min_samples_leaf": trial.suggest_int("min_samples_leaf", 10, 300, log=True),
-        "l2_regularization": trial.suggest_float(
-            "l2_regularization", 1e-3, 10.0, log=True
-        ),
-        "max_features": trial.suggest_float("max_features", 0.2, 1.0),
-    }

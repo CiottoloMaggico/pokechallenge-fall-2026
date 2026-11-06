@@ -24,7 +24,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from model import Model
+from interfaces import Model
 
 EPS = 1e-6
 
@@ -50,11 +50,11 @@ class LogitBlend(Model):
         self._base: Model | None = None
 
     def _build_base(self) -> Model:
-        import model_catalog
+        from registry import build_tuned
         from tuning import load_params
 
         params = dict(load_params(Path(p)) for p in self.tuned)
-        return model_catalog.build_tuned(self.base, params)
+        return build_tuned(self.base, params)
 
     def _split(self, x: Any) -> tuple[pd.DataFrame, np.ndarray]:
         if not isinstance(x, pd.DataFrame) or self.column not in x:
@@ -76,7 +76,3 @@ class LogitBlend(Model):
 
     def get_params(self) -> dict[str, Any]:
         return {"w": self.w, "base": self.base, "column": self.column, "tuned": list(self.tuned)}
-
-
-def build(name: str = "blend_v11", **params: Any) -> Model:
-    return LogitBlend(name=name, **params)

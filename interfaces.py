@@ -1,17 +1,21 @@
-"""What the application and the features agree on: a feature, and a source of feature tables.
+"""What the application, the features and the models agree on.
 
 :class:`Feature` is what every concrete feature extends. :class:`FeatureSource` and
 :class:`FittableFeatureSource` are what the gym and the saved runs need from a table of features;
-:class:`feature_set.FeatureSet` is the implementation.
+:class:`feature_set.FeatureSet` is the implementation. :class:`Model` is the binary classifier the
+gym fits and compares, whatever library is behind it.
 """
-
 from __future__ import annotations
 
 import copy
+import pickle
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping, Sequence
 from numbers import Real
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+import numpy as np
 
 if TYPE_CHECKING:
     import pandas as pd  # pyright: ignore[reportMissingTypeStubs]
@@ -190,3 +194,91 @@ class FittableFeatureSource(Protocol):
 def is_stateful(source: FeatureSource) -> bool:
     """True if ``source`` learns something and must be fitted inside each fold."""
     return isinstance(source, FittableFeatureSource) and source.is_stateful
+
+
+class NotFittedError(RuntimeError):
+    """``predict`` or ``predict_proba`` called before ``fit``."""
+
+
+class Model(ABC):
+    """A binary classifier: positive class = Player 1 wins (label 1)."""
+
+    def __init__(self, name: str) -> None:
+        if not name:
+            raise ValueError("a model needs a non-empty name")
+        self._name = name
+        self._fitted = False
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def is_fitted(self) -> bool:
+        return self._fitted
+
+    def fit(self, x: pd.DataFrame, y: Any) -> Model:
+        """Train on ``x`` and binary labels ``y``; return ``self``."""
+        labels = np.asarray(y)
+        _check_binary(labels)
+        self._fit(x, labels)
+        self._fitted = True
+        return self
+
+    def predict_proba(self, x: pd.DataFrame) -> np.ndarray:
+        """Return P(label = 1) for each row, as a 1-D array."""
+        self._require_fitted()
+        proba = np.asarray(self._predict_proba(x), dtype=float).ravel()
+        if proba.size and (proba.min() < 0 or proba.max() > 1):
+            raise ValueError(f"{self.name}: probabilities outside [0, 1]")
+        return proba
+
+    def predict(self, x: pd.DataFrame, threshold: float = 0.5) -> np.ndarray:
+        """Return hard 0/1 predictions (1 when P(label = 1) > threshold)."""
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError("threshold must be in [0, 1]")
+        return (self.predict_proba(x) > threshold).astype(int)
+
+    @abstractmethod
+    def clone(self) -> Model:
+        """Return an unfitted copy with the same configuration."""
+
+    @abstractmethod
+    def get_params(self) -> dict[str, Any]:
+        """Return the configuration, for logging and reports."""
+
+    def save(self, path: str | Path) -> None:
+        """Serialize the model (fitted or not) with pickle."""
+        with Path(path).open("wb") as fh:
+            pickle.dump(self, fh)
+
+    @staticmethod
+    def load(path: str | Path) -> Model:
+        """Load a model saved with :meth:`save` (only trusted files)."""
+        with Path(path).open("rb") as fh:
+            model = pickle.load(fh)
+        if not isinstance(model, Model):
+            raise TypeError(f"{path} does not contain a Model")
+        return model
+
+    def __repr__(self) -> str:
+        state = "fitted" if self._fitted else "unfitted"
+        return f"{type(self).__name__}({self.name!r}, {state})"
+
+    @abstractmethod
+    def _fit(self, x: pd.DataFrame, y: np.ndarray) -> None:
+        """Train the underlying learner."""
+
+    @abstractmethod
+    def _predict_proba(self, x: pd.DataFrame) -> Any:
+        """Return P(label = 1) for each row."""
+
+    def _require_fitted(self) -> None:
+        if not self._fitted:
+            raise NotFittedError(f"{self.name}: call fit() first")
+
+
+def _check_binary(y: np.ndarray) -> None:
+    values = set(np.unique(y).tolist())
+    if not values <= {0, 1} or len(values) < 2:
+        raise ValueError(f"labels must contain both 0 and 1, got {values}")

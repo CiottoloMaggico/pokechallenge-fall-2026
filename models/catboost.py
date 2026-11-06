@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from model import Model
-from models.preprocessing import require, tree_model
+from interfaces import Model
+from models.core.preprocessing import require, tree_model
 from models.space import Trial
+from registry import model
 
-LIBRARY = "catboost"
 PARAMS: dict[str, Any] = {
     "iterations": 1500,
     "learning_rate": 0.03,
@@ -26,11 +26,6 @@ PARAMS: dict[str, Any] = {
 }
 
 
-def build(name: str = "catboost", **params: Any) -> Model:
-    module = require(LIBRARY)
-    return tree_model(name, module.CatBoostClassifier(**{**PARAMS, **params}))
-
-
 def search_space(trial: Trial) -> dict[str, Any]:
     return {
         "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.2, log=True),
@@ -39,3 +34,9 @@ def search_space(trial: Trial) -> dict[str, Any]:
         "l2_leaf_reg": trial.suggest_float("l2_leaf_reg", 1.0, 30.0, log=True),
         "rsm": trial.suggest_float("rsm", 0.2, 1.0),
     }
+
+
+@model("catboost", space=search_space, requires=("catboost",))
+def build(name: str = "catboost", **params: Any) -> Model:
+    module = require("catboost")
+    return tree_model(name, module.CatBoostClassifier(**{**PARAMS, **params}))

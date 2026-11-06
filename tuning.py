@@ -30,9 +30,9 @@ from typing import Any
 import numpy as np
 from sklearn.metrics import accuracy_score, log_loss
 
-import model_catalog
 from gym import FoldData
-from models.preprocessing import require
+from models import build, search_spaces
+from models.core.preprocessing import require
 
 PROBA_CLIP = 1e-6
 METRICS: dict[str, tuple[str, Callable[[np.ndarray, np.ndarray], float]]] = {
@@ -50,10 +50,10 @@ class Tuner:
     def __init__(
         self, model_name: str, folds: Sequence[FoldData], metric: str = "log_loss"
     ) -> None:
-        if model_name not in model_catalog.SEARCH_SPACES:
+        if model_name not in search_spaces():
             raise KeyError(
                 f"no search space for {model_name!r}; "
-                f"choose from {sorted(model_catalog.SEARCH_SPACES)}"
+                f"choose from {sorted(search_spaces())}"
             )
         if metric not in METRICS:
             raise KeyError(f"unknown metric {metric!r}; choose from {sorted(METRICS)}")
@@ -66,10 +66,10 @@ class Tuner:
 
     def objective(self, trial: Any) -> float:
         """Mean ``metric`` over the folds for the parameters ``trial`` picks."""
-        params = model_catalog.SEARCH_SPACES[self.model_name](trial)
+        params = search_spaces()[self.model_name](trial)
         scores, accuracies = [], []
         for step, (x_train, y_train, x_valid, y_valid) in enumerate(self.folds):
-            model = model_catalog.build(self.model_name, **params)
+            model = build(self.model_name, **params)
             proba = model.fit(x_train, y_train).predict_proba(x_valid)
             scores.append(self._score(y_valid, proba))
             accuracies.append(METRICS["accuracy"][1](y_valid, proba))

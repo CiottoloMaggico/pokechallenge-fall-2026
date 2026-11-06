@@ -45,13 +45,13 @@ def _export(out: Path, train: Path) -> None:
     from sklearn.metrics import log_loss
     from sklearn.model_selection import StratifiedGroupKFold
 
-    import model_catalog
     from data import Dataset
     from domain.pokedex import PokedexBuilder
     from domain.records import read_records, without_label
     from features import sets as feature_sets
     from gym import make_splits, prepare_folds
     from knockout_detector import detector_from_files
+    from models import build
 
     started = time.perf_counter()
     out.mkdir(parents=True, exist_ok=True)
@@ -86,7 +86,7 @@ def _export(out: Path, train: Path) -> None:
                                                  float_format=FLOAT)
         x_valid.assign(battle_id=ids[va]).to_csv(out / f"features_f{k}_valid.csv", index=False,
                                                  float_format=FLOAT)
-        model = model_catalog.build("logreg").fit(x_train, y_train)
+        model = build("logreg").fit(x_train, y_train)
         oof.append(pd.DataFrame({"battle_id": ids[va], "fold": k, "y": y[va],
                                  "p": model.predict_proba(x_valid)}))
         print(f"fold {k + 1}/5 exported ({time.perf_counter() - started:.0f} s)", flush=True)

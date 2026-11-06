@@ -45,12 +45,12 @@ import numpy as np
 from sklearn.metrics import accuracy_score, log_loss
 from sklearn.model_selection import StratifiedGroupKFold
 
-import model_catalog
 from data import Dataset
 from domain.pokedex import Pokedex
 from features import sets as feature_sets
 from gym import FoldData, corrected_ttest, prepare_folds
 from knockout_detector import detector_from_files
+from models import build
 
 DEFAULT_POKEDEX = Path("results/cache/species.json")
 DEFAULT_TRAIN = Path("input/train.jsonl")
@@ -91,7 +91,7 @@ class Selector:
     def score(self, columns: Sequence[str]) -> Scores:
         accuracy, loss = [], []
         for x_train, y_train, x_valid, y_valid in self.folds:
-            model = model_catalog.build(self.model)
+            model = build(self.model)
             model.fit(x_train[list(columns)], y_train)
             proba = np.clip(
                 model.predict_proba(x_valid[list(columns)]), PROBA_CLIP, 1 - PROBA_CLIP

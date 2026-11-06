@@ -18,7 +18,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import SplineTransformer, StandardScaler
 
-from model import EstimatorModel, Model
+from interfaces import Model
+from models.core.estimator import EstimatorModel
 from models.space import Trial
 
 N_KNOTS = 4

@@ -68,8 +68,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
 from artifacts import FeatureMismatchError, TrainedRun
-from interfaces import FeatureSource, FittableFeatureSource, is_stateful
-from model import Model
+from interfaces import FeatureSource, FittableFeatureSource, Model, is_stateful
 
 Metric = Callable[[np.ndarray, np.ndarray], float]
 # labels, ids and groups may be lists or numpy arrays (e.g. Dataset.labels)

@@ -54,7 +54,6 @@ from pathlib import Path
 import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 
-import model_catalog
 from artifacts import TrainedRun, save_runs
 from data import Dataset
 from domain.battle import BattleContext
@@ -63,9 +62,9 @@ from domain.repair import TimelineRepair
 from feature_set import FeatureSet
 from features import sets as feature_sets
 from gym import FoldData, Gym, GymResult, prepare_folds, seed_table
+from interfaces import Model
 from knockout_detector import detector_from_files
-from model import Model
-from models.ensemble import DEFAULT_MEMBERS
+from models import ENSEMBLES, MODELS, build_tuned, search_spaces
 from tuning import Tuner, cached_folds, load_params, save_best
 
 DEFAULT_POKEDEX = Path("results/cache/species.json")
@@ -356,12 +355,11 @@ def _models(names: Sequence[str], params_files: Sequence[Path] | None) -> list[M
     for model in tuned:
         if not any(
             model == name
-            or model in model_catalog.ENSEMBLES.get(name, ())
-            or (name == "ensemble" and model in DEFAULT_MEMBERS)
+            or model in ENSEMBLES.get(name, ())
             for name in names
         ):
             print(f"note: ignoring tuned parameters for {model!r} (not in --models)")
-    return [model_catalog.build_tuned(name, tuned) for name in names]
+    return [build_tuned(name, tuned) for name in names]
 
 
 def _unlabeled(args: argparse.Namespace, pokedex: Pokedex) -> tuple[BattleContext, ...]:
@@ -401,7 +399,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--models",
             nargs="+",
             required=True,
-            choices=sorted(model_catalog.MODELS),
+            choices=sorted(MODELS),
         )
         sub.add_argument(
             "--turns",
@@ -439,7 +437,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_tune.add_argument("--test", type=Path, help="unlabelled battles (optional)")
     p_tune.add_argument("--features", required=True, help="one feature set")
     p_tune.add_argument(
-        "--model", required=True, choices=sorted(model_catalog.SEARCH_SPACES)
+        "--model", required=True, choices=sorted(search_spaces())
     )
     p_tune.add_argument("--trials", type=int, default=100)
     p_tune.add_argument("--timeout", type=float, help="seconds (optional)")

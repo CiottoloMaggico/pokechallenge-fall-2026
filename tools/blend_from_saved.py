@@ -74,7 +74,7 @@ def _test_copies_of_train(blend_run: Path, test: Path) -> dict[int, bool]:
 def blend(args: argparse.Namespace) -> None:
     """Recover p_v11, blend it with the new base and write the three files."""
     sys.path.insert(0, str(ROOT))
-    from models.logit_blend import _logit
+    from models.core.logit_blend import _logit
 
     model = pickle.loads((args.blend_run / "model.pkl").read_bytes())
     w = model.w

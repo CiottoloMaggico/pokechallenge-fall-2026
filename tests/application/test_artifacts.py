@@ -9,7 +9,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import model_catalog
 from artifacts import RUN_INFO_FILE, FeatureMismatchError, TrainedRun, save_runs
 from data import Dataset
 from domain.pokedex import PokedexBuilder
@@ -19,6 +18,7 @@ from feature_set import FeatureSet
 from features.sets import build
 from gym import Gym
 from interfaces import Feature
+from models import build as build_model
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "battles.jsonl"
 MANIFEST = NO_REPAIR.describe()
@@ -50,7 +50,7 @@ def source(name: str = "toy") -> FeatureSet[float]:
 def run() -> TrainedRun:
     battles = [float(i) for i in range(40)]
     labels = [i % 2 for i in range(40)]
-    gym = Gym(model_catalog.build("logreg"), source())
+    gym = Gym(build_model("logreg"), source())
     return gym.train(battles, labels, repair=MANIFEST)[0]
 
 
@@ -91,7 +91,7 @@ def test_a_run_refuses_changed_columns(run: TrainedRun) -> None:
 def test_the_main_feature_set_round_trips(tmp_path: Path) -> None:
     pokedex = PokedexBuilder().add_records(read_records(FIXTURES)).build()
     data = Dataset.from_jsonl(FIXTURES, pokedex)
-    gym = Gym(model_catalog.build("logreg"), build("compact_v5"))
+    gym = Gym(build_model("logreg"), build("compact_v5"))
     run = gym.train(data.contexts, data.labels, groups=data.duplicate_groups(), repair=MANIFEST)[0]
     loaded = TrainedRun.load(run.save(tmp_path / "run"), build("compact_v5"), data.contexts[:5])
     assert loaded.columns == run.columns

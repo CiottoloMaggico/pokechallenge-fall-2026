@@ -9,7 +9,8 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import make_pipeline
 from sklearn.utils.validation import check_is_fitted
 
-from model import EstimatorModel, Model
+from interfaces import Model
+from models.core.estimator import EstimatorModel
 
 
 class DropEmptyColumns(TransformerMixin, BaseEstimator):

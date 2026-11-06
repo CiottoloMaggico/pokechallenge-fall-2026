@@ -1,19 +1,20 @@
 """Names -> feature sets and models, filled by decorators where they are declared.
 
 A registry is filled when the module that declares its entries is imported
-(``features.sets``, ``model_catalog``).
+(``features.sets``, ``models``).
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+import importlib.util
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from domain.battle import BattleContext
     from feature_set import FeatureSet
-    from model import Model
+    from interfaces import Model
     from models.space import Trial
 
     FeatureSetBuilder = Callable[[int | None], FeatureSet[BattleContext]]
@@ -87,6 +88,48 @@ def ensemble[B: Callable[..., Any]](name: str, members: Sequence[str]) -> Callab
         return builder
 
     return register
+
+
+def build(model: str, /, **params: Any) -> Model:
+    """Build the registered model ``model``; ``params`` override its defaults.
+
+    ``name=`` among ``params`` renames the built model (e.g. "hgb-tuned").
+    """
+    return MODELS[model].build(**params)
+
+
+def build_tuned(model: str, tuned: Mapping[str, Mapping[str, Any]]) -> Model:
+    """Build ``model`` with tuned parameters (``tuned``: model -> params).
+
+    A single model found in ``tuned`` gets its parameters and is named
+    ``<model>-tuned``; an ensemble is rebuilt from its members, each with
+    its tuned parameters when available, and named ``<ensemble>-tuned``
+    if at least one member was tuned. Anything else is built as usual.
+    """
+    from models.core.ensemble import EnsembleModel
+
+    if model in ENSEMBLES:
+        members = ENSEMBLES[model]
+        if not any(m in tuned for m in members):
+            return build(model)
+        return EnsembleModel(f"{model}-tuned", [build_tuned(m, tuned) for m in members])
+    if model in tuned:
+        return build(model, name=f"{model}-tuned", **tuned[model])
+    return build(model)
+
+
+def available() -> list[str]:
+    """Registered model names whose libraries are all installed."""
+    return [
+        spec.name
+        for spec in MODELS.values()
+        if all(importlib.util.find_spec(module) is not None for module in spec.requires)
+    ]
+
+
+def search_spaces() -> dict[str, SearchSpace]:
+    """Search space of every tunable model (an ensemble has none: its members are tuned)."""
+    return {spec.name: spec.search_space for spec in MODELS.values() if spec.search_space}
 
 
 def set_name(base: str, turn: int | None) -> str:

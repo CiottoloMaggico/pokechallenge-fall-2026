@@ -6,7 +6,9 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import GradientBoostingClassifier
 
-from models.from_logreg import SKLEARN_PARAMS, build_sklearn, logreg_pipeline
+from models.core.from_logreg import logreg_pipeline
+from models.gb_lr import SKLEARN_PARAMS
+from models.gb_lr import build as build_sklearn
 
 
 def table() -> tuple[pd.DataFrame, np.ndarray]:

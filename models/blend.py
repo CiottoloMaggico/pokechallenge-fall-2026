@@ -1,6 +1,6 @@
 """Blend of other models on the logit scale, with weights learned in CV.
 
-Unlike :class:`model.EnsembleModel` (a plain average of probabilities),
+Unlike :class:`models.core.ensemble.EnsembleModel` (a plain average of probabilities),
 :class:`LogitBlend` learns how much to trust each member:
 
 1. inside the training data, ``inner_folds`` stratified folds give every
@@ -24,7 +24,9 @@ from scipy.optimize import minimize
 from scipy.special import expit, logit, softmax
 from sklearn.model_selection import StratifiedKFold
 
-from model import ArrayLike, Model
+from interfaces import Model
+
+ArrayLike = Any
 
 INNER_FOLDS = 5
 SEED = 0

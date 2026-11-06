@@ -31,12 +31,12 @@ from sklearn.model_selection import StratifiedGroupKFold
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import model_catalog  # noqa: E402
 from data import Dataset  # noqa: E402
 from domain.pokedex import Pokedex  # noqa: E402
 from features import sets as feature_sets  # noqa: E402
 from gym import corrected_ttest, prepare_folds  # noqa: E402
 from knockout_detector import detector_from_files  # noqa: E402
+from models import build_tuned  # noqa: E402
 from tuning import load_params  # noqa: E402
 
 FEATURE_SET = "compact_v5_v11"
@@ -133,7 +133,7 @@ def fold_tables(args: argparse.Namespace, seeds: list[int]) -> dict[int, list]:
 
 def _base_model(base: str, tuned: list[Path]):
     params = dict(load_params(p) for p in tuned)
-    return model_catalog.build_tuned(base, params)
+    return build_tuned(base, params)
 
 
 def fold_predictions(args: argparse.Namespace, seeds: list[int]) -> list[dict]:

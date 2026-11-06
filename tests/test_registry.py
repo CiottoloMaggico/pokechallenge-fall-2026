@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-import model_catalog
+import models
 from features import sets as feature_sets
 from registry import ENSEMBLES, MODELS, Registry, build_feature_set, parse_name, set_name
 
@@ -89,15 +89,15 @@ def test_an_ensemble_needs_the_libraries_of_its_members() -> None:
 
 
 def test_models_without_a_search_space_are_not_tunable() -> None:
-    assert "logreg" in model_catalog.SEARCH_SPACES
-    assert "ensemble_from_lr" not in model_catalog.SEARCH_SPACES
+    assert "logreg" in models.search_spaces()
+    assert "ensemble_from_lr" not in models.search_spaces()
 
 
 def test_an_unknown_model_lists_the_valid_ones() -> None:
     with pytest.raises(KeyError, match="unknown model 'nope'"):
-        model_catalog.build("nope")
+        models.build("nope")
 
 
 def test_an_ensemble_with_a_tuned_member_is_named_tuned() -> None:
-    built = model_catalog.build_tuned("ensemble_from_lr", {"gb_lr": {"learning_rate": 0.07}})
+    built = models.build_tuned("ensemble_from_lr", {"gb_lr": {"learning_rate": 0.07}})
     assert built.name == "ensemble_from_lr-tuned"
