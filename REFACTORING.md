@@ -9,6 +9,12 @@ Otherwise the refactoring is done when `evaluate --seeds 33 66 133` on
 `compact_v5` reproduces the current numbers (ensemble_from_lr 72.02 % /
 0.5401, logreg 71.86 % / 0.5425) to the fourth decimal.
 
+**Status: done (step 9, commit `60707d3`).** The final regression
+(`results/reference_runs/step9_final`) equals the re-measured baseline of step 2
+(`step2_pokedex`: ensemble_from_lr 0.7207 / 0.5402, logreg 0.7191 / 0.5426) in every
+fold and every prediction; the detector matches step 7. This document now describes the
+code as it is; when they disagree, the code wins and the document is fixed.
+
 ## 1. Layers and dependency rule
 
 ```
@@ -43,6 +49,7 @@ Each rule is checked by a test (`tests/test_architecture.py`, see §8).
 ```
 pokechallenge/
 ├── pyproject.toml              # ruff (pep8 + isort), pyright, pytest, optional extras
+├── .github/workflows/ci.yml    # ruff, pyright, pytest (§8)
 ├── main.py                     # CLI only
 ├── assets/
 │   └── type_chart_gen2.csv     # competition file, the only asset
@@ -68,9 +75,16 @@ pokechallenge/
 │   ├── core/                   # one module per family of concrete features
 │   │   ├── material.py  hazards.py  switching.py  moves.py  team.py
 │   │   ├── knockouts.py  simulation.py  encoding.py  pool.py  turn.py
-│   │   └── field.py            # today's root field_features.py
+│   │   ├── bag.py  knowledge.py  matchup.py  trajectory.py  wincon.py
+│   │   ├── montecarlo.py       # Monte Carlo simulation (prototype, in no set)
+│   │   └── field.py            # the old root field_features.py
+│   ├── common.py               # make_set, type_chart: helpers of the set files
+│   ├── sets.py                 # imports every set file; FEATURE_SETS, build, parse_name
 │   ├── compact.py              # one file per feature set (builder + docstring)
-│   ├── compact_v2.py … compact_v5.py
+│   ├── compact_v2.py … compact_v5.py   # each with its *_orig set
+│   ├── compact_ko.py  compact_plus.py  core_set.py  hazards.py  hp30.py
+│   ├── material.py  switch.py
+│   ├── selection_pool.py       # candidate pool of `main.py select`
 │   └── transitions/            # feature sets of the knockout detector task
 │       ├── __init__.py         # TRANSITION_SETS registry, build(name)
 │       ├── columns.py          # TransitionColumns: columns of a Transition picked by name
@@ -86,7 +100,9 @@ pokechallenge/
 │   ├── logreg.py  hgb.py  lightgbm.py  xgboost.py  catboost.py
 │   ├── hgb_ko.py               # the detector's HGB (categorical x_status / y_code)
 │   ├── gb_lr.py  catboost_lr.py  lightgbm_lr.py  xgboost_lr.py
-│   └── ensembles.py            # ensemble, ensemble_from_lr, …
+│   ├── ensembles.py            # ensemble, ensemble_from_lr, …
+│   ├── space.py                # Trial protocol of the search spaces
+│   └── blend.py  spline_logreg.py  # experiments, not registered (no @model)
 ├── interfaces.py               # Feature, FeatureSource, Model, LabelledBattles, Splitter, Probe
 ├── feature_set.py              # FeatureSet (at the root, §4.2)
 ├── registry.py                 # generic Registry[T] + decorators
@@ -98,6 +114,7 @@ pokechallenge/
 ├── stats_tables.py             # corrected_ttest, summary tables
 ├── storage.py                  # ResultsLayout: every path under results/
 ├── settings.py                 # Settings dataclass (paths, seeds, folds, jobs, repair)
+├── tools/golden.py             # golden export / check of the refactoring (§9)
 ├── tuning/
 │   ├── tuner.py                # Tuner (Optuna), objective, pruning
 │   └── params.py               # load_params / save_params of the tuned parameter files
@@ -112,8 +129,10 @@ pokechallenge/
 │   └── submissions/
 ├── input/                      # train.jsonl, test.jsonl (git-ignored)
 └── tests/
-    ├── fixtures/               # 20 hand-picked battles (P1 faint, double KO, …)
-    ├── domain/  addons/  features/  models/  application/
+    ├── fixtures/               # battles.jsonl: 200 battles of train (P1 faint, double KO, …)
+    │                           # and make_fixtures.py, which rebuilds it
+    ├── domain/  addons/  features/  models/  application/  # application/test_end_to_end.py
+    ├── test_registry.py
     └── test_architecture.py
 ```
 
@@ -919,6 +938,8 @@ re-measured) → replay and repair protocol → interfaces, registry, features �
 gym, CLI → knockout detector trained with the gym and loaded as a versioned addon → tuning,
 selection, cleanup → quality gates. Every step must pass
 `tools/golden.py check` against the reference before the next one starts.
+All steps are done (step 9, commit `60707d3`); the golden check stays the test of any
+change that must not move the results.
 
 ## 10. Extension points kept for a native v11 (and other external models)
 

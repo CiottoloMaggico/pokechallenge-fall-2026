@@ -1,8 +1,9 @@
 # PokeChallenge 2026 – instructions for coding agents
 
 Predict the winner (`player_won`, P1 wins) of Gen 2 OU battles from the first
-30 turns. The repository is being refactored following `REFACTORING.md`;
-`REFACTORING_STEPS.md` has one prompt per step. Read both before any change.
+30 turns. The refactoring of `REFACTORING.md` is complete (steps 0-9 of
+`REFACTORING_STEPS.md`, last commit `60707d3`): `REFACTORING.md` describes the
+architecture and its rules; read it before any change.
 
 ## Environment
 - Python venv in `.env/`: `source .env/bin/activate` before every command.
@@ -29,12 +30,16 @@ only to run commits older than step 4a, such as the recipes in `SUBMISSIONS.md`.
 - Detector check (where a step says so, ~2 min):
   `python main.py detector evaluate --features ko_domain30 --models hgb_ko --seeds 42 1 2`
   Step 7 numbers: log loss 0.0992, AUC 0.9918, 10,109 P2 repairs, symmetry estimate 10,135.
+- Tuning and selection (step 8): `python main.py tune --features <set> --model <m> --trials N`
+  (seeds 2027, results in `results/tuning/`, used with `--params`);
+  `python main.py select --method forward|backward --start <set> [--pool <set>]`
+  (corrected t-test, report in `results/selections/`).
 - Full regression (only where a step says so, ~30 min):
   `python main.py evaluate --features compact_v5 --models logreg ensemble_from_lr --seeds 33 66 133 --out results/reference_runs/<name>`
   Baseline of step 2 (commit ad7e4c4, run folder:
   `results/reference_runs/step2_pokedex`): ensemble_from_lr 0.7207 / 0.5402,
   logreg 0.7191 / 0.5426 (accuracy / log loss). Both must match that run fold by
-  fold.
+  fold (step 9 re-checked it: `results/reference_runs/step9_final`, identical).
 
 ## Rules that must never be broken
 1. Only `train.jsonl` fits anything (Pokédex, detector, features, models);
@@ -55,19 +60,19 @@ only to run commits older than step 4a, such as the recipes in `SUBMISSIONS.md`.
    k-fold t-test (`corrected_ttest`), never the naive one.
 
 ## How to work
-- One step of `REFACTORING_STEPS.md` at a time; do not start the next step in
-  the same session.
-- Commits: one per step, message `refactor(step N): <what>`, made only after
-  the acceptance checks pass. A bug found during a step that changes results
-  (like the unseeded logreg of step 1) goes in its own earlier commit
-  `fix(<scope>): <what>`, only after the user agrees. Add files by explicit
+- The refactoring steps are finished; new work is one change per commit, made only after
+  its checks pass (golden check if results must not move, `pytest`, ruff, pyright).
+  While the steps ran: one step of `REFACTORING_STEPS.md` at a time, commits
+  `refactor(step N): <what>`. A bug fix that changes results (like the unseeded
+  logreg of step 1) goes in its own commit `fix(<scope>): <what>`, only after the
+  user agrees. Add files by explicit
   path (deletions included); never commit `input/` or `results/`; never push.
 - To run older code, use `git worktree add <scratch dir> <commit>` instead of
   `git stash`; never rewrite history (no amend, rebase, reset of commits).
 - The golden reference (`results/golden/reference`) is re-exported only when
   the user asks (step 2, or a `fix` commit): export it twice in two processes
   and check that the two copies match before using it.
-- After each step: golden check must pass with the default tolerance (1e-9).
+- After each step (and each later change that must not move the results): golden check must pass with the default tolerance (1e-9).
   `tools/golden.py` may only change in `_export` (imports / calls of the new
   modules; step 7 also added `export --repair`); its outputs and format must stay
   identical.

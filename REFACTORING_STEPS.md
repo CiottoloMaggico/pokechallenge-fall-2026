@@ -210,6 +210,16 @@ decision.
 **Acceptance** – golden check passes; `tune --trials 3` and
 `select --repeats 1` run end to end on the fixtures.
 
+**Result (commit b5fa791)** – golden check passed; `tune --trials 3` and
+`select --repeats 1` (forward and backward) ran on the fixtures. `tuning/params.py` has
+two functions instead of the `ParamsFile` class; `select` is a command of `main.py`
+(seeds 11, 22, 33 … as the old script, report in `results/selections/`); `forward` no
+longer drops the last column (it crashed on the fixtures). With the user's agreement the
+v11 bridge (`features/v11_bridge.py`, `compact_v5_v11`, `blend_v11`), `tools/v11_*`,
+`tools/blend_from_saved.py` and `tools/move_old_outputs.py` were deleted: they are at the
+tag `submission-final` (and `c62b744` for the last one); `LogitBlend` stays (§10). There
+was no `exp/`.
+
 ---
 
 ## Step 9 – Quality gates (model: small)
@@ -220,3 +230,10 @@ predict, under a minute), CI workflow running ruff, pyright, pytest.
 
 **Acceptance** – all green locally and in CI; final full regression matches
 the reference; `detector evaluate` matches step 7.
+
+**Result (commit 60707d3)** – ruff, ruff format, pyright: clean (`tools/golden.py` and
+the markdown files excluded); `pytest`: 651 passed, 43 skipped, also in a copy without
+`input/` and `results/`; end-to-end test about 10 s. Final regression
+(`results/reference_runs/step9_final`) identical to `step2_pokedex` in all 30 folds and
+60,000 predictions; detector: log loss 0.0992, AUC 0.9918, 10,109 P2 repairs, symmetry
+estimate 10,135. The CI workflow was not run on GitHub (nothing pushed).

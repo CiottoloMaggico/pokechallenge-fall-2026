@@ -1,8 +1,8 @@
 """``compact_v4``: compact_v3 + ``p2_hidden_ko_unsure``.
 
-The only change kept by ``selection.py`` on the detector-repaired replay: the
-knockouts the repair left unmarked (20 columns in ``compact_v4_orig``). The
-multi-seed revalidation dropped the same four columns as v3: 16 columns.
+The only change kept by the forward selection (``main.py select``) on the
+detector-repaired replay: the knockouts the repair left unmarked (20 columns in
+``compact_v4_orig``). The multi-seed revalidation dropped the same four columns as v3: 16 columns.
 """
 
 from __future__ import annotations

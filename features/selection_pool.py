@@ -1,7 +1,7 @@
 """``selection_pool``: compact_v3 plus every other candidate (37 columns).
 
-The starting pool of ``selection.py``. Features with several outputs (switch
-pressure, simulation) compute all of them here; ``selection.py`` picks columns.
+The default pool of ``main.py select`` (``selection.py``). Features with several outputs
+(switch pressure, simulation) compute all of them here; the selection picks columns.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from registry import feature_set
 
 @feature_set("selection_pool")
 def selection_pool(turn: int | None = None) -> FeatureSet[BattleContext]:
-    """compact_v3 and the other candidate features, for ``selection.py``."""
+    """compact_v3 and the other candidate features, for ``main.py select``."""
     chart = type_chart()
     core = [
         f for f in compact_v3_features(turn) if not isinstance(f, SwitchPressure | BattleSimulation)
