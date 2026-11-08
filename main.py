@@ -37,6 +37,17 @@ XGBoost or CatBoost.
 ``--turns`` samples every feature set at each given turn (sets named
 ``core@t5``, ``core@t10``, ...); ``evaluate`` then also prints and
 exports ``accuracy_by_turn.csv``, ready for an accuracy-vs-turn plot.
+
+``--repair none | rule | model=<artifact folder>`` picks the repair of the hidden P2
+knockouts (default: the detector artifact ``results/addons/knockouts/v3``); a run saves its
+repair and ``predict`` refuses another one. The detector is trained, compared and tuned on
+its own task (rows = P1's switches) and saved as a new artifact version::
+
+    python main.py detector evaluate --features ko_domain30 ko_raw50 --models hgb_ko \\
+        --seeds 42 1 2 --reference ko_raw50/hgb_ko
+    python main.py detector train --features ko_domain30 --models hgb_ko --version v3
+    python main.py detector tune --features ko_domain30 --model hgb_ko --trials 50
+    python main.py replay --battle 42 --repair rule
 """
 
 from __future__ import annotations
@@ -48,16 +59,23 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+import detector
 import usecases
+from addons import check_spec
+from addons.knockouts_model import ArtifactError
+from artifacts import RepairMismatchError
 from domain.errors import DomainError
 from features.sets import FEATURE_SETS
+from features.transitions import TRANSITION_SETS
 from folds import FoldPlan
 from models import MODELS, search_spaces
-from settings import DEFAULT_POKEDEX, DEFAULT_TEST, DEFAULT_TRAIN, Settings
+from settings import DEFAULT_POKEDEX, DEFAULT_REPAIR, DEFAULT_TEST, DEFAULT_TRAIN, Settings
 
 DEFAULT_FOLDS = 5
 DEFAULT_SEED = 42
 TUNE_SEED = 2027  # tuning folds differ from evaluation folds
+DETECTOR_SEEDS = 3
+USER_ERRORS = (DomainError, ArtifactError, RepairMismatchError)
 
 
 def _seeds(args: argparse.Namespace) -> tuple[int, ...]:
@@ -74,26 +92,38 @@ def _seeds(args: argparse.Namespace) -> tuple[int, ...]:
     return tuple(args.seed + k for k in range(args.n_seeds))
 
 
+def _repair(spec: str) -> str:
+    try:
+        return check_spec(spec)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def _check(args: argparse.Namespace) -> int:
-    return usecases.check(Settings(args.train, args.test, args.pokedex))
+    return usecases.check(Settings(args.train, args.test, args.pokedex, repair=args.repair))
+
+
+def _replay(args: argparse.Namespace) -> int:
+    settings = Settings(pokedex=args.pokedex, repair=args.repair)
+    return usecases.replay(settings, args.file, args.battle)
 
 
 def _evaluate(args: argparse.Namespace) -> int:
     plan = FoldPlan(args.folds, _seeds(args))
-    settings = Settings(args.train, args.test, args.pokedex, plan, args.jobs)
+    settings = Settings(args.train, args.test, args.pokedex, plan, args.jobs, repair=args.repair)
     return usecases.evaluate(
         settings, args.features, args.models, args.turns, args.params, args.reference, args.out
     )
 
 
 def _train(args: argparse.Namespace) -> int:
-    settings = Settings(args.train, args.test, args.pokedex)
+    settings = Settings(args.train, args.test, args.pokedex, repair=args.repair)
     return usecases.train(settings, args.features, args.models, args.turns, args.params, args.out)
 
 
 def _tune(args: argparse.Namespace) -> int:
     plan = FoldPlan(args.folds, (args.seed,))
-    settings = Settings(args.train, args.test, args.pokedex, plan)
+    settings = Settings(args.train, args.test, args.pokedex, plan, repair=args.repair)
     return usecases.tune(
         settings,
         args.features,
@@ -109,8 +139,79 @@ def _tune(args: argparse.Namespace) -> int:
 
 
 def _predict(args: argparse.Namespace) -> int:
-    settings = Settings(DEFAULT_TRAIN, args.test, args.pokedex)
+    settings = Settings(DEFAULT_TRAIN, args.test, args.pokedex, repair=args.repair)
     return usecases.predict(settings, args.run, args.out, args.proba, args.threshold)
+
+
+def _detector_evaluate(args: argparse.Namespace) -> int:
+    plan = FoldPlan(args.folds, _seeds(args))
+    settings = Settings(args.train, pokedex=args.pokedex, plan=plan, jobs=args.jobs)
+    return detector.evaluate(
+        settings,
+        args.features,
+        args.models,
+        args.params,
+        args.reference,
+        args.threshold,
+        args.agreement,
+        args.out,
+    )
+
+
+def _detector_train(args: argparse.Namespace) -> int:
+    plan = FoldPlan(args.folds, _seeds(args))
+    settings = Settings(args.train, pokedex=args.pokedex, plan=plan, jobs=args.jobs)
+    return detector.train(
+        settings,
+        args.features,
+        args.models,
+        args.version,
+        args.threshold,
+        args.params,
+        args.agreement,
+    )
+
+
+def _detector_tune(args: argparse.Namespace) -> int:
+    settings = Settings(args.train, pokedex=args.pokedex, plan=FoldPlan(args.folds, (args.seed,)))
+    return detector.tune(
+        settings,
+        args.features,
+        args.model,
+        args.trials,
+        args.timeout,
+        args.metric,
+        args.study,
+        args.storage_dir,
+        args.out,
+    )
+
+
+def _add_repair(sub: argparse.ArgumentParser) -> None:
+    sub.add_argument(
+        "--repair",
+        type=_repair,
+        default=DEFAULT_REPAIR,
+        help=f"none, rule or model=<artifact folder> (default {DEFAULT_REPAIR})",
+    )
+
+
+def _add_seeds(sub: argparse.ArgumentParser, n_seeds: int) -> None:
+    sub.add_argument("--folds", type=int, default=DEFAULT_FOLDS)
+    sub.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    sub.add_argument(
+        "--n-seeds",
+        type=int,
+        default=n_seeds,
+        help="repeat the CV on this many fold assignments (seeds --seed, --seed+1, ...)",
+    )
+    sub.add_argument("--seeds", type=int, nargs="+", help="explicit seeds (override --n-seeds)")
+    sub.add_argument(
+        "--random-seeds",
+        action="store_true",
+        help="draw the --n-seeds seeds at random (they are printed and exported)",
+    )
+    sub.add_argument("--jobs", type=int, default=1, help="seeds evaluated in parallel")
 
 
 def _add_evaluate_and_train(commands: argparse._SubParsersAction) -> None:
@@ -130,23 +231,10 @@ def _add_evaluate_and_train(commands: argparse._SubParsersAction) -> None:
             help="sample the features at these turns (default: last turn)",
         )
         sub.add_argument("--params", type=Path, nargs="+", help="tuned parameter files (JSON)")
+        _add_repair(sub)
         sub.set_defaults(handler=handler)
     p_eval = commands.choices["evaluate"]
-    p_eval.add_argument("--folds", type=int, default=DEFAULT_FOLDS)
-    p_eval.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    p_eval.add_argument(
-        "--n-seeds",
-        type=int,
-        default=1,
-        help="repeat the CV on this many fold assignments (seeds --seed, --seed+1, ...)",
-    )
-    p_eval.add_argument("--seeds", type=int, nargs="+", help="explicit seeds (override --n-seeds)")
-    p_eval.add_argument(
-        "--random-seeds",
-        action="store_true",
-        help="draw the --n-seeds seeds at random (they are printed and exported)",
-    )
-    p_eval.add_argument("--jobs", type=int, default=1, help="seeds evaluated in parallel")
+    _add_seeds(p_eval, 1)
     p_eval.add_argument(
         "--reference",
         help="FEATURE_SET/MODEL: print every other combination's paired difference "
@@ -160,11 +248,10 @@ def _add_evaluate_and_train(commands: argparse._SubParsersAction) -> None:
     )
 
 
-def _add_tune(commands: argparse._SubParsersAction) -> None:
-    p_tune = commands.add_parser("tune", help="search hyperparameters (Optuna)")
+def _add_tune(commands: argparse._SubParsersAction, name: str, sets: Sequence[str] | None) -> None:
+    p_tune = commands.add_parser(name, help="search hyperparameters (Optuna)")
     p_tune.add_argument("--train", type=Path, default=DEFAULT_TRAIN)
-    p_tune.add_argument("--test", type=Path, help="unlabelled battles (optional)")
-    p_tune.add_argument("--features", required=True, help="one feature set")
+    p_tune.add_argument("--features", required=True, choices=sets, help="one feature set")
     p_tune.add_argument("--model", required=True, choices=sorted(search_spaces()))
     p_tune.add_argument("--trials", type=int, default=100)
     p_tune.add_argument("--timeout", type=float, help="seconds (optional)")
@@ -174,8 +261,31 @@ def _add_tune(commands: argparse._SubParsersAction) -> None:
     p_tune.add_argument("--study", help="study name (default <set>__<model>)")
     p_tune.add_argument("--storage-dir", type=Path, help="study database (default results/tuning)")
     p_tune.add_argument("--out", type=Path, help="best parameters (default results/tuning)")
-    p_tune.add_argument("--refresh", action="store_true", help="rebuild the cached fold features")
-    p_tune.set_defaults(handler=_tune)
+
+
+def _add_detector(commands: argparse._SubParsersAction) -> None:
+    group = commands.add_parser("detector", help="the knockout detector (rows = P1's switches)")
+    detector_commands = group.add_subparsers(dest="detector_command", required=True)
+    sets = sorted(TRANSITION_SETS)
+    p_eval = detector_commands.add_parser("evaluate", help="cross-validate detectors + checks")
+    p_eval.add_argument("--features", nargs="+", required=True, choices=sets)
+    p_eval.add_argument("--models", nargs="+", required=True, choices=sorted(MODELS))
+    p_eval.add_argument("--reference", help="FEATURE_SET/MODEL for the paired differences")
+    p_eval.add_argument("--out", type=Path, help="default results/evaluations/detector_<date>")
+    p_eval.set_defaults(handler=_detector_evaluate)
+    p_train = detector_commands.add_parser("train", help="save a new detector artifact version")
+    p_train.add_argument("--features", default="ko_domain30", choices=sets)
+    p_train.add_argument("--models", default="hgb_ko", choices=sorted(MODELS))
+    p_train.add_argument("--version", required=True, help="results/addons/knockouts/<version>")
+    p_train.set_defaults(handler=_detector_train)
+    for sub in (p_eval, p_train):
+        sub.add_argument("--train", type=Path, default=DEFAULT_TRAIN)
+        sub.add_argument("--params", type=Path, nargs="+", help="tuned parameter files (JSON)")
+        sub.add_argument("--threshold", type=float, default=0.5, help="P(faint) of a repair")
+        sub.add_argument("--agreement", type=Path, help="artifact folder to compare decisions with")
+        _add_seeds(sub, DETECTOR_SEEDS)
+    _add_tune(detector_commands, "tune", sets)
+    detector_commands.choices["tune"].set_defaults(handler=_detector_tune)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -188,10 +298,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_check = commands.add_parser("check", help="inspect the data")
     p_check.add_argument("--train", type=Path, default=DEFAULT_TRAIN)
     p_check.add_argument("--test", type=Path)
+    _add_repair(p_check)
     p_check.set_defaults(handler=_check)
 
+    p_replay = commands.add_parser("replay", help="print the repaired states of one battle")
+    p_replay.add_argument("--battle", type=int, required=True)
+    p_replay.add_argument("--file", type=Path, default=DEFAULT_TRAIN)
+    _add_repair(p_replay)
+    p_replay.set_defaults(handler=_replay)
+
     _add_evaluate_and_train(commands)
-    _add_tune(commands)
+    _add_tune(commands, "tune", None)  # any set, @t<N> included
+    p_tune = commands.choices["tune"]
+    p_tune.add_argument("--test", type=Path, help="unlabelled battles (optional)")
+    p_tune.add_argument("--refresh", action="store_true", help="rebuild the cached fold features")
+    _add_repair(p_tune)
+    p_tune.set_defaults(handler=_tune)
+    _add_detector(commands)
 
     p_predict = commands.add_parser("predict", help="write a submission")
     p_predict.add_argument("--run", type=Path, required=True)
@@ -201,12 +324,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_predict.add_argument("--proba", type=Path, help="also write probabilities")
     p_predict.add_argument("--threshold", type=float, default=0.5)
+    _add_repair(p_predict)
     p_predict.set_defaults(handler=_predict)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run one command; a domain error becomes a one-line message and exit code 2."""
+    """Run one command; a domain, artifact or repair error is one line and exit code 2."""
     args = build_parser().parse_args(argv)
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,
@@ -214,7 +338,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     try:
         return int(args.handler(args))
-    except DomainError as exc:
+    except USER_ERRORS as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

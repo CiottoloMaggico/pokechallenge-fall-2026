@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from artifacts import RUN_INFO_FILE, FeatureMismatchError, TrainedRun
+from artifacts import RUN_INFO_FILE, FeatureMismatchError, RepairMismatchError, TrainedRun
 from data import Dataset
 from domain.pokedex import PokedexBuilder
 from domain.records import read_records
@@ -58,6 +58,21 @@ def test_the_manifest_of_the_repair_is_saved(run: TrainedRun, tmp_path: Path) ->
     folder = run.save(tmp_path / "run")
     assert json.loads((folder / RUN_INFO_FILE).read_text())["repair"] == MANIFEST
     assert TrainedRun.load(folder, source()).repair == MANIFEST
+
+
+@pytest.mark.parametrize(
+    ("asked", "message"),
+    [
+        ({"name": "knockouts_rule", "version": "1", "params": {}}, "none 1, not knockouts_rule 1"),
+        ({**MANIFEST, "params": {"x": 1}}, "none 1 with other settings, not none 1"),
+    ],
+)
+def test_a_run_accepts_only_its_own_repair(
+    run: TrainedRun, asked: dict[str, object], message: str
+) -> None:
+    run.check_repair(NO_REPAIR.describe())
+    with pytest.raises(RepairMismatchError, match=message):
+        run.check_repair(asked)
 
 
 def test_a_run_saved_before_the_manifest_loads_without_it(run: TrainedRun, tmp_path: Path) -> None:

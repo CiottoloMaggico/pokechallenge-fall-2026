@@ -92,7 +92,7 @@ class Dataset:
         """Replay every record (see the module docstring for unknowns).
 
         ``repair`` finds the faints each record omits (e.g.
-        ``knockout_detector.DetectorRepair``); see ``BattleReplay``.
+        ``addons.knockouts_model.ModelKnockoutRepair``); see ``BattleReplay``.
         """
         records = list(records)
         labelled = [LABEL_KEY in r for r in records]

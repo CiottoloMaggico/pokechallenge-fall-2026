@@ -30,13 +30,14 @@ from sklearn.metrics import log_loss
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from addons import load_repair  # noqa: E402
 from data import Dataset  # noqa: E402
 from domain.pokedex import Pokedex  # noqa: E402
 from features import sets as feature_sets  # noqa: E402
 from folds import FoldPlan  # noqa: E402
 from gym import Gym  # noqa: E402
-from knockout_detector import detector_from_files  # noqa: E402
 from models import build_tuned  # noqa: E402
+from settings import DEFAULT_REPAIR  # noqa: E402
 from stats_tables import corrected_ttest  # noqa: E402
 from tuning import load_params  # noqa: E402
 
@@ -105,7 +106,7 @@ def fold_tables(args: argparse.Namespace, seeds: list[int]) -> dict[int, list]:
     if todo:
         print(f"building the fold tables of seeds {todo} (v11 is refitted in every fold)", flush=True)
         pokedex = Pokedex.from_json(args.pokedex)
-        detector = detector_from_files(pokedex, feature_sets.type_chart(), (args.train,))
+        detector = load_repair(DEFAULT_REPAIR, pokedex, feature_sets.type_chart())
         _SHARED.update(dataset=Dataset.from_jsonl(args.train, pokedex, repair=detector), cache=args.cache)
         if os.environ.get("V11_FEATURES") == "shared" and os.environ.get("V11_FAKE") != "1":
             from features.v11_bridge import _shared_rows, configure

@@ -234,6 +234,16 @@ class TransitionExtractor:
             result.append(Transition(i, leaver, fainted, final, features))
         return result
 
+    def examples(self, record: Mapping[str, Any]) -> list[Transition]:
+        """P1's described switches whose leaver never comes back: the detector's training rows,
+        labelled by the recorded faint."""
+        return [t for t in self.extract(record, "p1") if t.final and t.features]
+
+    def candidates(self, record: Mapping[str, Any]) -> list[Transition]:
+        """P2's described switches whose leaver never comes back and is not a recorded faint:
+        the switches that may hide a knockout."""
+        return [t for t in self.extract(record, "p2") if t.final and not t.fainted and t.features]
+
 
 def _row_before(own: _Side, opp: _Side, i: int, side: str) -> int | None:
     """Row that describes the leaver of row ``i``; None when it cannot be described."""

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
@@ -10,6 +11,7 @@ import pytest
 
 import main
 import usecases
+from artifacts import RepairMismatchError
 from domain.errors import DomainError
 from domain.pokedex import PokedexBuilder
 from domain.records import read_records
@@ -72,11 +74,33 @@ def test_no_seeds_is_refused() -> None:
         "tune --train t --test u --features hp30 --model hgb --trials 1 --timeout 1 "
         "--metric accuracy --folds 3 --seed 1 --study s --storage-dir d --out o --refresh",
         "predict --run r --test u --out o --proba p --threshold 0.4",
+        "predict --run r --repair none",
+        "evaluate --features hp30 --models logreg --repair model=results/addons/knockouts/v1",
+        "replay --battle 3 --file f --repair rule",
+        "detector evaluate --features ko_domain30 ko_raw50 --models hgb_ko logreg --seeds 42 1 2 "
+        "--reference ko_raw50/hgb_ko --threshold 0.4 --agreement a --params p --jobs 2 --out o",
+        "detector train --features ko_raw50 --models hgb_ko --version v9 --threshold 0.6 "
+        "--n-seeds 2 --agreement a",
+        "detector tune --features ko_domain30 --model hgb_ko --trials 1 --seed 1",
     ],
 )
 def test_the_commands_keep_their_options(line: str) -> None:
     args = main.build_parser().parse_args(line.split())
     assert callable(args.handler)
+
+
+def test_an_unknown_repair_is_refused_by_the_parser() -> None:
+    with pytest.raises(SystemExit):
+        main.build_parser().parse_args(["check", "--repair", "detector"])
+
+
+def test_the_detector_commands_default_to_three_seeds() -> None:
+    args = main.build_parser().parse_args(["detector", "train", "--version", "v9"])
+    assert (args.features, args.models, main._seeds(args)) == (
+        "ko_domain30",
+        "hgb_ko",
+        (42, 43, 44),
+    )
 
 
 def test_jobs_are_kept_for_models_that_can_fork(capsys: pytest.CaptureFixture[str]) -> None:
@@ -130,6 +154,7 @@ def settings(tmp_path: Path) -> Settings:
         pokedex=pokedex,
         plan=FoldPlan(2, (1, 2)),
         results=ResultsLayout(tmp_path / "results"),
+        repair="rule",
     )
 
 
@@ -168,12 +193,26 @@ def test_evaluate_without_out_writes_a_dated_evaluation(settings: Settings) -> N
 def test_train_then_predict_write_under_results(settings: Settings) -> None:
     assert usecases.train(settings, ["compact_v5"], ["logreg"]) == 0
     run = settings.results.run("compact_v5", "logreg")
-    assert json.loads((run / "run.json").read_text())["repair"]["name"] == "knockout_detector"
+    assert json.loads((run / "run.json").read_text())["repair"]["name"] == "knockouts_rule"
     assert usecases.predict(settings, run) == 0
     submission = pd.read_csv(settings.results.submission("submission"))
     assert list(submission.columns) == ["battle_id", "player_won"]
     assert len(submission) == 200
     assert set(submission["player_won"]) <= {0, 1}
+
+
+def test_a_run_refuses_to_predict_with_another_repair(settings: Settings) -> None:
+    usecases.train(settings, ["compact_v5"], ["logreg"])
+    run = settings.results.run("compact_v5", "logreg")
+    with pytest.raises(RepairMismatchError, match="knockouts_rule"):
+        usecases.predict(replace(settings, repair="none"), run)
+    assert not settings.results.submission("submission").exists()
+
+
+def test_replay_prints_every_turn(settings: Settings, capsys: pytest.CaptureFixture[str]) -> None:
+    battle_id = next(read_records(FIXTURES))["battle_id"]
+    assert usecases.replay(settings, FIXTURES, battle_id) == 0
+    assert capsys.readouterr().out.count("turn ") == 30
 
 
 def test_train_with_out_keeps_the_run_folder_name(settings: Settings, tmp_path: Path) -> None:
@@ -184,7 +223,7 @@ def test_train_with_out_keeps_the_run_folder_name(settings: Settings, tmp_path: 
 def test_tune_caches_the_fold_tables_and_saves_the_parameters(settings: Settings) -> None:
     pytest.importorskip("optuna")
     plan = FoldPlan(2, (2027,))
-    tune_settings = Settings(settings.train, None, settings.pokedex, plan, results=settings.results)
+    tune_settings = replace(settings, test=None, plan=plan)
     assert usecases.tune(tune_settings, "compact_v5", "logreg", trials=1) == 0
     assert settings.results.cache("folds", "compact_v5__k2_s2027.pkl").exists()
     assert (settings.results.tuning() / "optuna.db").exists()

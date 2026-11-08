@@ -20,6 +20,10 @@ class ResultsLayout:
         """Folder of the tables of one ``evaluate``."""
         return self.root / "evaluations" / name
 
+    def addon(self, kind: str, version: str) -> Path:
+        """Folder of one version of a trained addon (``addons/knockouts/v3``)."""
+        return self.root / "addons" / kind / version
+
     def tuning(self) -> Path:
         """Folder of the Optuna study and of the best parameters."""
         return self.root / "tuning"

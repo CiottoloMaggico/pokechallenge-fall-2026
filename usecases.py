@@ -1,8 +1,9 @@
 """What each command of ``main.py`` does, given its settings.
 
-Every battle is repaired for the P2 knockouts the records omit
-(``domain.transitions``), in every command, so training and prediction see the
-same corrected battles. Duplicated battles are always kept in the same fold.
+Every battle goes through the repair of ``Settings.repair`` (``addons``: by default the
+detector artifact of the hidden P2 knockouts), in every command, so training and prediction
+see the same corrected battles; a run refuses to predict with another repair. Duplicated
+battles are always kept in the same fold.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from pathlib import Path
 
 import pandas as pd
 
+import domain.__main__ as domain_cli
+from addons import load_repair
 from artifacts import TrainedRun
 from data import Dataset
 from domain.battle import BattleContext
@@ -24,7 +27,6 @@ from features import sets as feature_sets
 from folds import read_fold_tables
 from gym import Gym, GymResult
 from interfaces import Model
-from knockout_detector import detector_from_files
 from models import ENSEMBLES, build_tuned
 from registry import fork_unsafe_libraries
 from settings import DEFAULT_TEST, Settings
@@ -79,10 +81,12 @@ def evaluate(
     train = Dataset.from_jsonl(settings.train, pokedex, repair=_repair(settings))
     unlabeled = _unlabeled(settings, pokedex)
     print(f"seeds: {list(settings.plan.seeds)}", flush=True)
-    gym = Gym(_models(models, params), _feature_sets(features, turns), settings.plan, jobs=jobs)
+    gym = Gym(
+        build_models(models, params), _feature_sets(features, turns), settings.plan, jobs=jobs
+    )
     result = gym.evaluate(train.labelled(), unlabeled)
     target = out or settings.results.evaluation(time.strftime("evaluate_%Y-%m-%d_%H%M%S"))
-    _report(result, reference, bool(turns), target)
+    report(result, reference, bool(turns), target)
     return 0
 
 
@@ -99,7 +103,7 @@ def fork_safe_jobs(jobs: int, features: Sequence[str], models: Sequence[str]) ->
     return jobs
 
 
-def _report(result: GymResult, reference: str | None, by_turn: bool, out: Path) -> None:
+def report(result: GymResult, reference: str | None, by_turn: bool, out: Path) -> None:
     """Print the tables of an evaluation and export them with the raw results."""
     summary = result.summary().sort_values("accuracy_mean", ascending=False)
     print(summary.to_string(index=False, float_format="{:.4f}".format))
@@ -168,7 +172,7 @@ def train(
     pokedex = Pokedex.from_json(settings.pokedex)
     repair = _repair(settings)
     dataset = Dataset.from_jsonl(settings.train, pokedex, repair=repair)
-    gym = Gym(_models(models, params), _feature_sets(features, turns))
+    gym = Gym(build_models(models, params), _feature_sets(features, turns))
     runs = gym.train(
         dataset.labelled(), unlabeled=_unlabeled(settings, pokedex), repair=repair.describe()
     )
@@ -217,18 +221,34 @@ def tune(
     print(f"fold features ready ({tables_dir}); starting the trials")
     tuner = Tuner(model, tables[seed], metric=metric)
     study_name = study or f"{source.name}__{model}"
+    run_study(settings, tuner, source.name, study_name, trials, timeout, storage_dir, out)
+    return 0
+
+
+def run_study(
+    settings: Settings,
+    tuner: Tuner,
+    feature_set: str,
+    study: str,
+    trials: int,
+    timeout: float | None,
+    storage_dir: Path | None,
+    out: Path | None,
+) -> None:
+    """Run (or resume) the Optuna study on the first seed of the plan and save the best trial."""
     storage_root = storage_dir or settings.results.tuning()
     storage_root.mkdir(parents=True, exist_ok=True)
-    found = tuner.run(trials, timeout, f"sqlite:///{storage_root / STUDY_DB}", study_name, seed)
+    found = tuner.run(
+        trials, timeout, f"sqlite:///{storage_root / STUDY_DB}", study, settings.plan.seeds[0]
+    )
     best = found.best_trial
     print(
-        f"best {metric} = {best.value:.4f} "
+        f"best {tuner.metric} = {best.value:.4f} "
         f"(accuracy {best.user_attrs.get('accuracy', float('nan')):.4f}) "
         f"after {len(found.trials)} trials: {best.params}"
     )
-    target = (out or settings.results.tuning()) / f"{study_name}.json"
-    print(f"parameters written to {save_best(found, tuner, source.name, target)}")
-    return 0
+    target = (out or settings.results.tuning()) / f"{study}.json"
+    print(f"parameters written to {save_best(found, tuner, feature_set, target)}")
 
 
 def predict(
@@ -238,11 +258,17 @@ def predict(
     proba: Path | None = None,
     threshold: float = 0.5,
 ) -> int:
-    """Predict the test battles with a saved run and write a submission."""
+    """Predict the test battles with a saved run and write a submission.
+
+    The run must have been trained with the requested repair (``RepairMismatchError``).
+    """
     pokedex = Pokedex.from_json(settings.pokedex)
-    test = Dataset.from_jsonl(settings.test or DEFAULT_TEST, pokedex, repair=_repair(settings))
+    repair = _repair(settings)
     features = feature_sets.build(TrainedRun.saved_feature_set(run_dir))
-    run = TrainedRun.load(run_dir, features, sample_battles=test.contexts[:5])
+    run = TrainedRun.load(run_dir, features)
+    run.check_repair(repair.describe())
+    test = Dataset.from_jsonl(settings.test or DEFAULT_TEST, pokedex, repair=repair)
+    run.check_columns(test.contexts[:5])
     probabilities = run.predict_proba(test.contexts)
     submission = pd.DataFrame(
         {
@@ -268,27 +294,26 @@ def _feature_sets(
     return [feature_sets.build(name, turn) for name in names for turn in sampled]
 
 
-def _repair(settings: Settings) -> TimelineRepair:
-    """The knockout detector, learned without labels on the training battles only.
+def replay(settings: Settings, path: Path, battle_id: int) -> int:
+    """Print the states of one battle of ``path``, repaired with ``settings.repair``."""
+    return domain_cli.replay(path, battle_id, settings.pokedex, _repair(settings))
 
-    The test battles are only predicted, never used to fit anything, and a detector fitted
-    on train + test at prediction time would differ from the one the saved model was
-    trained with.
-    """
-    return _detector(settings.pokedex, settings.train)
+
+def _repair(settings: Settings) -> TimelineRepair:
+    """The repair of ``settings``, loaded once per process so that its cache is shared."""
+    return _load_repair(settings.repair, settings.pokedex)
 
 
 @cache
-def _detector(pokedex_path: Path, train: Path) -> TimelineRepair:
-    pokedex = Pokedex.from_json(pokedex_path)
-    return detector_from_files(pokedex, feature_sets.type_chart(), (train,))
+def _load_repair(spec: str, pokedex_path: Path) -> TimelineRepair:
+    return load_repair(spec, Pokedex.from_json(pokedex_path), feature_sets.type_chart())
 
 
 def _report_fold(done: int, total: int, seconds: float) -> None:
     print(f"  fold {done}/{total} ready ({seconds:.0f} s)", flush=True)
 
 
-def _models(names: Sequence[str], params_files: Sequence[Path] | None) -> list[Model]:
+def build_models(names: Sequence[str], params_files: Sequence[Path] | None) -> list[Model]:
     """Registered models; with ``params_files`` each tuned model (alone or inside an
     ensemble) gets the parameters from its file."""
     tuned = dict(load_params(path) for path in params_files or [])

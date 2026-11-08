@@ -24,6 +24,10 @@ class FeatureMismatchError(ValueError):
     """The feature source no longer produces the columns seen in fit."""
 
 
+class RepairMismatchError(ValueError):
+    """A run is asked to predict battles repaired differently from its training battles."""
+
+
 @dataclass(frozen=True)
 class TrainedRun:
     """A model fitted on all data, bundled with its feature source.
@@ -60,6 +64,21 @@ class TrainedRun:
 
     def predict(self, battles: Sequence[Any], threshold: float = 0.5) -> np.ndarray:
         return self.model.predict(self._features(battles), threshold)
+
+    def check_repair(self, repair: Mapping[str, Any]) -> None:
+        """Raise RepairMismatchError unless ``repair`` (a ``describe()``) is the run's repair.
+
+        A run saved before the repair was recorded (None) matches no repair.
+        """
+        if self.repair == repair:
+            return
+        trained, asked = _repair_label(self.repair), _repair_label(repair)
+        if trained == asked:
+            trained += " with other settings"
+        raise RepairMismatchError(
+            f"run {self.name!r} was trained with repair {trained}, not {asked}: "
+            "predict with its repair or train it again"
+        )
 
     def check_columns(self, battles: Sequence[Any]) -> None:
         """Raise FeatureMismatchError if the source's columns changed."""
@@ -159,6 +178,10 @@ def _restore_source(feature_set: FeatureSource, directory: Path, stateful: bool)
     restored = feature_set.clone()
     restored.set_state(state)
     return restored
+
+
+def _repair_label(repair: Mapping[str, Any] | None) -> str:
+    return "(not recorded)" if repair is None else f"{repair['name']} {repair['version']}"
 
 
 def _describe_column_diff(expected: Sequence[str], found: Sequence[str]) -> str:

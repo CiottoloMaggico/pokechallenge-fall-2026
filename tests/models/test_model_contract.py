@@ -26,6 +26,7 @@ def table() -> tuple[pd.DataFrame, np.ndarray]:
 # a handful of trees: the contract does not depend on the size of the model
 SMALL: dict[str, dict[str, int]] = {
     "hgb": {"max_iter": 20},
+    "hgb_ko": {"max_iter": 20},
     "lightgbm": {"n_estimators": 20},
     "xgboost": {"n_estimators": 20},
     "catboost": {"iterations": 20},

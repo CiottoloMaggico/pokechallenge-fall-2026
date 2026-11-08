@@ -15,6 +15,7 @@ from models import (  # noqa: F401  (imported for the registration)
     catboost_lr,
     gb_lr,
     hgb,
+    hgb_ko,
     lightgbm,
     lightgbm_lr,
     logreg,

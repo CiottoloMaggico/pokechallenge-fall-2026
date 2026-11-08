@@ -1,4 +1,5 @@
-"""Dependency rule of REFACTORING.md §1: ``domain`` imports only the stdlib and numpy."""
+"""Dependency rules of REFACTORING.md §1: ``domain`` imports only the stdlib and numpy,
+``addons`` never import the application or the CLI."""
 
 from __future__ import annotations
 
@@ -11,6 +12,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOMAIN_MODULES = sorted((ROOT / "domain").rglob("*.py"))
 ALLOWED = {"domain", "numpy", *sys.stdlib_module_names}
+ADDON_MODULES = sorted((ROOT / "addons").rglob("*.py"))
+APPLICATION = {"gym", "tuning", "usecases", "detector", "selection", "main", "folds", "settings"}
 
 
 def imported_roots(source: str) -> set[str]:
@@ -46,3 +49,12 @@ def test_there_are_domain_modules_to_check() -> None:
 @pytest.mark.parametrize("path", DOMAIN_MODULES, ids=lambda p: p.name)
 def test_domain_imports_only_stdlib_and_numpy(path: Path) -> None:
     assert imported_roots(path.read_text(encoding="utf-8")) <= ALLOWED
+
+
+def test_there_are_addons_to_check() -> None:
+    assert {"knockouts_model.py", "knockouts_rule.py"} <= {p.name for p in ADDON_MODULES}
+
+
+@pytest.mark.parametrize("path", ADDON_MODULES, ids=lambda p: p.name)
+def test_addons_never_import_the_application(path: Path) -> None:
+    assert not imported_roots(path.read_text(encoding="utf-8")) & APPLICATION

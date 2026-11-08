@@ -1,17 +1,21 @@
-"""The columns of :mod:`domain.transitions` the knockout detector is trained on.
+"""``ko_domain30``: the 53 columns of ``domain.transitions`` compressed to 30 by Gen 2 rules.
 
-``DETECTOR_FEATURES``: the 53 compressed to 30 by Gen 2 rules, without pruning
-on scores (lossless codes and quantities that contain the dropped columns,
-exp/ko_domain.py). Every dropped column is an exact function of the kept ones
-or is folded into a quantity that contains it; out of fold (3 seeds) the log
-loss is 0.0988 vs 0.0984 with the 50 (corrected t 0.39, p 0.70) and the P2
-repairs agree on 99.2%. On P2 it repairs 10,130 switches, the number symmetry
-with P1's recorded faints predicts (~10,100 detectable).
+No pruning on scores: lossless codes and quantities that contain the dropped columns. Every
+dropped column is an exact function of the kept ones or is folded into a quantity that contains
+it; out of fold (3 seeds) the log loss is 0.0988 vs 0.0984 with ``ko_raw50`` (corrected t 0.39,
+p 0.70) and the P2 repairs agree on 99.2%. On P2 it repaired 10,130 switches before the Pokédex
+lost its manual species (10,109 after), the number symmetry with P1's recorded faints predicts
+(~10,100 detectable). The codes ``x_status`` and ``y_code`` are categorical: the ``hgb_ko``
+model treats them so when a table has them.
 """
 
 from __future__ import annotations
 
-DETECTOR_FEATURES = (
+from domain.transitions import Transition
+from feature_set import FeatureSet
+from features.transitions.columns import transition_set
+
+COLUMNS = (
     "turn",
     # leaver: HP, then margins that already include the Gen 2 damage
     "x_hp",
@@ -47,4 +51,8 @@ DETECTOR_FEATURES = (
     "a_boost",
     "a_disabled",
 )
-CATEGORICAL_FEATURES = frozenset({"x_status", "y_code"})
+
+
+def build() -> FeatureSet[Transition]:
+    """The 30 domain-compressed columns."""
+    return transition_set("ko_domain30", COLUMNS)

@@ -1,7 +1,9 @@
 """Contract of every feature (REFACTORING.md §4.1), on the fixtures.
 
 A feature gives exactly its declared columns as floats, the same values every time and under any
-``PYTHONHASHSEED``, survives a save / load of its state and never sees the label.
+``PYTHONHASHSEED``, survives a save / load of its state and never sees the label. The features of
+the detector's sets (``features.transitions``) run on the switches of the fixtures and must not
+read the recorded faint, their label.
 
 Run as a script, this file writes the output of every feature to a JSON file: the hash seed is
 fixed when a process starts, so comparing two seeds takes two processes.
@@ -9,6 +11,7 @@ fixed when a process starts, so comparing two seeds takes two processes.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import pickle
@@ -19,11 +22,16 @@ from pathlib import Path
 
 import pytest
 
+from addons.knockouts_model import ModelKnockoutRepair
 from data import Dataset
+from detector import DetectorTask, load_task
 from domain.battle import BattleContext
+from domain.damage import DamageCalculator
 from domain.pokedex import Pokedex, PokedexBuilder
-from domain.records import read_records, without_label
+from domain.records import read_records
+from domain.transitions import Transition
 from features import sets as feature_sets
+from features import transitions
 from features.core.bag import BagLogit
 from features.core.encoding import TeamEffect
 from features.core.knowledge import TeamKnowledgeFeatures
@@ -40,8 +48,9 @@ from features.core.wincon import (
     sleepers,
     spikes_advantage,
 )
+from gym import Gym
 from interfaces import Feature
-from knockout_detector import DetectorRepair, KnockoutDetector, default_classifier
+from models import build
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "fixtures" / "battles.jsonl"
@@ -86,6 +95,7 @@ def new_features() -> dict[str, Feature[BattleContext]]:
 
 
 KEYS = sorted(new_features())
+TRANSITION_KEYS = sorted(transitions.TRANSITION_SETS)
 
 
 @cache
@@ -94,10 +104,37 @@ def pokedex() -> Pokedex:
 
 
 @cache
-def repair() -> DetectorRepair:
-    classifier = default_classifier().set_params(max_iter=DETECTOR_TREES)
-    detector = KnockoutDetector(pokedex().find, CHART, classifier=lambda: classifier)
-    return DetectorRepair(detector.fit(without_label(r) for r in read_records(FIXTURES)), pokedex())
+def task() -> DetectorTask:
+    return load_task(FIXTURES, pokedex())
+
+
+def switches() -> tuple[list[Transition], list[Transition]]:
+    """P1's rows and P2's candidates of the fixtures."""
+    return list(task().p1.items), task().p2
+
+
+@cache
+def repair() -> ModelKnockoutRepair:
+    gym = Gym([build("hgb_ko", max_iter=DETECTOR_TREES)], [transitions.build("ko_domain30")])
+    (run,) = gym.train(task().p1)
+    info = {"version": "test", "threshold": 0.5, "feature_set": "ko_domain30", "model": "hgb_ko"}
+    info |= {"params": {}, "train_sha256": None, "pokedex_sha256": None}
+    return ModelKnockoutRepair(run, info, pokedex(), DamageCalculator(CHART))
+
+
+def transition_feature(name: str) -> Feature[Transition]:
+    features = transitions.build(name)
+    (feature_id,) = features.feature_ids
+    return features._entries[feature_id].feature
+
+
+def transition_outputs(name: str, rows: list[Transition] | None = None) -> list[Row]:
+    p1, p2 = switches()
+    feature = transition_feature(name)
+    return [
+        [(k, float(v).hex()) for k, v in feature.compute(t).items()]
+        for t in (p1 + p2 if rows is None else rows)
+    ]
 
 
 @cache
@@ -183,6 +220,27 @@ def test_values_do_not_depend_on_the_label(key: str) -> None:
     )
 
 
+@pytest.mark.parametrize("name", TRANSITION_KEYS)
+def test_transition_features_under_two_hash_seeds(
+    name: str, outputs_by_hash_seed: list[dict[str, list[Row]]]
+) -> None:
+    first, second = (result[f"transitions:{name}"] for result in outputs_by_hash_seed)
+    assert first == second
+
+
+@pytest.mark.parametrize("name", TRANSITION_KEYS)
+def test_transition_features_give_their_columns_and_ignore_the_faint(name: str) -> None:
+    feature = transition_feature(name)
+    p1, p2 = switches()
+    assert p1 and p2
+    for t in p1 + p2:
+        row = feature.compute(t)
+        assert tuple(row) == feature.output_names
+        assert all(isinstance(v, float) for v in row.values())
+    flipped = [dataclasses.replace(t, fainted=not t.fainted) for t in p1]
+    assert transition_outputs(name, flipped) == transition_outputs(name, p1)
+
+
 def test_contexts_never_carry_the_label() -> None:
     assert all("player_won" not in c.record for c in battles().contexts)
 
@@ -194,4 +252,5 @@ def test_every_family_of_features_is_checked() -> None:
 
 if __name__ == "__main__":
     all_outputs = {key: outputs(fitted(key)) for key in KEYS}
+    all_outputs |= {f"transitions:{name}": transition_outputs(name) for name in TRANSITION_KEYS}
     Path(sys.argv[1]).write_text(json.dumps(all_outputs))

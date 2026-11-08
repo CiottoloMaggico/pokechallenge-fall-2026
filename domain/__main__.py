@@ -6,7 +6,7 @@ python -m domain check input/train.jsonl input/test.jsonl
 
 Only ``train`` builds a Pokédex: ``check`` builds it from its first file and
 ``replay`` loads the one written by ``build-pokedex``. Replays are not repaired:
-the repairs live outside the domain.
+the repairs live outside the domain (``python main.py replay --repair ...``).
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from domain.battle import BattleReplay, SideState
 from domain.errors import DomainError, ReplayError
 from domain.pokedex import Missing, Pokedex, PokedexBuilder, species_without_stats
 from domain.records import read_records
+from domain.repair import NO_REPAIR, TimelineRepair
 
 DEFAULT_POKEDEX = Path("results/cache/species.json")
 
@@ -37,12 +38,15 @@ def build_pokedex(train: Path, out: Path) -> int:
     return 0
 
 
-def replay(path: Path, battle_id: int, pokedex_path: Path) -> int:
-    """Print the state of battle ``battle_id`` at the end of every turn."""
+def replay(
+    path: Path, battle_id: int, pokedex_path: Path, repair: TimelineRepair = NO_REPAIR
+) -> int:
+    """Print the state of battle ``battle_id`` at the end of every turn, after ``repair``."""
     record = next((r for r in read_records(path) if r["battle_id"] == battle_id), None)
     if record is None:
         raise ReplayError(f"battle {battle_id} is not in {path}")
-    context = BattleReplay(Pokedex.from_json(pokedex_path), unknown=Missing()).replay(record)
+    pokedex = Pokedex.from_json(pokedex_path)
+    context = BattleReplay(pokedex, repair, Missing()).replay(record)
     for state in context.history:
         print(f"turn {state.turn:>2}  p1 {_side(state.p1)}  |  p2 {_side(state.p2)}")
     return 0

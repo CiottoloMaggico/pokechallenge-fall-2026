@@ -20,7 +20,7 @@ earlier naive threshold t <= -2.5 was only p = 0.27 once corrected).
 
 The pool's tables are built once (stateful features fitted inside each
 training part, as in ``gym``), so each comparison only refits the
-model. Battles are repaired with the knockout detector, exactly as in
+model. Battles are repaired with ``--repair`` (default: the detector artifact), as in
 ``main.py``.
 
 Example::
@@ -44,13 +44,14 @@ from pathlib import Path
 import numpy as np
 from sklearn.metrics import accuracy_score, log_loss
 
+from addons import load_repair
 from data import Dataset
 from domain.pokedex import Pokedex
 from features import sets as feature_sets
 from folds import FoldData, FoldPlan
 from gym import Gym
-from knockout_detector import detector_from_files
 from models import build
+from settings import DEFAULT_REPAIR
 from stats_tables import corrected_ttest
 from storage import ResultsLayout
 
@@ -166,6 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--train", type=Path, default=DEFAULT_TRAIN)
     parser.add_argument("--test", type=Path, help="unlabelled battles (optional)")
     parser.add_argument("--pokedex", type=Path, default=DEFAULT_POKEDEX)
+    parser.add_argument("--repair", default=DEFAULT_REPAIR, help="none, rule or model=<folder>")
     parser.add_argument("--pool", default="selection_pool")
     parser.add_argument("--start", default="compact_v3")
     parser.add_argument("--model", default="logreg")
@@ -182,7 +184,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     pokedex = Pokedex.from_json(args.pokedex)
     chart = feature_sets.type_chart()
-    detector = detector_from_files(pokedex, chart, (args.train,))  # as main.py
+    detector = load_repair(args.repair, pokedex, chart)  # as main.py
     train = Dataset.from_jsonl(args.train, pokedex, repair=detector)
     unlabeled = (
         Dataset.from_jsonl(args.test, pokedex, repair=detector).contexts

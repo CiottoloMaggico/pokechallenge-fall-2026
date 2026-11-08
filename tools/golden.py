@@ -5,6 +5,9 @@ step changes nothing.
     python tools/golden.py export --out results/golden/candidate     # after the step
     python tools/golden.py check results/golden/reference results/golden/candidate
 
+``export --repair`` names the repair as ``main.py --repair`` does (default: the detector
+artifact ``results/addons/knockouts/v3``, written by ``main.py detector train --version v3``).
+
 ``export`` writes, for the training file:
 
 * ``species.csv``: the Pokédex used by the pipeline;
@@ -39,18 +42,18 @@ FEATURE_SET = "compact_v5"
 FLOAT = "%.17g"
 
 
-def _export(out: Path, train: Path) -> None:
+def _export(out: Path, train: Path, repair_spec: str) -> None:
     # adapt these imports to the refactored modules; keep the outputs identical
     sys.path.insert(0, str(ROOT))
     from sklearn.metrics import log_loss
 
+    from addons import load_repair
     from data import Dataset
     from domain.pokedex import PokedexBuilder
     from domain.records import read_records, without_label
     from features import sets as feature_sets
     from folds import FoldPlan, make_splits
     from gym import Gym
-    from knockout_detector import detector_from_files
     from models import build
 
     started = time.perf_counter()
@@ -63,7 +66,7 @@ def _export(out: Path, train: Path) -> None:
                         for s in ("hp", "atk", "def", "spa", "spd", "spe")}})
     pd.DataFrame(rows).sort_values("name").to_csv(out / "species.csv", index=False)
 
-    repair = detector_from_files(pokedex, feature_sets.type_chart(), (train,))
+    repair = load_repair(repair_spec, pokedex, feature_sets.type_chart())
     records = [without_label(json.loads(line)) for line in train.open()]
     rows = []
     for record in records:
@@ -168,13 +171,14 @@ def main() -> int:
     e = sub.add_parser("export")
     e.add_argument("--out", type=Path, required=True)
     e.add_argument("--train", type=Path, default=ROOT / "input" / "train.jsonl")
+    e.add_argument("--repair", default=f"model={ROOT / 'results' / 'addons' / 'knockouts' / 'v3'}")
     c = sub.add_parser("check")
     c.add_argument("reference", type=Path)
     c.add_argument("candidate", type=Path)
     c.add_argument("--tol", type=float, default=1e-9)
     args = parser.parse_args()
     if args.cmd == "export":
-        _export(args.out, args.train)
+        _export(args.out, args.train, args.repair)
         return 0
     return _check(args.reference, args.candidate, args.tol)
 
