@@ -87,9 +87,7 @@ class LogitBlend(Model):
         """(members, rows) probabilities, each row predicted by models that
         did not see it."""
         oof = np.zeros((len(self._members), len(y)))
-        folds = StratifiedKFold(
-            self._inner_folds, shuffle=True, random_state=self._seed
-        )
+        folds = StratifiedKFold(self._inner_folds, shuffle=True, random_state=self._seed)
         for train, valid in folds.split(np.zeros(len(y)), y):
             x_train, x_valid = _rows(x, train), _rows(x, valid)
             for i, member in enumerate(self._members):

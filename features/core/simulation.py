@@ -183,9 +183,7 @@ class DuelSimulator:
         best = 0.0
         damage = DamageCalculator(self.chart)
         for move in attacker.moves:
-            mean = damage.expected(
-                attacker.combatant, defender.combatant, move, with_accuracy=True
-            )
+            mean = damage.expected(attacker.combatant, defender.combatant, move, with_accuracy=True)
             if mean is not None:
                 best = max(best, mean / defender.combatant.max_hp)
         return best
@@ -241,9 +239,7 @@ class BattleSimulation(HiddenTeamStrength):
     def output_names(self) -> tuple[str, ...]:
         return self.outputs
 
-    def _fit(
-        self, battles: Sequence[BattleContext], labels: Sequence[int] | None
-    ) -> None:
+    def _fit(self, battles: Sequence[BattleContext], labels: Sequence[int] | None) -> None:
         super()._fit(battles, labels)
         counts: dict[str, Counter[str]] = {}
         known: dict[str, Move] = {}
@@ -262,9 +258,7 @@ class BattleSimulation(HiddenTeamStrength):
             for species, counter in counts.items()
         }
 
-    def _fighter(
-        self, pokemon: PokemonState, boosts: Mapping[str, int] | None = None
-    ) -> Fighter:
+    def _fighter(self, pokemon: PokemonState, boosts: Mapping[str, int] | None = None) -> Fighter:
         """Known and typical attacks of the species, then a STAB floor."""
         typical = self.typical.get(pokemon.name, [])
         return make_fighter(pokemon, (*pokemon.known_moves.values(), *typical), boosts)
@@ -283,9 +277,7 @@ class BattleSimulation(HiddenTeamStrength):
             if not p.fainted
         ]
         hidden = self.guess(list(p2.team), p2.team_size)
-        full_b = seen_b + [
-            self._fighter(context.new_pokemon(name)) for name in hidden
-        ]
+        full_b = seen_b + [self._fighter(context.new_pokemon(name)) for name in hidden]
         actives = (p1.active.pokemon.name, p2.active.pokemon.name)
         values: dict[str, float] = {}
         if "sim_seen_left" in self.outputs:

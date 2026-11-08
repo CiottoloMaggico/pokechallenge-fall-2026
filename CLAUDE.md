@@ -20,7 +20,8 @@ Since step 4a no feature depends on the hash seed (contract test in
 only to run commits older than step 4a, such as the recipes in `SUBMISSIONS.md`.
 
 - Tests: `pytest -q` (once `tests/` exists); lint: `ruff check . && ruff format --check .`;
-  types: `pyright`.
+  types: `pyright`. CI (`.github/workflows/ci.yml`, since step 9) runs the three; no test
+  reads `input/` or `results/`.
 - Golden check (every step, ~10 min; needs the `v3` artifact, `export --repair` picks
   another):
   `python tools/golden.py export --out results/golden/candidate`

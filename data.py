@@ -98,11 +98,7 @@ class Dataset:
         labelled = [LABEL_KEY in r for r in records]
         if any(labelled) and not all(labelled):
             raise DataError("some records have a label and others do not")
-        labels = (
-            tuple(int(r[LABEL_KEY]) for r in records)
-            if records and all(labelled)
-            else None
-        )
+        labels = tuple(int(r[LABEL_KEY]) for r in records) if records and all(labelled) else None
         replayer = BattleReplay(pokedex, repair, unknown)
         contexts = tuple(_replay(replayer, r) for r in records)
         return cls(contexts, labels)
@@ -153,11 +149,7 @@ class Dataset:
         )
 
     def subset(self, indices: Sequence[int]) -> Dataset:
-        labels = (
-            None
-            if self.label_values is None
-            else tuple(self.label_values[i] for i in indices)
-        )
+        labels = None if self.label_values is None else tuple(self.label_values[i] for i in indices)
         return Dataset(tuple(self.contexts[i] for i in indices), labels)
 
     def __len__(self) -> int:

@@ -100,9 +100,7 @@ class HiddenKnockoutProbability(Feature[BattleContext]):
     def output_names(self) -> tuple[str, ...]:
         return ("p2_hidden_ko_soft",)
 
-    def _fit(
-        self, battles: Sequence[BattleContext], labels: Sequence[int] | None
-    ) -> None:
+    def _fit(self, battles: Sequence[BattleContext], labels: Sequence[int] | None) -> None:
         rows, knocked_out, switched = [], [], []
         for context in battles:
             for x, ko, switch in self._p1_turns(context):
@@ -116,9 +114,7 @@ class HiddenKnockoutProbability(Feature[BattleContext]):
         )
         self.knockout_model = LogisticRegression(max_iter=3000).fit(x_all, ko_all)
         alive = ko_all == 0
-        self.switch_model = LogisticRegression(max_iter=3000).fit(
-            x_all[alive], sw_all[alive]
-        )
+        self.switch_model = LogisticRegression(max_iter=3000).fit(x_all[alive], sw_all[alive])
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
         context = battle.at_turn(self.turn)
@@ -137,9 +133,7 @@ class HiddenKnockoutProbability(Feature[BattleContext]):
             after = timeline[i]["p2_pokemon_state"]
             if before["name"] == after["name"] or before["status"] == FAINTED:
                 continue
-            if any(
-                t["p2_pokemon_state"]["name"] == before["name"] for t in timeline[i:]
-            ):
+            if any(t["p2_pokemon_state"]["name"] == before["name"] for t in timeline[i:]):
                 continue
             move = _move_used(timeline, i, "p1")
             if move is not None and move["name"] in PHAZING_MOVES:
@@ -180,29 +174,22 @@ class HiddenKnockoutProbability(Feature[BattleContext]):
             if _is_attack(move) and None in fighters:
                 continue  # its damage is unknown, so it is no training example
             mean, worst = self._damage(*fighters, move)
-            knocked_out = int(
-                after["name"] == before["name"] and after["status"] == FAINTED
-            )
+            knocked_out = int(after["name"] == before["name"] and after["status"] == FAINTED)
             switched = int(after["name"] != before["name"]) if not knocked_out else 0
             x = _row(before["hp_pct"], mean, worst, _is_attack(move))
             rows.append((x, knocked_out, switched))
         return rows
 
     @staticmethod
-    def _combatant(
-        context: BattleContext, state: Record, level: int | None
-    ) -> Combatant | None:
+    def _combatant(context: BattleContext, state: Record, level: int | None) -> Combatant | None:
         species = context.species(state["name"])
         if species is None:
             return None
         boosts = {
-            k: max(-MAX_STAGE, min(MAX_STAGE, v))
-            for k, v in (state.get("boosts") or {}).items()
+            k: max(-MAX_STAGE, min(MAX_STAGE, v)) for k, v in (state.get("boosts") or {}).items()
         }
         status = state["status"] if state["status"] != FAINTED else "nostatus"
-        return Combatant(
-            species, level=level or DEFAULT_LEVEL, boosts=boosts, status=status
-        )
+        return Combatant(species, level=level or DEFAULT_LEVEL, boosts=boosts, status=status)
 
     def _damage(
         self,

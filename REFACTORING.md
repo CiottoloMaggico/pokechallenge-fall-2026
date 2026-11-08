@@ -884,15 +884,24 @@ exports to `results/evaluations/detector_<date>`, `detector train` to
 ## 8. Quality gates
 
 - `ruff check` and `ruff format --check` (pep8, isort, pyupgrade, bugbear);
-  line length 100.
-- `pyright` strict on `domain/`, `interfaces.py`, `stats_tables.py`; basic elsewhere.
+  line length 100. `tools/golden.py` (which may change only in `_export`) and the
+  markdown files are excluded.
+- `pyright` strict on `domain/`, `interfaces.py`, `stats_tables.py`; basic elsewhere
+  (`tools/golden.py` excluded, as above).
 - `pytest`: unit tests per module, contract tests for every registered feature
-  and model, an end-to-end test on `tests/fixtures/` (evaluate → train → predict
-  on 200 battles, under a minute).
-- `tests/test_architecture.py`: imports are scanned (ast) to enforce §1
-  (`domain` imports only stdlib / numpy and never `addons`, `features`, `models`,
-  `gym`; `models` never imports `domain`; `addons` never import `gym`, `tuning`
-  or the CLI). The `domain` and `addons` rules are tested since steps 3 and 7.
+  and model, an end-to-end test on `tests/fixtures/` through `main.main`
+  (`tests/application/test_end_to_end.py`: evaluate → train → predict on 200 battles,
+  about 10 s, repair `rule` and a Pokédex of the fixtures). No test reads `input/` or
+  `results/`.
+- `tests/test_architecture.py`: imports are scanned (ast, deferred imports included) to
+  enforce §1: `domain` imports only stdlib / numpy; `addons` never import the application
+  or the CLI; `features` and `feature_set.py` never import `models`, `addons` or the
+  application; `models` never import `domain`, `features`, `feature_set`, `addons` or the
+  application; `main.py` never imports `gym`, `tuning`, `selection`, `data`,
+  `stats_tables`. "The application depends on protocols, not concrete classes" is not
+  checkable from imports and is left to review.
+- CI (`.github/workflows/ci.yml`, since step 9): ruff, pyright and pytest on Python 3.14
+  with `requirements.txt`; the LFS data are not fetched.
 - Regression: `evaluate --features compact_v5 --models logreg ensemble_from_lr
   --seeds 33 66 133` must match the numbers in the goal above (after step 2,
   the re-measured baseline); `detector evaluate --features ko_domain30 --models

@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # the tests read only tests/fixtures, so the LFS data files are not fetched
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install
+        # pyproject.toml points pyright at the virtual environment .env
+        run: |
+          python -m venv .env
+          .env/bin/pip install -r requirements.txt ruff==0.17.3 pyright==1.1.414 pytest==9.2.0
+      - name: Ruff
+        run: |
+          .env/bin/ruff check .
+          .env/bin/ruff format --check .
+      - name: Pyright
+        run: .env/bin/pyright
+      - name: Pytest
+        run: .env/bin/pytest -q

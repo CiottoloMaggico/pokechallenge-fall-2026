@@ -62,9 +62,7 @@ class BagLogit(Feature[BattleContext]):
     def output_names(self) -> tuple[str, ...]:
         return ("bag_logit",)
 
-    def _fit(
-        self, battles: Sequence[BattleContext], labels: Sequence[int] | None
-    ) -> None:
+    def _fit(self, battles: Sequence[BattleContext], labels: Sequence[int] | None) -> None:
         if labels is None:
             raise ValueError("the bag logit needs the training labels")
         contexts = [battle.at_turn(self.turn) for battle in battles]
@@ -78,9 +76,7 @@ class BagLogit(Feature[BattleContext]):
         self.species = sorted(s for s, n in species.items() if n >= self.min_species)
         self.moves = sorted(m for m, n in moves.items() if n >= self.min_moves)
         x = np.array([self._vector(context) for context in contexts])
-        model = make_pipeline(
-            StandardScaler(), LogisticRegression(C=self.c, max_iter=5000)
-        )
+        model = make_pipeline(StandardScaler(), LogisticRegression(C=self.c, max_iter=5000))
         self.model = model.fit(x, np.asarray(labels))
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
@@ -102,8 +98,7 @@ class BagLogit(Feature[BattleContext]):
 
 def _hp_left(player: PlayerState) -> dict[str, float]:
     return {
-        name: 0.0 if pokemon.fainted else pokemon.hp_pct
-        for name, pokemon in player.team.items()
+        name: 0.0 if pokemon.fainted else pokemon.hp_pct for name, pokemon in player.team.items()
     }
 
 

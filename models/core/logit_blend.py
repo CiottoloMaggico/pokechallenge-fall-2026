@@ -18,6 +18,7 @@ for the base model or its ensemble members, applied as ``--params`` would.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -48,14 +49,14 @@ class LogitBlend(Model):
         if not 0.0 <= w <= 1.0:
             raise ValueError("w must be in [0, 1]")
         self.w, self.base, self.column, self.tuned = float(w), base, column, tuple(tuned)
-        self._base: Model | None = None
+        self._base: Model  # set by fit; Model.predict_proba refuses an unfitted blend
 
     def _build_base(self) -> Model:
         from registry import build_tuned
-        from tuning.params import load_params
 
-        params = dict(load_params(Path(p)) for p in self.tuned)
-        return build_tuned(self.base, params)
+        # the files of tuning/params.py, read here because models never import the application
+        infos = [json.loads(Path(path).read_text()) for path in self.tuned]
+        return build_tuned(self.base, {str(i["model"]): dict(i["params"]) for i in infos})
 
     def _split(self, x: Any) -> tuple[pd.DataFrame, np.ndarray]:
         if not isinstance(x, pd.DataFrame) or self.column not in x:

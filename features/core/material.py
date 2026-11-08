@@ -150,11 +150,7 @@ def material_features(turn: int | None = None) -> list[AtTurn]:
         AtTurn("material_statused", side_difference(statused_share, bad=True), turn),
         AtTurn("material_healthy", side_difference(healthy_share), turn),
         AtTurn("p1_mean_hp_alive", p1_mean_hp_alive, turn),
-        AtTurn(
-            "material_asleep_rest", side_difference(rest_sleep_share, bad=True), turn
-        ),
-        AtTurn(
-            "material_asleep_other", side_difference(other_sleep_share, bad=True), turn
-        ),
+        AtTurn("material_asleep_rest", side_difference(rest_sleep_share, bad=True), turn),
+        AtTurn("material_asleep_other", side_difference(other_sleep_share, bad=True), turn),
         AtTurn("p2_revealed", p2_revealed_share, turn),
     ]

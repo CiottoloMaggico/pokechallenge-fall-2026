@@ -1,5 +1,13 @@
-"""Dependency rules of REFACTORING.md §1: ``domain`` imports only the stdlib and numpy,
-``addons`` never import the application or the CLI."""
+"""Dependency rules of REFACTORING.md §1, checked on the imports of every module (ast).
+
+* ``domain`` imports only the standard library and numpy (so never an addon, a feature,
+  a model or the application);
+* ``addons`` never import the application or the CLI;
+* ``features`` (and ``feature_set.py``) never import models, addons or the application;
+* ``models`` never import the domain, features, addons or the application;
+* the CLI (``main.py``) only parses arguments and calls a use case: it never runs the gym,
+  the tuner, the selection or loads the data itself.
+"""
 
 from __future__ import annotations
 
@@ -10,10 +18,30 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-DOMAIN_MODULES = sorted((ROOT / "domain").rglob("*.py"))
-ALLOWED = {"domain", "numpy", *sys.stdlib_module_names}
-ADDON_MODULES = sorted((ROOT / "addons").rglob("*.py"))
 APPLICATION = {"gym", "tuning", "usecases", "detector", "selection", "main", "folds", "settings"}
+DOMAIN_ALLOWED = {"domain", "numpy", *sys.stdlib_module_names}
+
+
+def modules(*parts: str) -> list[Path]:
+    """Python files of the packages or modules ``parts`` (relative to the root)."""
+    found: list[Path] = []
+    for part in parts:
+        path = ROOT / part
+        found.extend(sorted(path.rglob("*.py")) if path.is_dir() else [path])
+    return found
+
+
+FORBIDDEN: dict[str, tuple[list[Path], set[str]]] = {
+    "addons": (modules("addons"), APPLICATION),
+    "features": (modules("features", "feature_set.py"), {"models", "addons", *APPLICATION}),
+    "models": (modules("models"), {"domain", "features", "feature_set", "addons", *APPLICATION}),
+    "cli": (modules("main.py"), {"gym", "tuning", "selection", "data", "stats_tables"}),
+}
+CASES = [
+    pytest.param(path, banned, id=f"{layer}:{path.relative_to(ROOT)}")
+    for layer, (paths, banned) in FORBIDDEN.items()
+    for path in paths
+]
 
 
 def imported_roots(source: str) -> set[str]:
@@ -42,19 +70,20 @@ def test_the_scan_sees_every_form_of_import() -> None:
     assert imported_roots(source) == {"os", "pandas", "sklearn", "gym", "addons"}
 
 
-def test_there_are_domain_modules_to_check() -> None:
-    assert {"battle.py", "repair.py", "transitions.py"} <= {p.name for p in DOMAIN_MODULES}
+def test_every_layer_has_modules_to_check() -> None:
+    assert {"battle.py", "repair.py", "transitions.py"} <= {p.name for p in modules("domain")}
+    assert {"knockouts_model.py", "knockouts_rule.py"} <= {p.name for p in modules("addons")}
+    assert {"compact_v5.py", "material.py", "feature_set.py"} <= {
+        p.name for p in FORBIDDEN["features"][0]
+    }
+    assert {"logreg.py", "estimator.py", "logit_blend.py"} <= {p.name for p in modules("models")}
 
 
-@pytest.mark.parametrize("path", DOMAIN_MODULES, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", modules("domain"), ids=lambda p: p.name)
 def test_domain_imports_only_stdlib_and_numpy(path: Path) -> None:
-    assert imported_roots(path.read_text(encoding="utf-8")) <= ALLOWED
+    assert imported_roots(path.read_text(encoding="utf-8")) <= DOMAIN_ALLOWED
 
 
-def test_there_are_addons_to_check() -> None:
-    assert {"knockouts_model.py", "knockouts_rule.py"} <= {p.name for p in ADDON_MODULES}
-
-
-@pytest.mark.parametrize("path", ADDON_MODULES, ids=lambda p: p.name)
-def test_addons_never_import_the_application(path: Path) -> None:
-    assert not imported_roots(path.read_text(encoding="utf-8")) & APPLICATION
+@pytest.mark.parametrize(("path", "banned"), CASES)
+def test_a_layer_never_imports_what_it_must_not(path: Path, banned: set[str]) -> None:
+    assert not imported_roots(path.read_text(encoding="utf-8")) & banned

@@ -38,9 +38,7 @@ class OpponentSpeciesEncoding(Feature[BattleContext]):
     requires_fit = True
     uses_labels = True
 
-    def __init__(
-        self, turn: int | None = None, smoothing: float = DEFAULT_SMOOTHING
-    ) -> None:
+    def __init__(self, turn: int | None = None, smoothing: float = DEFAULT_SMOOTHING) -> None:
         super().__init__("opponent_species_encoding")
         if smoothing <= 0:
             raise ValueError("smoothing must be positive")
@@ -53,9 +51,7 @@ class OpponentSpeciesEncoding(Feature[BattleContext]):
     def output_names(self) -> tuple[str, ...]:
         return ("te_p2_mean",)
 
-    def _fit(
-        self, battles: Sequence[BattleContext], labels: Sequence[int] | None
-    ) -> None:
+    def _fit(self, battles: Sequence[BattleContext], labels: Sequence[int] | None) -> None:
         if labels is None:
             raise ValueError("the encoding needs the training labels")
         self.prior = sum(labels) / len(labels)
@@ -67,8 +63,7 @@ class OpponentSpeciesEncoding(Feature[BattleContext]):
                 counts[1] += 1
         m = self.smoothing
         self.encoding = {
-            name: (wins + m * self.prior) / (n + m)
-            for name, (wins, n) in totals.items()
+            name: (wins + m * self.prior) / (n + m) for name, (wins, n) in totals.items()
         }
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
@@ -115,9 +110,7 @@ class TeamEncoding(Feature[BattleContext]):
     def output_names(self) -> tuple[str, ...]:
         return ("te_p1_team", "te_pair_mean")
 
-    def _fit(
-        self, battles: Sequence[BattleContext], labels: Sequence[int] | None
-    ) -> None:
+    def _fit(self, battles: Sequence[BattleContext], labels: Sequence[int] | None) -> None:
         if labels is None:
             raise ValueError("the encoding needs the training labels")
         self.prior = sum(labels) / len(labels)
@@ -147,9 +140,7 @@ class TeamEncoding(Feature[BattleContext]):
         }
 
     def _smooth(self, totals: Mapping[Any, list[int]], m: float) -> dict[Any, float]:
-        return {
-            key: (wins + m * self.prior) / (n + m) for key, (wins, n) in totals.items()
-        }
+        return {key: (wins + m * self.prior) / (n + m) for key, (wins, n) in totals.items()}
 
 
 def _p1_team(context: BattleContext) -> tuple[str, ...]:
@@ -202,9 +193,7 @@ class TeamEffect(Feature[BattleContext]):
     def output_names(self) -> tuple[str, ...]:
         return self.OUTPUTS
 
-    def _fit(
-        self, battles: Sequence[BattleContext], labels: Sequence[int] | None
-    ) -> None:
+    def _fit(self, battles: Sequence[BattleContext], labels: Sequence[int] | None) -> None:
         if labels is None:
             raise ValueError("the team effect needs the training labels")
         contexts = [battle.at_turn(self.turn) for battle in battles]
@@ -239,9 +228,7 @@ class TeamEffect(Feature[BattleContext]):
     def _effect(self, key: Any) -> float:
         return self.sums.get(key, 0.0) / (self.counts.get(key, 0) + self.smoothing)
 
-    def _teams(
-        self, context: BattleContext
-    ) -> tuple[frozenset[str], frozenset[str] | None]:
+    def _teams(self, context: BattleContext) -> tuple[frozenset[str], frozenset[str] | None]:
         """P1's team and P2's team when it can be identified."""
         mine = frozenset(context.side("p1").team)
         revealed = frozenset(context.side("p2").team)

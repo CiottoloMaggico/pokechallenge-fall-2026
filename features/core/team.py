@@ -106,9 +106,7 @@ class HiddenTeamStrength(Feature[BattleContext]):
     def output_names(self) -> tuple[str, ...]:
         return ("hidden_bst",)
 
-    def _fit(
-        self, battles: Sequence[BattleContext], labels: Sequence[int] | None
-    ) -> None:
+    def _fit(self, battles: Sequence[BattleContext], labels: Sequence[int] | None) -> None:
         frequency: dict[str, int] = {}
         together: dict[str, dict[str, int]] = {}
         for context in battles:

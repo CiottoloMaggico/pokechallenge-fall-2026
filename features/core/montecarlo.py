@@ -93,9 +93,7 @@ class MonteCarloDuels(DuelSimulator):
         best_mean = 0.0
         damage = DamageCalculator(self.chart)
         for move in attacker.moves:
-            mean = damage.expected(
-                attacker.combatant, defender.combatant, move, with_accuracy=True
-            )
+            mean = damage.expected(attacker.combatant, defender.combatant, move, with_accuracy=True)
             if mean is not None and mean > best_mean:
                 best, best_mean = move, mean
         return best
@@ -122,9 +120,7 @@ class MonteCarloDuels(DuelSimulator):
 class MonteCarloSimulation(BattleSimulation):
     """``mc_seen_left`` and ``mc_full_win`` at the sampled turn."""
 
-    def __init__(
-        self, chart: TypeChart, turn: int | None = None, runs: int = RUNS
-    ) -> None:
+    def __init__(self, chart: TypeChart, turn: int | None = None, runs: int = RUNS) -> None:
         super().__init__(chart, turn)
         if runs < 1:
             raise ValueError(f"runs must be >= 1, got {runs}")
@@ -149,9 +145,7 @@ class MonteCarloSimulation(BattleSimulation):
             if not p.fainted
         ]
         hidden = self.guess(list(p2.team), p2.team_size)
-        full_b = seen_b + [
-            self._fighter(context.new_pokemon(name)) for name in hidden
-        ]
+        full_b = seen_b + [self._fighter(context.new_pokemon(name)) for name in hidden]
         if stats_missing(team_a, full_b):
             return {name: math.nan for name in MC_OUTPUTS}
         actives = (p1.active.pokemon.name, p2.active.pokemon.name)

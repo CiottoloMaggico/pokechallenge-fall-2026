@@ -15,6 +15,7 @@ import json
 import random
 from collections import defaultdict
 from collections.abc import Callable
+from itertools import pairwise
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,8 +34,11 @@ def fingerprint(record: dict) -> str:
 
 def moves(record: dict, side: str) -> list[str]:
     """Names of the moves a side used in the timeline."""
-    return [t[f"{side}_move_details"]["name"] for t in record["battle_timeline"]
-            if t.get(f"{side}_move_details")]
+    return [
+        t[f"{side}_move_details"]["name"]
+        for t in record["battle_timeline"]
+        if t.get(f"{side}_move_details")
+    ]
 
 
 def active(record: dict, side: str) -> list[str]:
@@ -47,15 +51,20 @@ def p1_faint(record: dict) -> bool:
 
 
 def double_ko(record: dict) -> bool:
-    return any(t["p1_pokemon_state"]["status"] == "fnt" and t["p2_pokemon_state"]["status"] == "fnt"
-               for t in record["battle_timeline"])
+    return any(
+        t["p1_pokemon_state"]["status"] == "fnt" and t["p2_pokemon_state"]["status"] == "fnt"
+        for t in record["battle_timeline"]
+    )
 
 
 def voluntary_switch(record: dict) -> bool:
     """P1 changes active Pokémon although the previous one was not fainted."""
     turns = record["battle_timeline"]
-    return any(a["p1_pokemon_state"]["name"] != b["p1_pokemon_state"]["name"]
-               and a["p1_pokemon_state"]["status"] != "fnt" for a, b in zip(turns, turns[1:]))
+    return any(
+        a["p1_pokemon_state"]["name"] != b["p1_pokemon_state"]["name"]
+        and a["p1_pokemon_state"]["status"] != "fnt"
+        for a, b in pairwise(turns)
+    )
 
 
 def phazing(record: dict) -> bool:
@@ -86,8 +95,12 @@ def main() -> None:
         return any(name not in with_stats for name in active(record, "p2"))
 
     cases: dict[str, Callable[[dict], bool]] = {
-        "p1_faint": p1_faint, "double_ko": double_ko, "voluntary_switch": voluntary_switch,
-        "phazing": phazing, "explosion": explosion, "spikes": spikes,
+        "p1_faint": p1_faint,
+        "double_ko": double_ko,
+        "voluntary_switch": voluntary_switch,
+        "phazing": phazing,
+        "explosion": explosion,
+        "spikes": spikes,
         "unknown_species": unknown_species,
     }
     chosen: dict[int, None] = {}

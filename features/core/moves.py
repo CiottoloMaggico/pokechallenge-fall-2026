@@ -44,8 +44,6 @@ def _type_sensitive(move: Move) -> bool:
 
 def move_features(chart: TypeChart, turn: int | None = None) -> list[AtTurn]:
     def mv_res(context: BattleContext) -> float:
-        return resisted_share(chart, context, "p2") - resisted_share(
-            chart, context, "p1"
-        )
+        return resisted_share(chart, context, "p2") - resisted_share(chart, context, "p1")
 
     return [AtTurn("mv_res", mv_res, turn)]

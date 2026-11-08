@@ -9,7 +9,9 @@ dev = ["ruff", "pyright", "pytest"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = [".env", "results", "runs", "input"]
+# tools/golden.py may change only in _export (CLAUDE.md), so it is not reformatted or retyped;
+# the sketches of the markdown guides are not Python files to format.
+extend-exclude = [".env", "results", "runs", "input", "tools/golden.py", "*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
@@ -22,7 +24,7 @@ strict = [
     "stats_tables.py",
 ]
 include = ["."]
-exclude = [".env", "results", "runs", "input", "**/__pycache__"]
+exclude = [".env", "results", "runs", "input", "**/__pycache__", "tools/golden.py"]
 venvPath = "."
 venv = ".env"
 

@@ -80,9 +80,7 @@ def _sets_up(pokemon: PokemonState) -> float:
 
 def _difference(counter: Counter) -> Callable[[BattleContext], float]:
     def difference(context: BattleContext) -> float:
-        p1, p2 = (
-            sum(counter(p) for p in _alive(context.side(s))) for s in ("p1", "p2")
-        )
+        p1, p2 = (sum(counter(p) for p in _alive(context.side(s))) for s in ("p1", "p2"))
         return (p1 - p2) / TEAM_SIZE
 
     return difference
@@ -96,9 +94,7 @@ sleepers = _difference(_knows(SLEEP))
 
 def spikes_advantage(context: BattleContext) -> float:
     """``wc_spikes_adv`` (see the module docstring)."""
-    return float(_spikes_stick(context.side("p2"))) - float(
-        _spikes_stick(context.side("p1"))
-    )
+    return float(_spikes_stick(context.side("p2"))) - float(_spikes_stick(context.side("p1")))
 
 
 def _spikes_stick(player: PlayerState) -> bool:

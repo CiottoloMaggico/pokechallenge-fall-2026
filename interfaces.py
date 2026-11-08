@@ -6,6 +6,7 @@
 gym fits and compares, whatever library is behind it. :class:`LabelledBattles`, :class:`Splitter`
 and :data:`Probe` are what a task and an experiment hand to the gym.
 """
+
 from __future__ import annotations
 
 import copy

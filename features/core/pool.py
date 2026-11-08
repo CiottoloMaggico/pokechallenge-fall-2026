@@ -115,9 +115,7 @@ class TeamRating(Feature[BattleContext]):
     def output_names(self) -> tuple[str, ...]:
         return ("tr_p1", "tr_p2")
 
-    def _fit(
-        self, battles: Sequence[BattleContext], labels: Sequence[int] | None
-    ) -> None:
+    def _fit(self, battles: Sequence[BattleContext], labels: Sequence[int] | None) -> None:
         assert labels is not None
         contexts = [b.at_turn(self.turn) for b in battles]
         self.pool = TeamPool.from_battles(contexts)
@@ -163,9 +161,7 @@ class PoolBulk(Feature[BattleContext]):
     def output_names(self) -> tuple[str, ...]:
         return (f"phpw_{self.stat}",)
 
-    def _fit(
-        self, battles: Sequence[BattleContext], labels: Sequence[int] | None
-    ) -> None:
+    def _fit(self, battles: Sequence[BattleContext], labels: Sequence[int] | None) -> None:
         self.pool = TeamPool.from_battles([b.at_turn(self.turn) for b in battles])
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
@@ -238,10 +234,8 @@ def alive_gain_10_30(context: BattleContext) -> float:
 def status_move_share_diff(context: BattleContext) -> float:
     shares = []
     for side in ("p1", "p2"):
-        moves = [t.side(side).move for t in context.history if t.side(side).move]
-        shares.append(
-            sum(m.category == "status" for m in moves) / len(moves) if moves else 0.0
-        )
+        moves = [m for t in context.history if (m := t.side(side).move) is not None]
+        shares.append(sum(m.category == "status" for m in moves) / len(moves) if moves else 0.0)
     return shares[0] - shares[1]
 
 
@@ -255,4 +249,3 @@ class PairEncoding(TeamEncoding):
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
         return {"te_pair_mean": super().compute(battle)["te_pair_mean"]}
-

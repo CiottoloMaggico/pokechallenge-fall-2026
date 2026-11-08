@@ -223,9 +223,7 @@ class LeadState:
 
 
 class PlayerState:
-    def __init__(
-        self, team: dict[str, PokemonState] | None = None, team_size: int = 6
-    ) -> None:
+    def __init__(self, team: dict[str, PokemonState] | None = None, team_size: int = 6) -> None:
         self.team = team if team is not None else {}
         self.team_size = team_size
         self.lead: LeadState | None = None
@@ -243,9 +241,7 @@ class PlayerState:
     def switch_in(self, name: str, baton_pass: bool = False) -> None:
         pokemon = self.team.get(name)
         if pokemon is None:
-            raise ValueError(
-                f"unknown name {name!r}: add the pokemon to the player team"
-            )
+            raise ValueError(f"unknown name {name!r}: add the pokemon to the player team")
 
         old = self.lead
         self.lead = LeadState(pokemon)
@@ -361,16 +357,10 @@ class Battle:
         sides = {"p1": (self.p1, self.p2), "p2": (self.p2, self.p1)}
         obs = {s: t[f"{s}_pokemon_state"] for s in sides}
         moves = {
-            s: (
-                Move.from_details(t[f"{s}_move_details"])
-                if t[f"{s}_move_details"]
-                else None
-            )
+            s: (Move.from_details(t[f"{s}_move_details"]) if t[f"{s}_move_details"] else None)
             for s in sides
         }
-        before = {
-            s: me.lead.pokemon if me.lead else None for s, (me, _) in sides.items()
-        }
+        before = {s: me.lead.pokemon if me.lead else None for s, (me, _) in sides.items()}
         was_fainted = {s: p is not None and p.fainted for s, p in before.items()}
         leaving = before["p2"]
         if leaving is not None and leaving.name == p2_fainted:
@@ -401,11 +391,7 @@ class Battle:
         for s in sides:
             other = "p2" if s == "p1" else "p1"
             replacement_turn = was_fainted[other] and not was_fainted[s]
-            if (
-                switched[s]
-                or replacement_turn
-                or _immobile(before[s], obs[s], moves[s])
-            ):
+            if switched[s] or replacement_turn or _immobile(before[s], obs[s], moves[s]):
                 moves[s] = None
         self.moves = moves
         self.switched = switched
@@ -422,9 +408,7 @@ class Battle:
         self.targets = {}
         for s, (_, opp) in sides.items():
             other = "p2" if s == "p1" else "p1"
-            gone = (
-                before[other] if fainted_out[other] and not was_fainted[other] else None
-            )
+            gone = before[other] if fainted_out[other] and not was_fainted[other] else None
             self.targets[s] = gone.name if gone is not None else opp.active.pokemon.name
 
         for s, (me, _) in sides.items():
@@ -571,18 +555,12 @@ def _spin_hits(target: LeadState) -> bool:
     return PROTECTED not in target.effects
 
 
-def _immobile(
-    pokemon: PokemonState | None, observed: Mapping[str, Any], move: Move | None
-) -> bool:
+def _immobile(pokemon: PokemonState | None, observed: Mapping[str, Any], move: Move | None) -> bool:
     """The Pokémon stayed frozen or asleep, so it could not use ``move``."""
     if pokemon is None or move is None or pokemon.name != observed["name"]:
         return False
     allowed = IMMOBILE.get(pokemon.status)
-    return (
-        allowed is not None
-        and observed["status"] == pokemon.status
-        and move.name not in allowed
-    )
+    return allowed is not None and observed["status"] == pokemon.status and move.name not in allowed
 
 
 SIDES = ("p1", "p2")

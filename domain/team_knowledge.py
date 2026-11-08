@@ -119,9 +119,7 @@ def observations(context: BattleContext) -> tuple[Observation, ...]:
 def contribution(context: BattleContext) -> Contribution:
     """The teams and observations of one complete battle."""
     teams = tuple(
-        team
-        for team in (complete_team(context.side(s)) for s in ("p1", "p2"))
-        if team is not None
+        team for team in (complete_team(context.side(s)) for s in ("p1", "p2")) if team is not None
     )
     return Contribution(teams, observations(context))
 
@@ -163,12 +161,8 @@ class TeamKnowledge:
         self._times = dict(times)
         self.counts = Counts()
         for digest in sorted(self._entries):
-            self.counts.add(
-                _tally(self._entries[digest], self._times[digest])
-            )
-        self.index, self.species_moves, self.catalog = _indexes(
-            self.counts, self._entries
-        )
+            self.counts.add(_tally(self._entries[digest], self._times[digest]))
+        self.index, self.species_moves, self.catalog = _indexes(self.counts, self._entries)
 
     @classmethod
     def build(
@@ -266,9 +260,7 @@ class KnowledgeView:
             return {}
         return {t: self.team_count(t) / total for t in candidates}
 
-    def identify(
-        self, revealed: Iterable[str], min_share: float = MIN_TEAM_SHARE
-    ) -> Team | None:
+    def identify(self, revealed: Iterable[str], min_share: float = MIN_TEAM_SHARE) -> Team | None:
         """The team of a player, or None if no candidate is dominant enough.
 
         Ties go to the lexicographically smallest sorted team.
@@ -316,8 +308,7 @@ class KnowledgeView:
     def move_probabilities(self, team: Team | None, species: str) -> dict[str, float]:
         """Probability of each move the archive has seen for ``species``."""
         return {
-            move: self.move_probability(team, species, move)
-            for move in self._seen_moves(species)
+            move: self.move_probability(team, species, move) for move in self._seen_moves(species)
         }
 
     def _seen_moves(self, species: str) -> list[str]:

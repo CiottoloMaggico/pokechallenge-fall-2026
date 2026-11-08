@@ -29,9 +29,7 @@ class NextSwitchProbability(Feature[BattleContext]):
 
     requires_fit = True
 
-    def __init__(
-        self, turn: int | None = None, smoothing: float = DEFAULT_SMOOTHING
-    ) -> None:
+    def __init__(self, turn: int | None = None, smoothing: float = DEFAULT_SMOOTHING) -> None:
         super().__init__("next_switch_probability")
         if smoothing <= 0:
             raise ValueError("smoothing must be positive")
@@ -45,9 +43,7 @@ class NextSwitchProbability(Feature[BattleContext]):
     def output_names(self) -> tuple[str, ...]:
         return tuple(f"{side}_p_switch" for side in SIDES)
 
-    def _fit(
-        self, battles: Sequence[BattleContext], labels: Sequence[int] | None
-    ) -> None:
+    def _fit(self, battles: Sequence[BattleContext], labels: Sequence[int] | None) -> None:
         pairs: dict[tuple[str, str], list[int]] = {}
         for context in battles:
             for prev, cur in zip(context.history, context.history[1:], strict=False):
@@ -66,12 +62,10 @@ class NextSwitchProbability(Feature[BattleContext]):
         total_turns = sum(c[1] for c in species.values())
         self.global_rate = total_switches / total_turns if total_turns else 0.0
         self.species_rate = {
-            name: self._smooth(s, n, self.global_rate)
-            for name, (s, n) in species.items()
+            name: self._smooth(s, n, self.global_rate) for name, (s, n) in species.items()
         }
         self.pair_rate = {
-            key: self._smooth(s, n, self.species_rate[key[0]])
-            for key, (s, n) in pairs.items()
+            key: self._smooth(s, n, self.species_rate[key[0]]) for key, (s, n) in pairs.items()
         }
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
@@ -144,8 +138,7 @@ class SwitchPressure(NextSwitchProbability):
                     voluntary[side] += cur.side(side).voluntary_switch - expected
                     every[side] += cur.side(side).switched - expected
         values = {
-            "p_switch_diff": self.probability(last, "p2")
-            - self.probability(last, "p1"),
+            "p_switch_diff": self.probability(last, "p2") - self.probability(last, "p1"),
             "switch_excess": (voluntary["p2"] - voluntary["p1"]) / MAX_TURNS,
             "switch_excess_all": (every["p2"] - every["p1"]) / MAX_TURNS,
         }

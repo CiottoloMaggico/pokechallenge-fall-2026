@@ -106,9 +106,7 @@ class TeamKnowledgeFeatures(Feature[BattleContext]):
     def output_names(self) -> tuple[str, ...]:
         return OUTPUTS
 
-    def _fit(
-        self, battles: Sequence[BattleContext], labels: Sequence[int] | None
-    ) -> None:
+    def _fit(self, battles: Sequence[BattleContext], labels: Sequence[int] | None) -> None:
         self.knowledge = TeamKnowledge.build(battles, self.smoothing)
         self.guesser.fit(battles)
 
@@ -158,9 +156,7 @@ class TeamKnowledgeFeatures(Feature[BattleContext]):
             values["kb_setup"] = math.nan
         return {name: float(value) for name, value in values.items()}
 
-    def _p2_team(
-        self, view: KnowledgeView, p2: PlayerState
-    ) -> tuple[Team | None, list[str]]:
+    def _p2_team(self, view: KnowledgeView, p2: PlayerState) -> tuple[Team | None, list[str]]:
         """P2's team (None if unknown) and the species of its hidden Pokémon."""
         revealed = frozenset(p2.team)
         if len(revealed) == TEAM_SIZE:

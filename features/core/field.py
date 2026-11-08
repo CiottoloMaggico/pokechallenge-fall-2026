@@ -12,9 +12,7 @@ from domain.battle import BattleContext
 from features.core.turn import AtTurn
 
 MAX_BOOST_SUM = 30  # five stats, six stages each
-TRAPPING_EFFECTS = frozenset(
-    {"trapped", "wrap", "bind", "clamp", "firespin", "whirlpool"}
-)
+TRAPPING_EFFECTS = frozenset({"trapped", "wrap", "bind", "clamp", "firespin", "whirlpool"})
 
 
 def boost_sum(context: BattleContext) -> float:
@@ -39,9 +37,7 @@ def _boost_total(boosts: Mapping[str, int]) -> int:
 def substitute_up(context: BattleContext) -> float:
     """+1 only P1 has a Substitute, -1 only P2, 0 both or neither."""
     last = context.last
-    return float("substitute" in last.p1.effects) - float(
-        "substitute" in last.p2.effects
-    )
+    return float("substitute" in last.p1.effects) - float("substitute" in last.p2.effects)
 
 
 def trapped(context: BattleContext) -> float:

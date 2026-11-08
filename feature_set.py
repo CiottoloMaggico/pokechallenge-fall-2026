@@ -66,7 +66,7 @@ import random
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Generic, TypeVar
+from typing import Any, TypeVar
 
 from interfaces import Feature, FeatureError, FeatureNotFittedError, FeatureValue, Row
 
@@ -119,7 +119,7 @@ class FunctionFeature(Feature[BattleT]):
 # feature set
 # ----------------------------------------------------------------------
 @dataclass(frozen=True)
-class _Entry(Generic[BattleT]):
+class _Entry[BattleT]:
     """A registered feature and the prefix added to its outputs."""
 
     feature: Feature[BattleT]
@@ -135,7 +135,7 @@ class _Entry(Generic[BattleT]):
         return None if names is None else tuple(self.prefix + n for n in names)
 
 
-class FeatureSet(Generic[BattleT]):
+class FeatureSet[BattleT]:
     """Ordered collection of features applied to one battle.
 
     Conflicts can happen at two moments:
@@ -261,9 +261,7 @@ class FeatureSet(Generic[BattleT]):
         battles = list(battles)
         self.fit(battles, labels, unlabeled)
         label_aware = [
-            f
-            for f, e in self._entries.items()
-            if e.feature.uses_labels and e.feature.inner_oof
+            f for f, e in self._entries.items() if e.feature.uses_labels and e.feature.inner_oof
         ]
         if not label_aware or labels is None:
             return pd.DataFrame(self.extract_many(battles))
@@ -312,9 +310,7 @@ class FeatureSet(Generic[BattleT]):
         if self.requires_fit:
             raise FeatureNotFittedError("fit() the feature set before saving it")
         return {
-            fid: e.feature.get_state()
-            for fid, e in self._entries.items()
-            if e.feature.requires_fit
+            fid: e.feature.get_state() for fid, e in self._entries.items() if e.feature.requires_fit
         }
 
     def set_state(self, state: dict[str, dict[str, Any]]) -> None:
@@ -338,9 +334,7 @@ class FeatureSet(Generic[BattleT]):
     def extract_many(self, battles: Iterable[BattleT]) -> list[Row]:
         """Run every feature on each battle, preserving order."""
         if self.requires_fit:
-            unfitted = [
-                fid for fid, e in self._entries.items() if not e.feature.is_fitted
-            ]
+            unfitted = [fid for fid, e in self._entries.items() if not e.feature.is_fitted]
             raise FeatureNotFittedError(f"call fit() first; unfitted: {unfitted}")
         battles = list(battles)
         self._prepare(battles)
@@ -371,9 +365,7 @@ class FeatureSet(Generic[BattleT]):
     # ------------------------------------------------------------------
     # composition
     # ------------------------------------------------------------------
-    def select(
-        self, feature_ids: Iterable[str], name: str | None = None
-    ) -> FeatureSet[BattleT]:
+    def select(self, feature_ids: Iterable[str], name: str | None = None) -> FeatureSet[BattleT]:
         """Return a new set with only the given registry ids, in order.
 
         The new set is called ``name`` (default ``"<name>[subset]"``).
@@ -386,9 +378,7 @@ class FeatureSet(Generic[BattleT]):
             subset._entries[fid] = self._entries[fid]
         return subset
 
-    def without(
-        self, feature_ids: Iterable[str], name: str | None = None
-    ) -> FeatureSet[BattleT]:
+    def without(self, feature_ids: Iterable[str], name: str | None = None) -> FeatureSet[BattleT]:
         """Return a new set without the given registry ids, keeping the order.
 
         The new set is called ``name`` (default ``"<name>[subset]"``).
@@ -400,9 +390,7 @@ class FeatureSet(Generic[BattleT]):
             raise KeyError(f"{self._name}: no features {sorted(missing)} to drop")
         return self.select([f for f in self._entries if f not in drops], name)
 
-    def merge(
-        self, other: FeatureSet[BattleT], name: str | None = None
-    ) -> FeatureSet[BattleT]:
+    def merge(self, other: FeatureSet[BattleT], name: str | None = None) -> FeatureSet[BattleT]:
         """Return a new set with this set's features, then ``other``'s.
 
         The new set is called ``name`` (default ``"<name>+<other>"``).
@@ -468,13 +456,9 @@ class FeatureSet(Generic[BattleT]):
             return feature
         if callable(feature):
             return FunctionFeature(feature, feature_id)
-        raise TypeError(
-            f"expected a function or a Feature, got {type(feature).__name__}"
-        )
+        raise TypeError(f"expected a function or a Feature, got {type(feature).__name__}")
 
-    def _extract_with(
-        self, entries: Mapping[str, _Entry[BattleT]], battle: BattleT
-    ) -> Row:
+    def _extract_with(self, entries: Mapping[str, _Entry[BattleT]], battle: BattleT) -> Row:
         row: Row = {}
         for fid, entry in entries.items():
             for name, value in self._run(entry, fid, battle).items():
@@ -528,8 +512,7 @@ class FeatureSet(Generic[BattleT]):
             clash = set(names) & set(other.output_names)
             if clash:
                 raise FeatureConflictError(
-                    f"feature {fid!r} declares {sorted(clash)}, "
-                    f"already declared by {other_id!r}"
+                    f"feature {fid!r} declares {sorted(clash)}, already declared by {other_id!r}"
                 )
 
 
@@ -574,9 +557,7 @@ class _Renamed(Feature[BattleT]):
         return self._inner.compute(battle)
 
 
-def _inner_fold_ids(
-    n: int, groups: Sequence[Any] | None, k: int, seed: int
-) -> list[int]:
+def _inner_fold_ids(n: int, groups: Sequence[Any] | None, k: int, seed: int) -> list[int]:
     """Assign each of ``n`` rows to one of ``k`` folds, whole groups at a time."""
     keys = list(range(n)) if groups is None else list(groups)
     if len(keys) != n:
@@ -601,7 +582,7 @@ def _free_name(name: str, taken: Iterable[str]) -> str:
 # ----------------------------------------------------------------------
 # helpers to build common feature shapes
 # ----------------------------------------------------------------------
-def delta_feature(
+def delta_feature[BattleT](
     name: str,
     per_side: Callable[[BattleT, str], float],
     reverse: bool = False,
@@ -622,9 +603,7 @@ def delta_feature(
     return feature
 
 
-def side_features(
-    name: str, per_side: Callable[[BattleT, str], float]
-) -> list[FeatureFn]:
+def side_features[BattleT](name: str, per_side: Callable[[BattleT, str], float]) -> list[FeatureFn]:
     """Build one feature per side: ``p1_<name>`` and ``p2_<name>``."""
 
     def make(side: str) -> FeatureFn:
