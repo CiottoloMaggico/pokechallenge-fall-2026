@@ -12,7 +12,7 @@ Otherwise the refactoring is done when `evaluate --seeds 33 66 133` on
 ## 1. Layers and dependency rule
 
 ```
-cli (main.py) ──► application (gym, detector, tuning, selection, statistics, storage)
+cli (main.py) ──► application (usecases, gym, folds, detector, tuning, selection, stats_tables, storage)
                         │
           ┌─────────────┼──────────────┐
           ▼             ▼              ▼
@@ -33,7 +33,8 @@ cli (main.py) ──► application (gym, detector, tuning, selection, statistic
   `DataFrame` and labels, nothing else.
 - `application` depends on the interfaces (protocols) of features and models,
   not on concrete classes; concrete classes are looked up in registries.
-- `cli` only parses arguments, builds a `Settings` object and calls one use case.
+- `cli` only parses arguments, builds a `Settings` object and calls one use case
+  (`usecases.py`).
 
 Each rule is checked by a test (`tests/test_architecture.py`, see §8).
 
@@ -84,13 +85,15 @@ pokechallenge/
 │   ├── logreg.py  hgb.py  lightgbm.py  xgboost.py  catboost.py
 │   ├── gb_lr.py  catboost_lr.py  lightgbm_lr.py  xgboost_lr.py  blend_v11.py
 │   └── ensembles.py            # ensemble, ensemble_from_lr, …
-├── interfaces.py               # Feature, FeatureSource protocols (Model, Splitter, Probe: steps 5-6)
+├── interfaces.py               # Feature, FeatureSource, Model, LabelledBattles, Splitter, Probe
 ├── feature_set.py              # FeatureSet, at the root while the v11 bridge imports it (§4.2)
 ├── registry.py                 # generic Registry[T] + decorators
 ├── artifacts.py                # TrainedRun: save / load a fitted feature set + model
 ├── detector.py                 # detector dataset (P1 transitions), probes, commands
+├── usecases.py                 # one function per command of main.py
 ├── gym.py                      # Gym, GymResult (rows, labels, groups: any table)
-├── statistics.py               # corrected_ttest, summary tables
+├── folds.py                    # FoldPlan, make_splits (leakage checks), cached fold tables
+├── stats_tables.py             # corrected_ttest, summary tables
 ├── storage.py                  # ResultsLayout: every path under results/
 ├── settings.py                 # Settings dataclass (paths, seeds, folds, jobs)
 ├── tuning/
@@ -115,6 +118,8 @@ pokechallenge/
 `results/tuning/`, so `results/` stays the only place written by the program.
 `exp/` and `tools/` are not part of the package: experiment scripts move to a
 git-ignored `notebooks/` or are deleted once their result is in the report.
+Outputs written before step 6 (`runs/`, `results/<evaluation>/`) stay where they are:
+`SUBMISSIONS.md` cites them. `tools/move_old_outputs.py` can move them but has not been applied.
 
 ## 3. Domain
 
@@ -630,11 +635,11 @@ def ensemble_from_lr(**params: Any) -> Model: ...    # requires = those of its m
 
 ## 6. Application
 
-### 6.1 Splitter and fold plan
+### 6.1 Splitter and fold plan (`interfaces.py`, `folds.py`)
 
 ```python
 class Splitter(Protocol):
-    def split(self, x, y, groups) -> Iterator[tuple[np.ndarray, np.ndarray]]: ...
+    def split(self, x, y, groups, /) -> Iterable[tuple[np.ndarray, np.ndarray]]: ...
 
 @dataclass(frozen=True)
 class FoldPlan:
@@ -643,47 +648,61 @@ class FoldPlan:
     def splitters(self) -> Iterator[tuple[int, Splitter]]: ...   # StratifiedGroupKFold per seed
 ```
 
-Every split is checked for leakage (no shared row, no shared duplicate group).
+Every split goes through `make_splits(splitter, y, groups)`, which raises `LeakageError` on a
+shared row or a shared duplicate group.
 
 ### 6.2 Gym (`gym.py`)
 
 ```python
 class Gym:
-    def __init__(self, models: Sequence[Model], feature_sets: Sequence[FeatureSet],
-                 plan: FoldPlan, metrics: Mapping[str, Metric] = DEFAULT_METRICS,
-                 probes: Mapping[str, Probe] = {}, jobs: int = 1) -> None: ...
-    def evaluate(self, data: LabelledBattles, unlabeled: Sequence[BattleContext] = ()) -> GymResult: ...
-    def train(self, data: LabelledBattles, unlabeled=()) -> list[TrainedRun]: ...
-    def fold_tables(self, data, feature_set, plan) -> dict[int, list[FoldData]]: ...  # cached
+    def __init__(self, models: Sequence[Model], feature_sets: Sequence[FeatureSource],
+                 plan: FoldPlan = FoldPlan(), metrics: Mapping[str, Metric] = DEFAULT_METRICS,
+                 probes: Mapping[str, Probe] | None = None, jobs: int = 1) -> None: ...
+    def evaluate(self, data: LabelledBattles, unlabeled: Sequence[Any] = ()) -> GymResult: ...
+    def train(self, data: LabelledBattles, unlabeled=(), repair=None) -> list[TrainedRun]: ...
+    @staticmethod
+    def fold_tables(data, feature_set, plan, unlabeled=(), cache: Path | None = None,
+                    progress=None) -> dict[int, list[FoldData]]: ...
 ```
 
 - The gym works on any rows / labels / groups: `evaluate`, `train`, tuning and
   selection are the same for battles (main model) and switches (detector).
-- `LabelledBattles` = items + labels + ids + groups, produced by the task
-  (today `Dataset`).
-- `jobs`: seeds in parallel with fork; disabled automatically when a model or
-  feature uses OpenMP libraries (LightGBM, XGBoost, CatBoost), which hang in
-  forked workers.
+- `LabelledBattles` (`interfaces.py`) = items + labels + ids + groups, produced by
+  the task (`Dataset.labelled()`). Groups are required: a table without duplicates
+  gives each row its own group.
+- `fold_tables` is static because it needs no model. With `cache` it also writes one
+  pickle per seed, read back by `folds.read_fold_tables`, which `tune` calls first so
+  that a cache hit does not load the battles.
+- `jobs`: seeds in parallel with fork. The gym forks when told to; `usecases.evaluate`
+  sets it to 1, with a message, when a selected model or feature set uses OpenMP
+  libraries (LightGBM, XGBoost, CatBoost), which hang in forked workers. It reads the
+  `requires` of `@model` and `@feature_set` (`registry.fork_unsafe_libraries`).
 
-### 6.3 GymResult and statistics (`gym.py`, `statistics.py`)
+### 6.3 GymResult and statistics (`gym.py`, `stats_tables.py`)
 
 ```python
 @dataclass
 class GymResult:
-    predictions: pd.DataFrame      # feature_set, model, seed, fold, id, y_true, proba
-    folds: pd.DataFrame            # one row per (feature_set, model, seed, fold) + metrics
-    meta: dict[str, Any]           # seeds, splitters, models' params, versions
+    predictions: pd.DataFrame      # feature_set, model, fold, row, id, y_true, proba, seed
+    folds: pd.DataFrame            # one row per (feature_set, model, fold, seed) + metrics
+    probes: dict[str, pd.DataFrame]
+    meta: dict[str, Any]           # seeds, splitters, models' params
     def summary(self) -> pd.DataFrame: ...          # mean, fold std, seed std
     def by_seed(self, metric: str = "accuracy") -> pd.DataFrame: ...
-    def paired(self, reference: tuple[str, str], metric: str) -> pd.DataFrame: ...
+    def paired(self, reference: tuple[str, str], metric: str = "accuracy") -> pd.DataFrame: ...
+    def export(self, directory) -> Path: ...
     @classmethod
     def combine(cls, results: Mapping[int, GymResult]) -> GymResult: ...
+    @classmethod
+    def load(cls, directory) -> GymResult: ...
 
 def corrected_ttest(diffs: np.ndarray, test_train_ratio: float) -> tuple[float, float]: ...
 ```
 
 Every comparison printed by the program uses `corrected_ttest`
-(Nadeau-Bengio); the naive t-test is removed.
+(Nadeau-Bengio); the naive t-test is removed. The tables of `stats_tables.py` read the
+`folds` and `predictions` frames only. The module is not called `statistics.py`, which
+would shadow the standard library's.
 
 ### 6.4 Runs and storage (`artifacts.py`, `storage.py`)
 
@@ -692,9 +711,9 @@ class TrainedRun:
     source: FeatureSource; model: Model; columns: tuple[str, ...]
     repair: Mapping[str, Any] | None      # describe() of the repair; None in older runs
     def predict_proba(self, battles: Sequence[BattleContext]) -> np.ndarray: ...
-    def save(self, layout: ResultsLayout) -> Path: ...
+    def save(self, directory: str | Path) -> Path: ...
     @classmethod
-    def load(cls, path: Path) -> TrainedRun: ...
+    def load(cls, directory, feature_set: FeatureSource, sample_battles=None) -> TrainedRun: ...
 
 @dataclass(frozen=True)
 class ResultsLayout:
@@ -709,7 +728,9 @@ class ResultsLayout:
 A run stores the feature set name, the columns, the feature state, the model,
 and the repair state and Pokédex hash, so `predict` rebuilds exactly the same
 pipeline (today the detector is refitted at predict time). `save` and `load` take
-a directory until `ResultsLayout` exists (step 6).
+a directory: `usecases.train` gets it from `ResultsLayout.run` (or `--out`), and the
+detector artifact of §3.8 is saved outside `results/runs/`. The feature code is not
+saved, so `load` restores the state onto the feature set rebuilt from its name.
 
 ### 6.5 Tuning (`tuning/`) and selection (`selection.py`)
 
@@ -741,16 +762,23 @@ class Selector:
 ```python
 @dataclass(frozen=True)
 class Settings:
-    train: Path; test: Path | None; pokedex: Path
-    repair: str = "model=results/addons/knockouts/v3"   # or "none", "rule"
+    train: Path = Path("input/train.jsonl"); test: Path | None = None
+    pokedex: Path = ResultsLayout().cache("species.json")
     plan: FoldPlan = FoldPlan()
     jobs: int = 1; results: ResultsLayout = ResultsLayout()
 ```
 
 Commands (unchanged names and options): `check`, `evaluate` (`--n-seeds`,
-`--seeds`, `--random-seeds`, `--jobs`, `--reference`, `--repair`), `train`,
-`predict`, `tune`, `select`, `replay`, and the detector group `detector evaluate`,
-`detector train`, `detector tune` (same options, rows = P1 switches).
+`--seeds`, `--random-seeds`, `--jobs`, `--reference`), `train`, `predict`, `tune`.
+Step 7 adds `Settings.repair` (`"model=results/addons/knockouts/v3"`, `"none"`, `"rule"`),
+`--repair`, `replay` and the detector group `detector evaluate`, `detector train`,
+`detector tune` (same options, rows = P1 switches); step 8 adds `select`
+(`selection.py` has its own command line until then).
+
+Defaults, all from `ResultsLayout`: `evaluate` exports to
+`results/evaluations/evaluate_<date>` without `--out`; `train` to `results/runs/`;
+`predict` to `results/submissions/submission.csv`; `tune` keeps the study and the best
+parameters in `results/tuning/` and its fold tables in `results/cache/folds/`.
 
 ## 7. Rules that must survive the refactoring
 
@@ -771,7 +799,7 @@ Commands (unchanged names and options): `check`, `evaluate` (`--n-seeds`,
 
 - `ruff check` and `ruff format --check` (pep8, isort, pyupgrade, bugbear);
   line length 100.
-- `pyright` strict on `domain/`, `interfaces.py`, `statistics.py`; basic elsewhere.
+- `pyright` strict on `domain/`, `interfaces.py`, `stats_tables.py`; basic elsewhere.
 - `pytest`: unit tests per module, contract tests for every registered feature
   and model, an end-to-end test on `tests/fixtures/` (evaluate → train → predict
   on 200 battles, under a minute).

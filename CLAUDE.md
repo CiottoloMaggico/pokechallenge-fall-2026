@@ -7,7 +7,8 @@ Predict the winner (`player_won`, P1 wins) of Gen 2 OU battles from the first
 ## Environment
 - Python venv in `.env/`: `source .env/bin/activate` before every command.
 - Data: `input/train.jsonl`, `input/test.jsonl` (never commit them).
-- Outputs only under `results/` (after the refactoring; `runs/` today).
+- Outputs only under `results/` (`storage.ResultsLayout`, since step 6). Older outputs in `runs/`
+  and `results/<evaluation>/` stay where they are: do not move them.
 
 ## Commands
 Since step 4a no feature depends on the hash seed (contract test in
@@ -87,7 +88,7 @@ only to run commits older than step 4a, such as the recipes in `SUBMISSIONS.md`.
 
 ## Code style
 - PEP 8 via ruff (line length 100), imports sorted, type hints everywhere;
-  pyright strict on `domain/`, `interfaces.py`, `statistics.py`.
+  pyright strict on `domain/`, `interfaces.py`, `stats_tables.py`.
 - English comments, only on lines whose reason is not obvious; no separator
   comments; a docstring on every public class and function.
 - Tests next to each module family under `tests/`, small fixtures in

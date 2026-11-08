@@ -149,13 +149,14 @@ libraries are installed; `--params` files of `results/tuning/` still load.
 
 **Goal** – §6: `FoldPlan`, `Gym` on any rows / labels / groups
 (evaluate, train, fold tables cached), `GymResult` with seeds and corrected
-paired tests, `statistics.py`, `ResultsLayout` (everything under `results/`),
+paired tests, `stats_tables.py`, `ResultsLayout` (everything under `results/`),
 `Settings`, thin `main.py` with the same commands and options.
 
 **Do**
 - `--jobs` disabled automatically (with a message) when a selected model or
   feature uses LightGBM / XGBoost / CatBoost.
-- Old `runs/` and `results/` folders: a one-off move script, not code paths.
+- Old `runs/` and `results/` folders: a one-off move script, not code paths
+  (`tools/move_old_outputs.py`; not applied, the user keeps the old outputs in place).
 
 **Acceptance** – golden check passes; full regression (3 seeds) matches the
 reference numbers; `train` + `predict` produce the same submission as before
