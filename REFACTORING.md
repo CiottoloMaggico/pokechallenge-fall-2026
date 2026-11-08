@@ -101,8 +101,7 @@ pokechallenge/
 │   ├── hgb_ko.py               # the detector's HGB (categorical x_status / y_code)
 │   ├── gb_lr.py  catboost_lr.py  lightgbm_lr.py  xgboost_lr.py
 │   ├── ensembles.py            # ensemble, ensemble_from_lr, …
-│   ├── space.py                # Trial protocol of the search spaces
-│   └── blend.py  spline_logreg.py  # experiments, not registered (no @model)
+│   └── space.py                # Trial protocol of the search spaces
 ├── interfaces.py               # Feature, FeatureSource, Model, LabelledBattles, Splitter, Probe
 ├── feature_set.py              # FeatureSet (at the root, §4.2)
 ├── registry.py                 # generic Registry[T] + decorators
