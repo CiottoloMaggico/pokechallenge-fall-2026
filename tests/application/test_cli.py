@@ -15,6 +15,7 @@ from artifacts import RepairMismatchError
 from domain.errors import DomainError
 from domain.pokedex import PokedexBuilder
 from domain.records import read_records
+from features import sets as feature_sets
 from gym import FoldPlan
 from registry import fork_unsafe_libraries
 from settings import Settings
@@ -28,6 +29,7 @@ def test_every_output_is_under_the_results_root() -> None:
     assert layout.run("s", "m") == Path("r/runs/s__m")
     assert layout.evaluation("e") == Path("r/evaluations/e")
     assert layout.tuning() == Path("r/tuning")
+    assert layout.selection("s") == Path("r/selections/s.json")
     assert layout.cache("folds", "x.pkl") == Path("r/cache/folds/x.pkl")
     assert layout.submission("sub") == Path("r/submissions/sub.csv")
 
@@ -82,6 +84,8 @@ def test_no_seeds_is_refused() -> None:
         "detector train --features ko_raw50 --models hgb_ko --version v9 --threshold 0.6 "
         "--n-seeds 2 --agreement a",
         "detector tune --features ko_domain30 --model hgb_ko --trials 1 --seed 1",
+        "select --train t --test u --method backward --start compact_v5 --pool core --model hgb "
+        "--folds 3 --repeats 1 --seed 5 --add-p 0.1 --drop-t 2 --p-keep 0.3 --out o --repair rule",
     ],
 )
 def test_the_commands_keep_their_options(line: str) -> None:
@@ -113,8 +117,6 @@ def test_jobs_are_kept_for_models_that_can_fork(capsys: pytest.CaptureFixture[st
     [
         (["compact_v5"], ["ensemble_from_lr"]),
         (["compact_v5"], ["logreg", "lightgbm"]),
-        (["compact_v5_v11"], ["logreg"]),
-        (["compact_v5_v11"], ["blend_v11"]),
     ],
 )
 def test_jobs_are_disabled_with_a_message_for_openmp_libraries(
@@ -229,3 +231,27 @@ def test_tune_caches_the_fold_tables_and_saves_the_parameters(settings: Settings
     assert (settings.results.tuning() / "optuna.db").exists()
     saved = json.loads((settings.results.tuning() / "compact_v5__logreg.json").read_text())
     assert saved["model"] == "logreg"
+
+
+def test_select_repeats_the_old_seeds() -> None:
+    args = main.build_parser().parse_args(["select", "--repeats", "3"])
+    assert (args.method, args.start, args.pool, args.model) == (
+        "forward",
+        "compact_v3",
+        "selection_pool",
+        "logreg",
+    )
+    assert tuple(args.seed + main.SELECT_SEED_STEP * k for k in range(3)) == (11, 22, 33)
+
+
+@pytest.mark.parametrize("method", ["forward", "backward"])
+def test_select_saves_its_report(settings: Settings, method: str) -> None:
+    plan = FoldPlan(2, (11,))
+    code = usecases.select(
+        replace(settings, plan=plan), "compact_v5", "compact_v5_orig", "logreg", method
+    )
+    assert code == 0
+    report = json.loads(settings.results.selection(f"{method}_compact_v5__logreg").read_text())
+    assert report["method"] == method
+    assert report["folds"] == 2
+    assert set(report["columns"]) <= set(feature_sets.build(report["pool"]).declared_columns or ())

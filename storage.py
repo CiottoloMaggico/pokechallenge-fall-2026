@@ -24,6 +24,10 @@ class ResultsLayout:
         """Folder of one version of a trained addon (``addons/knockouts/v3``)."""
         return self.root / "addons" / kind / version
 
+    def selection(self, name: str) -> Path:
+        """Result of one ``select`` (``name`` without the extension)."""
+        return self.root / "selections" / f"{name}.json"
+
     def tuning(self) -> Path:
         """Folder of the Optuna study and of the best parameters."""
         return self.root / "tuning"

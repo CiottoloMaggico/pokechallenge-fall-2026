@@ -85,10 +85,10 @@ pokechallenge/
 │   │   └── preprocessing.py    # DropEmptyColumns, require(), MissingDependencyError
 │   ├── logreg.py  hgb.py  lightgbm.py  xgboost.py  catboost.py
 │   ├── hgb_ko.py               # the detector's HGB (categorical x_status / y_code)
-│   ├── gb_lr.py  catboost_lr.py  lightgbm_lr.py  xgboost_lr.py  blend_v11.py
+│   ├── gb_lr.py  catboost_lr.py  lightgbm_lr.py  xgboost_lr.py
 │   └── ensembles.py            # ensemble, ensemble_from_lr, …
 ├── interfaces.py               # Feature, FeatureSource, Model, LabelledBattles, Splitter, Probe
-├── feature_set.py              # FeatureSet, at the root while the v11 bridge imports it (§4.2)
+├── feature_set.py              # FeatureSet (at the root, §4.2)
 ├── registry.py                 # generic Registry[T] + decorators
 ├── artifacts.py                # TrainedRun: save / load a fitted feature set + model
 ├── detector.py                 # detector task (P1 switches), checks, detector commands
@@ -100,12 +100,13 @@ pokechallenge/
 ├── settings.py                 # Settings dataclass (paths, seeds, folds, jobs, repair)
 ├── tuning/
 │   ├── tuner.py                # Tuner (Optuna), objective, pruning
-│   └── params.py               # ParamsFile load / save
+│   └── params.py               # load_params / save_params of the tuned parameter files
 ├── selection.py                # Selector, backward / forward selection
 ├── results/                    # ONLY outputs (git-ignored)
 │   ├── runs/<set>__<model>/    # run.json, feature_state.pkl, model.pkl
 │   ├── addons/knockouts/<version>/  # detector artifact: run files + info.json
 │   ├── tuning/                 # optuna.db, <set>__<model>.json
+│   ├── selections/             # <method>_<start>__<model>.json of select
 │   ├── evaluations/<name>/     # folds.csv, predictions.csv, summary.csv, meta.json
 │   ├── cache/                  # Pokédex, fold tables
 │   └── submissions/
@@ -118,10 +119,12 @@ pokechallenge/
 
 `tuning/` holds code; its outputs (study database, best parameters) go to
 `results/tuning/`, so `results/` stays the only place written by the program.
-`exp/` and `tools/` are not part of the package: experiment scripts move to a
-git-ignored `notebooks/` or are deleted once their result is in the report.
-Outputs written before step 6 (`runs/`, `results/<evaluation>/`) stay where they are:
-`SUBMISSIONS.md` cites them. `tools/move_old_outputs.py` can move them but has not been applied.
+`tools/` holds only `golden.py`, the regression check of the refactoring; experiment
+scripts are not part of the package (a git-ignored `notebooks/`, or deleted once their result
+is in the report). Step 8 deleted the other tools: the v11 scripts and `blend_from_saved.py`
+used by `SUBMISSIONS.md` are at the tag `submission-final`, and `move_old_outputs.py` (never
+applied) at commit `c62b744`. Outputs written before step 6 (`runs/`, `results/<evaluation>/`)
+stay where they are: `SUBMISSIONS.md` cites them.
 
 ## 3. Domain
 
@@ -165,8 +168,8 @@ def fingerprint(record: BattleRecord) -> str: ...               # sha1 without i
 ```
 
 - `fingerprint` is the single definition of "same battle" (duplicate groups,
-  test/train overlap, external caches). Today it exists twice (`data.py` duplicate
-  groups and the v11 bridge).
+  test/train overlap, external caches). Before step 1 it existed twice (`data.py`
+  duplicate groups and the v11 bridge).
 - `validate` checks keys and value ranges once at load time, so the rest of
   the code can trust the types (pyright strict on `domain/`).
 
@@ -540,8 +543,9 @@ class RuleKnockoutRepair:                            # addons/knockouts_rule.py
 v11 (the FDS repository) is out of scope: it will be ported natively later,
 as features in `features/core/` and models in `models/`, not as a bridge to an
 external codebase. The refactoring only keeps the extension points it will
-need (§10). Until then the current bridge (`features/v11_bridge.py`,
-`compact_v5_v11`, `tools/v11_*`) stays on the old branch, untouched.
+need (§10). The old bridge (`features/v11_bridge.py`, `compact_v5_v11`, the model
+`blend_v11`, `tools/v11_*`) was deleted in step 8; it is at the tag `submission-final`,
+which `SUBMISSIONS.md` uses to reproduce the blend submission. `LogitBlend` stays.
 
 ### 3.9 Domain CLI (`domain/__main__.py`)
 
@@ -602,8 +606,8 @@ class Feature[BattleT](ABC):
 
 The application depends on the protocols `FeatureSource` and
 `FittableFeatureSource` of `interfaces.py`; `FeatureSet` is the concrete class.
-It stays in the root `feature_set.py` because `features/v11_bridge.py` imports
-`Feature` from there and must not change; moving it is decided with the bridge.
+It stays in the root `feature_set.py`: the v11 bridge that imported it from there is
+gone since step 8, but moving it is a separate change, not part of the refactoring steps.
 
 ```python
 class FeatureSet(Generic[BattleT]):
@@ -639,7 +643,7 @@ def compact_v5(turn: int | None = None) -> FeatureSet[BattleContext]:
     return compact_v5_orig(turn).without(REVALIDATION_DROPS, name=set_name("compact_v5", turn))
 ```
 
-A set fixed at the last turn (`hp30`, `compact_v5_v11`) refuses a turn in its own
+A set fixed at the last turn (`hp30`) refuses a turn in its own
 builder, so the decorator needs no `turns` argument.
 
 - One file per set with its history in the docstring (what was added, what
@@ -788,6 +792,7 @@ class ResultsLayout:
     def run(self, feature_set: str, model: str) -> Path: ...
     def evaluation(self, name: str) -> Path: ...
     def tuning(self) -> Path: ...
+    def selection(self, name: str) -> Path: ...             # selections/<name>.json
     def cache(self, *parts: str) -> Path: ...
     def submission(self, name: str) -> Path: ...
     def addon(self, kind: str, version: str) -> Path: ...   # addons/knockouts/v3
@@ -808,23 +813,29 @@ class Tuner:
     def __init__(self, spec: ModelSpec, folds: Sequence[FoldData], metric: str = "log_loss") -> None: ...
     def run(self, trials: int, timeout: float | None, storage: str, study: str) -> optuna.Study: ...
 
-class ParamsFile:     # {"model", "feature_set", "params", "metric", "value", "seeds", "saved"}
-    @staticmethod
-    def load(path: Path) -> tuple[str, dict[str, Any]]: ...
-    @staticmethod
-    def save(path: Path, **info: Any) -> None: ...
+def save_params(path: Path, **info: Any) -> Path: ...      # tuning/params.py
+def load_params(path: Path) -> tuple[str, dict[str, Any]]: ...
+# {"model", "feature_set", "params", "metric", "value", "accuracy", "accuracy_std",
+#  "trials", "saved"}, as written by tune
 
 class Selector:
     def __init__(self, folds: Sequence[FoldData], model: str) -> None: ...
     def score(self, columns: Sequence[str]) -> Scores: ...
     def backward(self, start: Sequence[str], p_keep: float = 0.20) -> SelectionReport: ...
-    def forward(self, start: Sequence[str], pool: Sequence[str], p_add: float = 0.05) -> SelectionReport: ...
+    def forward(self, start: Sequence[str], pool: Sequence[str], p_add: float = 0.05,
+                drop_t: float = 1.0) -> SelectionReport: ...
 ```
 
-- Tuning on folds with seeds different from evaluation (2027 now); the final
-  check of tuned parameters on unseen seeds is part of the command output.
-- `backward` is the procedure of the revalidation (one column at a time,
-  corrected one-sided p); `forward` the old `selection.py`.
+- Tuning on folds with seeds different from evaluation (2027 now). A final check of
+  the tuned parameters on unseen seeds is not printed by `tune`: run `evaluate
+  --params` on other seeds.
+- `ParamsFile` became two functions: a class with only static methods adds nothing.
+- `backward` is the procedure of the revalidation (one column at a time, least harmful
+  first, while the one-sided corrected p that the removal worsens the log loss is
+  >= `p_keep`); `forward` the old `selection.py` (add with corrected p < `p_add`, else
+  drop with corrected t < `drop_t`). `python main.py select --method forward | backward`
+  (step 8) builds the tables with `Gym.fold_tables` on `--repeats` k-folds seeded
+  11, 22, 33 … as the old script, and writes `results/selections/`.
 
 ### 6.6 Settings and CLI (`settings.py`, `main.py`)
 
@@ -842,17 +853,18 @@ Commands (unchanged names and options): `check`, `evaluate` (`--n-seeds`,
 `--seeds`, `--random-seeds`, `--jobs`, `--reference`), `train`, `predict`, `tune`.
 Step 7 added `Settings.repair` and `--repair` to each of them (validated by
 `addons.check_spec`), `replay`, and the detector group `detector evaluate`,
-`detector train`, `detector tune` (§3.8, rows = P1 switches); `selection.py` and
-`tools/v11_common.py` take the same repair spec. `DomainError`, `ArtifactError`
-and `RepairMismatchError` become one line on stderr and exit code 2. Step 8 adds
-`select` (`selection.py` has its own command line until then).
+`detector train`, `detector tune` (§3.8, rows = P1 switches). Step 8 added `select`
+(§6.5, with `--repair` too), replacing the command line of `selection.py`.
+`DomainError`, `ArtifactError` and `RepairMismatchError` become one line on stderr and
+exit code 2.
 
 Defaults, all from `ResultsLayout`: `evaluate` exports to
 `results/evaluations/evaluate_<date>` without `--out`; `train` to `results/runs/`;
 `predict` to `results/submissions/submission.csv`; `tune` keeps the study and the best
 parameters in `results/tuning/` and its fold tables in `results/cache/folds/`;
-`detector evaluate` exports to `results/evaluations/detector_<date>`, `detector train`
-to `results/addons/knockouts/<version>/`.
+`select` writes `results/selections/<method>_<start>__<model>.json`; `detector evaluate`
+exports to `results/evaluations/detector_<date>`, `detector train` to
+`results/addons/knockouts/<version>/`.
 
 ## 7. Rules that must survive the refactoring
 

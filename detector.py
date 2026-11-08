@@ -45,8 +45,9 @@ from features.common import type_chart
 from folds import FoldPlan
 from gym import Gym
 from interfaces import FeatureSource, LabelledBattles
+from models import MODELS
 from settings import Settings
-from tuning import Tuner
+from tuning.tuner import Tuner
 
 ADDON = "knockouts"
 KEEP_BATTLE = Missing()
@@ -233,7 +234,7 @@ def tune(
     task = load_task(settings.train, Pokedex.from_json(settings.pokedex))
     seed = settings.plan.seeds[0]
     tables = Gym.fold_tables(task.p1, source, FoldPlan(settings.plan.n_folds, (seed,)))
-    tuner = Tuner(model, tables[seed], metric=metric)
+    tuner = Tuner(MODELS[model], tables[seed], metric=metric)
     name = study or f"detector_{source.name}__{model}"
     usecases.run_study(settings, tuner, source.name, name, trials, timeout, storage_dir, out)
     return 0

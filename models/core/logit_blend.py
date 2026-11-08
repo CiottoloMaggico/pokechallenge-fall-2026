@@ -1,15 +1,16 @@
-"""Logit blend of a catalog model with a probability column (v11).
+"""Logit blend of a catalog model with a probability column.
 
 ``LogitBlend`` fits ``base`` (a catalog model, optionally with tuned
 parameters) on every column except ``column`` and predicts
 
     p = expit(w * logit(p_base) + (1 - w) * logit(column))
 
-``column`` is ``v11_proba`` (``features/v11_bridge.py``), NaN on training
-battles: it is never used for fitting, only read on predicted battles; where
-it is missing (a test battle identical to a training one) p = p_base.
-``w`` comes from ``tools/v11_blend_weight.py``; w = 1 is the base alone,
-w = 0 v11 alone.
+``column`` is the probability of another model given by a feature with
+``inner_oof = False`` (the v11 bridge's ``v11_proba`` until step 8, a native v11
+later), NaN on training battles: it is never used for fitting, only read on
+predicted battles; where it is missing (a test battle identical to a training
+one) p = p_base. w = 1 is the base alone, w = 0 the column alone. No model is
+registered with it since the v11 bridge was removed (REFACTORING.md §10).
 
 ``tuned`` lists parameter files of ``main.py tune`` (``results/tuning/*.json``)
 for the base model or its ensemble members, applied as ``--params`` would.
@@ -51,7 +52,7 @@ class LogitBlend(Model):
 
     def _build_base(self) -> Model:
         from registry import build_tuned
-        from tuning import load_params
+        from tuning.params import load_params
 
         params = dict(load_params(Path(p)) for p in self.tuned)
         return build_tuned(self.base, params)

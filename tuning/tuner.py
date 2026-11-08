@@ -12,7 +12,7 @@ restarts and several processes can work on it at once: start the same
 Example::
 
     folds = Gym.fold_tables(train.labelled(), feature_set, FoldPlan(5, (2027,)))[2027]
-    tuner = Tuner("hgb", folds, metric="log_loss")
+    tuner = Tuner(MODELS["hgb"], folds, metric="log_loss")
     study = tuner.run(n_trials=200, storage="sqlite:///results/tuning/optuna.db",
                       study_name="compact__hgb")
     save_best(study, tuner, "compact", Path("results/tuning/compact__hgb.json"))
@@ -20,7 +20,6 @@ Example::
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -30,8 +29,9 @@ import numpy as np
 from sklearn.metrics import accuracy_score, log_loss
 
 from folds import FoldData
-from models import build, search_spaces
 from models.core.preprocessing import require
+from registry import ModelSpec
+from tuning.params import save_params
 
 PROBA_CLIP = 1e-6
 METRICS: dict[str, tuple[str, Callable[[np.ndarray, np.ndarray], float]]] = {
@@ -44,31 +44,30 @@ METRICS: dict[str, tuple[str, Callable[[np.ndarray, np.ndarray], float]]] = {
 
 
 class Tuner:
-    """Optuna objective for one catalog model on precomputed folds."""
+    """Optuna objective for one registered model on precomputed folds."""
 
     def __init__(
-        self, model_name: str, folds: Sequence[FoldData], metric: str = "log_loss"
+        self, spec: ModelSpec, folds: Sequence[FoldData], metric: str = "log_loss"
     ) -> None:
-        if model_name not in search_spaces():
-            raise KeyError(
-                f"no search space for {model_name!r}; "
-                f"choose from {sorted(search_spaces())}"
-            )
+        if spec.search_space is None:
+            raise KeyError(f"no search space for {spec.name!r}")
+        self.space = spec.search_space
         if metric not in METRICS:
             raise KeyError(f"unknown metric {metric!r}; choose from {sorted(METRICS)}")
         if not folds:
             raise ValueError("at least one fold is required")
-        self.model_name = model_name
+        self.spec = spec
+        self.model_name = spec.name
         self.folds = list(folds)
         self.metric = metric
         self.direction, self._score = METRICS[metric]
 
     def objective(self, trial: Any) -> float:
         """Mean ``metric`` over the folds for the parameters ``trial`` picks."""
-        params = search_spaces()[self.model_name](trial)
+        params = self.space(trial)
         scores, accuracies = [], []
         for step, (x_train, y_train, x_valid, y_valid) in enumerate(self.folds):
-            model = build(self.model_name, **params)
+            model = self.spec.build(**params)
             proba = model.fit(x_train, y_train).predict_proba(x_valid)
             scores.append(self._score(y_valid, proba))
             accuracies.append(METRICS["accuracy"][1](y_valid, proba))
@@ -105,23 +104,15 @@ class Tuner:
 def save_best(study: Any, tuner: Tuner, feature_set: str, path: Path) -> Path:
     """Write the best trial as a parameter file for ``main.py --params``."""
     best = study.best_trial
-    info = {
-        "model": tuner.model_name,
-        "feature_set": feature_set,
-        "params": best.params,
-        "metric": tuner.metric,
-        "value": best.value,
-        "accuracy": best.user_attrs.get("accuracy"),
-        "accuracy_std": best.user_attrs.get("accuracy_std"),
-        "trials": len(study.trials),
-        "saved": time.strftime("%Y-%m-%dT%H:%M:%S"),
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(info, indent=2) + "\n")
-    return path
-
-
-def load_params(path: Path) -> tuple[str, dict[str, Any]]:
-    """Model name and parameters from a file written by :func:`save_best`."""
-    info = json.loads(path.read_text())
-    return str(info["model"]), dict(info["params"])
+    return save_params(
+        path,
+        model=tuner.model_name,
+        feature_set=feature_set,
+        params=best.params,
+        metric=tuner.metric,
+        value=best.value,
+        accuracy=best.user_attrs.get("accuracy"),
+        accuracy_std=best.user_attrs.get("accuracy_std"),
+        trials=len(study.trials),
+        saved=time.strftime("%Y-%m-%dT%H:%M:%S"),
+    )

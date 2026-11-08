@@ -8,6 +8,7 @@ battles are always kept in the same fold.
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Sequence
 from functools import cache
@@ -24,13 +25,15 @@ from domain.pokedex import Pokedex, species_without_stats
 from domain.repair import TimelineRepair
 from feature_set import FeatureSet
 from features import sets as feature_sets
-from folds import read_fold_tables
+from folds import FoldData, read_fold_tables
 from gym import Gym, GymResult
 from interfaces import Model
-from models import ENSEMBLES, build_tuned
+from models import ENSEMBLES, MODELS, build_tuned
 from registry import fork_unsafe_libraries
+from selection import Selector
 from settings import DEFAULT_TEST, Settings
-from tuning import Tuner, load_params, save_best
+from tuning.params import load_params
+from tuning.tuner import Tuner, save_best
 
 STUDY_DB = "optuna.db"
 SUBMISSION_COLUMNS = ("battle_id", "player_won")
@@ -219,7 +222,7 @@ def tune(
             progress=_report_fold,
         )
     print(f"fold features ready ({tables_dir}); starting the trials")
-    tuner = Tuner(model, tables[seed], metric=metric)
+    tuner = Tuner(MODELS[model], tables[seed], metric=metric)
     study_name = study or f"{source.name}__{model}"
     run_study(settings, tuner, source.name, study_name, trials, timeout, storage_dir, out)
     return 0
@@ -249,6 +252,65 @@ def run_study(
     )
     target = (out or settings.results.tuning()) / f"{study}.json"
     print(f"parameters written to {save_best(found, tuner, feature_set, target)}")
+
+
+def select(
+    settings: Settings,
+    start: str,
+    pool: str,
+    model: str,
+    method: str = "forward",
+    thresholds: tuple[float, float, float] = (0.05, 1.0, 0.20),
+    out: Path | None = None,
+) -> int:
+    """Select columns with ``model`` on every fold of the plan and save the report.
+
+    ``backward`` drops columns of ``start`` (tables of ``start``); ``forward`` also adds
+    columns of ``pool`` (tables of ``pool``). ``thresholds``: p_add, drop_t, p_keep.
+    """
+    columns = feature_sets.build(start).declared_columns
+    if columns is None:
+        raise SystemExit(f"{start!r} does not declare its columns")
+    selector = Selector(_selection_folds(settings, start if method == "backward" else pool), model)
+    missing = set(columns) - set(selector.columns)
+    if missing:
+        raise SystemExit(f"start columns not in the pool: {sorted(missing)}")
+    p_add, drop_t, p_keep = thresholds
+    found = (
+        selector.backward(columns, p_keep)
+        if method == "backward"
+        else selector.forward(columns, selector.columns, p_add, drop_t)
+    )
+    result = {
+        "method": method,
+        "start": start,
+        "pool": pool if method == "forward" else start,
+        "model": model,
+        "folds": len(selector.folds),
+        **found.to_dict(),
+    }
+    target = out or settings.results.selection(f"{method}_{start}__{model}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(result, indent=2) + "\n")
+    print(f"final columns ({len(found.columns)}): {found.columns}")
+    print(f"saved to {target}")
+    return 0
+
+
+def _selection_folds(settings: Settings, source: str) -> list[FoldData]:
+    """The tables of ``source`` on every fold of every seed of the plan."""
+    pokedex = Pokedex.from_json(settings.pokedex)
+    train = Dataset.from_jsonl(settings.train, pokedex, repair=_repair(settings))
+    began = time.perf_counter()
+    tables = Gym.fold_tables(
+        train.labelled(),
+        feature_sets.build(source),
+        settings.plan,
+        _unlabeled(settings, pokedex),
+        progress=_report_fold,
+    )
+    print(f"tables of {source} ready in {time.perf_counter() - began:.0f} s", flush=True)
+    return [fold for seed in settings.plan.seeds for fold in tables[seed]]
 
 
 def predict(

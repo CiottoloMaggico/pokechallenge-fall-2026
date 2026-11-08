@@ -11,6 +11,10 @@ Inputs (sha256 prefix): `input/train.jsonl` `78f9e91c51b92ade`,
 
 Run times come from jobs running at the same time, so they are upper bounds.
 
+The recipes check out older commits: `tools/blend_from_saved.py`, the v11 bridge
+(`features/v11_bridge.py`, `compact_v5_v11`, `blend_v11`) and `tools/v11_*` were deleted
+from `main` in step 8 and live at the tag `submission-final` (and at `ad7e4c4`).
+
 ## `submission_ensemble_step2.csv` (`ee42414df7342f10`)
 
 `ensemble_from_lr` with the tuned parameters of the 13:18 run; each member's

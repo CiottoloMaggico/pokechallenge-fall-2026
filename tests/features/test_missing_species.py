@@ -22,7 +22,6 @@ from features.core.wincon import _sets_up
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "battles.jsonl"
 CHART = feature_sets.type_chart()
-EXCLUDED_SETS = {"compact_v5_v11"}  # needs the external v11 repository
 
 
 @pytest.fixture(scope="module")
@@ -55,7 +54,7 @@ def test_fixtures_contain_species_without_stats(records: list[dict], pokedex: Po
     assert species_without_stats(records, pokedex)
 
 
-@pytest.mark.parametrize("name", sorted(set(feature_sets.FEATURE_SETS) - EXCLUDED_SETS))
+@pytest.mark.parametrize("name", sorted(feature_sets.FEATURE_SETS))
 def test_every_feature_set_survives(name: str, contexts: tuple[BattleContext, ...]) -> None:
     labels = [i % 2 for i in range(len(contexts))]
     features = feature_sets.build(name)

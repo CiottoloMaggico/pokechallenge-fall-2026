@@ -55,7 +55,6 @@ from models import build
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "fixtures" / "battles.jsonl"
 CHART = feature_sets.type_chart()
-EXCLUDED_SETS = {"compact_v5_v11"}  # needs the external v11 repository
 HASH_SEEDS = ("0", "1")
 DETECTOR_TREES = 30  # enough to score every switch; the real detector takes minutes
 LABEL_CHECK_BATTLES = 20
@@ -88,7 +87,7 @@ def unregistered_features() -> list[Feature[BattleContext]]:
 def new_features() -> dict[str, Feature[BattleContext]]:
     """A new unfitted copy of every feature; one id can have several output selections."""
     found = list(unregistered_features())
-    for name in sorted(set(feature_sets.FEATURE_SETS) - EXCLUDED_SETS):
+    for name in sorted(feature_sets.FEATURE_SETS):
         features = feature_sets.build(name)
         found.extend(features._entries[fid].feature for fid in features.feature_ids)
     return {f"{f.feature_id}:{'+'.join(f.output_names or ())}": f for f in found}

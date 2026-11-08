@@ -11,7 +11,8 @@ import pytest
 
 import models
 from interfaces import Model
-from tuning import load_params
+from models.core.logit_blend import LogitBlend
+from tuning.params import load_params
 
 NAMES = models.available()
 
@@ -49,7 +50,7 @@ def test_there_are_models_to_check() -> None:
     assert set(NAMES) <= set(models.MODELS)
 
 
-@pytest.mark.parametrize("name", [n for n in NAMES if n != "blend_v11"])
+@pytest.mark.parametrize("name", NAMES)
 def test_fit_predict_clone_params_and_save_load(name: str, tmp_path: Path) -> None:
     x, y = table()
     model = fast(name)
@@ -67,11 +68,11 @@ def test_fit_predict_clone_params_and_save_load(name: str, tmp_path: Path) -> No
     assert np.array_equal(Model.load(path).predict_proba(x), proba)
 
 
-def test_blend_v11_blends_with_the_probability_column() -> None:
+def test_logit_blend_blends_with_the_probability_column() -> None:
     x, y = table()
-    x["v11_proba"] = np.nan
-    blend = models.build("blend_v11", w=0.5, base="logreg").fit(x, y)
-    x["v11_proba"] = 0.5
+    x["other_proba"] = np.nan
+    blend = LogitBlend("blend", w=0.5, base="logreg", column="other_proba").fit(x, y)
+    x["other_proba"] = 0.5
     assert np.isfinite(blend.predict_proba(x)).all()
     assert json.dumps(blend.get_params())
 

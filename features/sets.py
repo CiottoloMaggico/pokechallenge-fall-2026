@@ -18,7 +18,6 @@ from features import (  # noqa: F401  (imported for the registration)
     compact_v3,
     compact_v4,
     compact_v5,
-    compact_v5_v11,
     core_set,
     hazards,
     hp30,

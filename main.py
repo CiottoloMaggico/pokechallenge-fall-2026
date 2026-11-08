@@ -14,7 +14,16 @@ Commands::
     python main.py evaluate --features compact --models hgb \\
         --params results/tuning/compact__hgb.json
 
-``--test`` in ``evaluate`` and ``train`` is optional: its battles (never
+``select`` picks columns one at a time with the corrected repeated k-fold t-test
+(``selection.py``): ``--method forward`` (default) adds columns of ``--pool`` to those of
+``--start`` and drops useless ones, ``--method backward`` only drops columns of ``--start``
+(the revalidation); the folds are ``--repeats`` k-folds seeded ``--seed``, ``--seed`` + 11, ...
+and the report goes to ``results/selections/<method>_<start>__<model>.json``::
+
+    python main.py select --start compact_v3 --pool selection_pool --model logreg
+    python main.py select --method backward --start compact_v5_orig --repeats 2
+
+``--test`` in ``evaluate``, ``train`` and ``select`` is optional: its battles (never
 its labels, which it does not have) feed label-free stateful features.
 Everything is written under ``results/`` unless ``--out`` says otherwise.
 
@@ -75,6 +84,8 @@ DEFAULT_FOLDS = 5
 DEFAULT_SEED = 42
 TUNE_SEED = 2027  # tuning folds differ from evaluation folds
 DETECTOR_SEEDS = 3
+SELECT_SEED = 11
+SELECT_SEED_STEP = 11  # the seeds of the old selection.py: 11, 22, 33
 USER_ERRORS = (DomainError, ArtifactError, RepairMismatchError)
 
 
@@ -135,6 +146,16 @@ def _tune(args: argparse.Namespace) -> int:
         args.storage_dir,
         args.out,
         args.refresh,
+    )
+
+
+def _select(args: argparse.Namespace) -> int:
+    seeds = tuple(args.seed + SELECT_SEED_STEP * k for k in range(args.repeats))
+    plan = FoldPlan(args.folds, seeds)
+    settings = Settings(args.train, args.test, args.pokedex, plan, repair=args.repair)
+    thresholds = (args.add_p, args.drop_t, args.p_keep)
+    return usecases.select(
+        settings, args.start, args.pool, args.model, args.method, thresholds, args.out
     )
 
 
@@ -263,6 +284,27 @@ def _add_tune(commands: argparse._SubParsersAction, name: str, sets: Sequence[st
     p_tune.add_argument("--out", type=Path, help="best parameters (default results/tuning)")
 
 
+def _add_select(commands: argparse._SubParsersAction) -> None:
+    p_select = commands.add_parser("select", help="select columns (corrected t-test)")
+    p_select.add_argument("--train", type=Path, default=DEFAULT_TRAIN)
+    p_select.add_argument("--test", type=Path, help="unlabelled battles (optional)")
+    p_select.add_argument("--method", choices=["forward", "backward"], default="forward")
+    p_select.add_argument("--start", default="compact_v3", help="feature set to start from")
+    p_select.add_argument("--pool", default="selection_pool", help="candidates of forward")
+    p_select.add_argument("--model", default="logreg", choices=sorted(MODELS))
+    p_select.add_argument("--folds", type=int, default=DEFAULT_FOLDS)
+    p_select.add_argument("--repeats", type=int, default=3, help="k-folds with different seeds")
+    p_select.add_argument("--seed", type=int, default=SELECT_SEED)
+    p_select.add_argument("--add-p", type=float, default=0.05, help="forward: corrected p to add")
+    p_select.add_argument("--drop-t", type=float, default=1.0, help="forward: corrected t to drop")
+    p_select.add_argument(
+        "--p-keep", type=float, default=0.20, help="backward: one-sided p to drop a column"
+    )
+    p_select.add_argument("--out", type=Path, help="report (default results/selections/)")
+    _add_repair(p_select)
+    p_select.set_defaults(handler=_select)
+
+
 def _add_detector(commands: argparse._SubParsersAction) -> None:
     group = commands.add_parser("detector", help="the knockout detector (rows = P1's switches)")
     detector_commands = group.add_subparsers(dest="detector_command", required=True)
@@ -314,6 +356,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_tune.add_argument("--refresh", action="store_true", help="rebuild the cached fold features")
     _add_repair(p_tune)
     p_tune.set_defaults(handler=_tune)
+    _add_select(commands)
     _add_detector(commands)
 
     p_predict = commands.add_parser("predict", help="write a submission")
