@@ -190,6 +190,12 @@ Delete `knockout_detector.py` and the column lists of `domain/knockouts.py`.
   other file identical to the reference.
 - A run trained with one repair refuses to predict with another.
 
+**Result (commit ca1a010)** – log loss 0.0992 (folds: the gym's `StratifiedGroupKFold`,
+grouped by duplicate battle), AUC 0.9918, 10,109 P2 repairs, symmetry estimate 10,135,
+adversarial AUC 0.586; golden check passed with `v3`. The detector reads the team details
+(species stats), so its cache key is now `fingerprint` (5 shared timeline keys, no golden
+change). Not done: `--refit-detector-per-fold` (REFACTORING.md §3.8).
+
 ---
 
 ## Step 8 – Tuning, selection, cleanup (model: small)

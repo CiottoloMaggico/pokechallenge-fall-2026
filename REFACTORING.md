@@ -58,13 +58,12 @@ pokechallenge/
 │   ├── repair.py               # TimelineRepair protocol + NoRepair
 │   ├── transitions.py          # Transition, TransitionExtractor (switch description)
 │   ├── transition_mechanics.py # Gen 2 field and end-of-turn rules of the transitions
-│   ├── knockouts.py            # detector column lists, deleted in step 7
 │   ├── team_knowledge.py       # team and move archive read from replayed battles
 │   └── __main__.py             # `python -m domain …`: build-pokedex, replay, check
 ├── addons/
-│   ├── __init__.py             # registry: "none", "rule", "model" -> factory
-│   ├── knockouts_rule.py       # deterministic repair (hand-written rule)
-│   └── knockouts_model.py      # repair that loads a detector artifact (§3.8)
+│   ├── __init__.py             # check_spec / load_repair: "none", "rule", "model=<folder>"
+│   ├── knockouts_rule.py       # RuleKnockoutRepair: deterministic (hand-written rule)
+│   └── knockouts_model.py      # ModelKnockoutRepair, load_artifact: a detector artifact (§3.8)
 ├── features/
 │   ├── core/                   # one module per family of concrete features
 │   │   ├── material.py  hazards.py  switching.py  moves.py  team.py
@@ -73,6 +72,8 @@ pokechallenge/
 │   ├── compact.py              # one file per feature set (builder + docstring)
 │   ├── compact_v2.py … compact_v5.py
 │   └── transitions/            # feature sets of the knockout detector task
+│       ├── __init__.py         # TRANSITION_SETS registry, build(name)
+│       ├── columns.py          # TransitionColumns: columns of a Transition picked by name
 │       ├── ko_raw50.py         # the 50 original columns
 │       └── ko_domain30.py      # the 30 domain-compressed columns (current)
 ├── models/
@@ -83,19 +84,20 @@ pokechallenge/
 │   │   ├── logit_blend.py      # LogitBlend (model + probability column)
 │   │   └── preprocessing.py    # DropEmptyColumns, require(), MissingDependencyError
 │   ├── logreg.py  hgb.py  lightgbm.py  xgboost.py  catboost.py
+│   ├── hgb_ko.py               # the detector's HGB (categorical x_status / y_code)
 │   ├── gb_lr.py  catboost_lr.py  lightgbm_lr.py  xgboost_lr.py  blend_v11.py
 │   └── ensembles.py            # ensemble, ensemble_from_lr, …
 ├── interfaces.py               # Feature, FeatureSource, Model, LabelledBattles, Splitter, Probe
 ├── feature_set.py              # FeatureSet, at the root while the v11 bridge imports it (§4.2)
 ├── registry.py                 # generic Registry[T] + decorators
 ├── artifacts.py                # TrainedRun: save / load a fitted feature set + model
-├── detector.py                 # detector dataset (P1 transitions), probes, commands
+├── detector.py                 # detector task (P1 switches), checks, detector commands
 ├── usecases.py                 # one function per command of main.py
 ├── gym.py                      # Gym, GymResult (rows, labels, groups: any table)
 ├── folds.py                    # FoldPlan, make_splits (leakage checks), cached fold tables
 ├── stats_tables.py             # corrected_ttest, summary tables
 ├── storage.py                  # ResultsLayout: every path under results/
-├── settings.py                 # Settings dataclass (paths, seeds, folds, jobs)
+├── settings.py                 # Settings dataclass (paths, seeds, folds, jobs, repair)
 ├── tuning/
 │   ├── tuner.py                # Tuner (Optuna), objective, pruning
 │   └── params.py               # ParamsFile load / save
@@ -105,12 +107,12 @@ pokechallenge/
 │   ├── addons/knockouts/<version>/  # detector artifact: run files + info.json
 │   ├── tuning/                 # optuna.db, <set>__<model>.json
 │   ├── evaluations/<name>/     # folds.csv, predictions.csv, summary.csv, meta.json
-│   ├── cache/                  # fold tables, detector matrices
+│   ├── cache/                  # Pokédex, fold tables
 │   └── submissions/
 ├── input/                      # train.jsonl, test.jsonl (git-ignored)
 └── tests/
     ├── fixtures/               # 20 hand-picked battles (P1 faint, double KO, …)
-    ├── domain/  features/  models/  application/
+    ├── domain/  addons/  features/  models/  application/
     └── test_architecture.py
 ```
 
@@ -333,8 +335,9 @@ class BattleReplay:
   deterministic: same record, same repair state, same context.
 - `player_won` is removed first, so neither the repair nor a feature can read
   it.
-- The repair is applied here, as today (`main._repair`), and again on each
-  truncated copy made by `at_turn`: every feature sees repaired battles.
+- The repair is applied here (the application passes the one of `Settings.repair`),
+  and again on each truncated copy made by `at_turn`: every feature sees repaired
+  battles.
 - An impossible timeline raises `ReplayError` (today: an empty one).
   `Dataset` turns replay failures into `DataError` with the battle id, except
   `UnknownSpeciesError`.
@@ -367,14 +370,24 @@ NO_REPAIR = NoRepair()
   protocol: features that need it compare `probabilities` with `repairs`.
 - A repair never sees the outcome (`player_won`): it is label-free by contract,
   which is why a detector may be trained once on all of train.
-- Results are cached inside the implementation. Today's detector
-  (`DetectorRepair` in `knockout_detector.py`, the adapter until step 7) uses a
-  key of the timeline (each row's actives, HP, status and move names), not
-  `fingerprint`; step 7 checks that key.
-- From step 7, the registry `addons/__init__.py` maps names to factories and the
-  CLI selects one with `--repair none | rule | model=<artifact>` (§3.8).
-- From step 4a, `describe()` is saved in every run of the main model; `predict`
-  refuses a run whose repair differs from the one requested (step 7).
+- Results are cached inside the implementation, keyed by `fingerprint(record)`
+  (truncated copies included: the key only identifies the content). Until step 7
+  the detector used a key of the timeline (each row's actives, HP, status and move
+  names); step 7 replaced it because the detector reads more than that: the stats
+  of species that only the battle's team details carry (`Pokedex.lookup`), and the
+  effects, boosts and move details of each row. Five keys were shared by battles
+  that differ only in `p1_team_details` (train 2829 / 4463, 5030 / 9197,
+  5547 / 9270, train 2883 / test 1212, test 82 / 4563); the golden files did not
+  change.
+- `addons/__init__.py` names the repairs (`load_repair(spec, pokedex, chart)`,
+  `check_spec` for the CLI) and every command of `main.py` selects one with
+  `--repair none | rule | model=<artifact folder>` (default
+  `model=results/addons/knockouts/v3`, §3.8).
+- `describe()` is saved in every run of the main model (since step 4a);
+  `predict` refuses, with `RepairMismatchError` (exit code 2), a run whose repair
+  differs from the requested one (`TrainedRun.check_repair`). A run saved before
+  the repair was recorded (`None`) matches no repair, and so do the runs of the
+  old refitted detector (`version: "refit"`): they must be trained again.
 
 ### 3.7 Transitions (`domain/transitions.py`)
 
@@ -390,9 +403,14 @@ class Transition:
 class TransitionExtractor:
     def __init__(self, pokedex: SpeciesLookup, damage: DamageCalculator) -> None: ...
     def extract(self, record: Mapping[str, Any], side: Literal["p1", "p2"]) -> list[Transition]: ...
+    def examples(self, record: Mapping[str, Any]) -> list[Transition]: ...    # detector rows
+    def candidates(self, record: Mapping[str, Any]) -> list[Transition]: ...  # what a repair scores
 ```
 
-- The description of a switch moved out of `domain/knockouts.py`; the Gen 2
+- `examples`: P1's described switches whose leaver never comes back (label: the
+  recorded faint). `candidates`: P2's described switches whose leaver never comes
+  back and is not a recorded faint.
+- The description of a switch moved out of the old `domain/knockouts.py`; the Gen 2
   field and end-of-turn rules are in `domain/transition_mechanics.py`. P1 faints
   skip the `fnt` row so they look like hidden P2 faints (the alignment variant
   was rejected and is not kept).
@@ -411,65 +429,113 @@ runs) on a different task, exported as a versioned artifact, and loaded at run
 time by a thin addon. Changing or comparing detectors becomes `evaluate` on
 the detector task, and its versions are folders under `results/addons/`.
 
-**Dataset** (`detector.py`): the rows are P1's final switches (from
-`TransitionExtractor`), the label is the recorded faint, the group is the
-battle. The gym already takes any rows / labels / groups, so no new
-abstraction is needed: `detector.py` only builds this table and adds the
-detector checks, run on P2's candidate switches with the model fitted on all
-P1 rows: P2 repairs against the symmetry estimate (recorded P1 faints −
-recorded P2 faints, times the detectable share; ~10,100 today), adversarial
-AUC P1 vs P2 switches, agreement with a previous artifact.
+**Dataset** (`detector.py`, `load_task(train, pokedex) -> DetectorTask`): the rows
+are P1's final switches (`TransitionExtractor.examples`, described with
+`pokedex.find`, as before), the label is the recorded faint, the group is the
+battle's duplicate group (`fingerprint`), so a battle and its copies stay in one
+fold. The records lose `player_won` first. The gym already takes any rows / labels
+/ groups, so no new abstraction is needed: `detector.py` only builds this table
+(`DetectorTask.p1`, a `LabelledBattles` with ids `<battle_id>:<row>`) and P2's
+candidates (`DetectorTask.p2`, scored with each battle's own lookup, as the repair
+does), and adds the checks (`checks(run, task, threshold, plan, reference)`), run
+on P2's candidates with the model fitted on all P1 rows:
+
+- `p2_repairs` (probability >= threshold) against `symmetry_estimate`: (P1's
+  recorded faints − P2's recorded faints; double knockouts cancel) × (P1 faints
+  that become rows / P1 faints outside double knockouts). On train
+  (16,882 − 5,040) × 10,212 / 11,932 = 10,135;
+- `adversarial_auc`: out of fold on the first seed of the plan, the AUC of the
+  run's model and feature set telling P2's candidates from P1's rows (the gym on
+  a table of both, grouped by battle); 0.5 when the two sides look alike;
+- `agreement` (with `--agreement <artifact folder>`): share of P2 candidates on
+  which that artifact takes the same decision.
+
+The folds are the gym's (`FoldPlan`: `StratifiedGroupKFold` per seed), not the
+plain `GroupKFold` of the old experiments, whose scripts were never committed.
 
 **Feature sets** (`features/transitions/`): `Feature[Transition]` objects over
 the columns of `TransitionExtractor`, with the same interfaces as the battle
-features (state, `get_state`, contract tests). `ko_raw50` and `ko_domain30`
-reproduce the current matrices; domain codes (`x_status`, `y_code`) are
-declared categorical in the feature set metadata, so the model builder can
-pass them to HGB.
+features (state, `get_state`, contract tests, two hash seeds). One feature,
+`TransitionColumns(columns)`, picks the columns by name and never reads
+`fainted`; each set file holds its column tuple and history. `ko_raw50` and
+`ko_domain30` reproduce the old matrices. They live in their own registry
+(`features.transitions.TRANSITION_SETS`, `build(name)`), not in `FEATURE_SETS`:
+they take switches, not battles, and have no `@t<N>` turn.
 
-**Models**: the same registry; e.g. `@model("hgb_ko")` with today's detector
-parameters, and any other registered model can be tried.
+**Models**: the same registry. `@model("hgb_ko")` (`models/hgb_ko.py`) has the old
+detector's parameters (600 iterations, learning rate 0.03, 31 leaves, 40 per leaf,
+L2 1.0, seed 42) and the search space of `hgb`. The domain codes `x_status` and
+`y_code` are categorical: `hgb_ko` declares them itself and treats them so when the
+table has them (`ko_domain30`), not otherwise (`ko_raw50`), because a model never
+imports features. Any other registered model can be tried.
 
-**Commands**
+**Commands** (`--n-seeds` defaults to 3 for `detector evaluate` and `train`)
 
 ```
 python main.py detector evaluate --features ko_domain30 ko_raw50 --models hgb_ko \
-    --n-seeds 3 --reference ko_raw50/hgb_ko          # same tables as evaluate + probes
+    --seeds 42 1 2 --reference ko_raw50/hgb_ko       # same tables as evaluate + checks.csv
 python main.py detector train --features ko_domain30 --models hgb_ko \
-    --threshold 0.5 --version v3                      # -> results/addons/knockouts/v3/
+    --threshold 0.5 --seeds 42 1 2 --version v3       # -> results/addons/knockouts/v3/
+python main.py detector tune --features ko_domain30 --model hgb_ko --trials 50
 python main.py evaluate --features compact_v5 --models ensemble_from_lr \
     --repair model=results/addons/knockouts/v3 --n-seeds 3
+python main.py replay --battle 42 [--file input/train.jsonl] --repair rule
 ```
 
+`detector evaluate` and `train` also take `--params` (tuned files), `--threshold`,
+`--agreement`, `--folds`, `--seed(s)`, `--random-seeds`, `--jobs`; `detector tune`
+has the options of `tune` (study `detector_<set>__<model>`, results in
+`results/tuning/`). `train` defaults to `ko_domain30` / `hgb_ko`, runs the
+evaluation of the plan, fits on all P1 rows and saves the artifact.
+
 **Artifact** (`results/addons/knockouts/<version>/`): the `TrainedRun` files
-(`run.json`, `feature_state.pkl`, `model.pkl`) plus `info.json`: version,
-feature set, model and parameters, threshold, hash of the training file, the
-`detector evaluate` summary and the probes. Versions are never overwritten.
+(`run.json`, `model.pkl`; `feature_state.pkl` only for a stateful set) plus
+`info.json`: `version`, `feature_set`, `model`, `params` (the model's
+`get_params()`), `threshold`, `train_sha256`, `pokedex_sha256`, `seeds`,
+`evaluation` (the summary row) and `checks`. Versions are never overwritten
+(`train` stops if the folder exists).
+
+v3 (train, seeds 42 1 2, after step 2): out of fold accuracy 0.9627, log loss
+0.0992, AUC 0.9918; 10,109 P2 repairs (the golden count), symmetry estimate 10,135,
+adversarial AUC 0.586. The old 0.0988 log loss came from other folds and the
+Pokédex before step 2.
 
 **Addons** (`addons/`)
 
 ```python
-class ModelKnockoutRepair(TimelineRepair):          # addons/knockouts_model.py
-    def __init__(self, artifact: Path, pokedex: Pokedex, damage: DamageCalculator) -> None: ...
-    # loads the TrainedRun once, scores the P2 candidate transitions of a record
-    # with an extractor for that battle's lookup (§3.7), caches (key: §3.6);
-    # describe() reads info.json
+def load_artifact(folder: Path) -> tuple[TrainedRun, dict[str, Any]]: ...   # ArtifactError if missing
 
-class RuleKnockoutRepair(TimelineRepair):           # addons/knockouts_rule.py
+class ModelKnockoutRepair:                           # addons/knockouts_model.py
+    def __init__(self, run: TrainedRun, info: Mapping[str, Any], pokedex: Pokedex,
+                 damage: DamageCalculator) -> None: ...
+    @classmethod
+    def from_artifact(cls, folder: Path, pokedex: Pokedex, damage: DamageCalculator) -> ...: ...
+    # scores the P2 candidates of a record with an extractor for that battle's lookup
+    # (§3.7), one thread per call, cached by fingerprint (§3.6); describe() is
+    # {"name": "knockouts_model", "version", "params": the settings and hashes of info.json}
+
+class RuleKnockoutRepair:                            # addons/knockouts_rule.py
     def __init__(self, pokedex: Pokedex, damage: DamageCalculator, margin: float = 0.0) -> None: ...
-    # deterministic: faint when the expected damage covers the leaver's HP and the
-    # replacement entered unhurt (the compact_v2 rule); probabilities are 0 / 1
+    # deterministic: a candidate is a faint when x_hp_minus_dmg <= margin and y_drop <= 0
+    # (the expected damage covers the leaver's HP and the replacement entered unhurt,
+    # the compact_v2 rule); probabilities are 0 / 1, NaN never marks a faint
 ```
 
-- Today's `knockout_detector.py` splits into the task, the feature sets, the
-  model spec and `ModelKnockoutRepair`; `domain/knockouts.py` holds only the
-  detector's column lists until step 7, which deletes them.
-- Main-task CV with a detector trained on all of train is allowed (label-free);
-  `--refit-detector-per-fold` retrains the artifact inside each outer fold, to
-  check it (no difference today: 0.5420 vs 0.5419).
-- The detector work must be reproducible from scratch:
-  `detector train` with the same version settings must rebuild an artifact
-  with identical P2 repairs.
+- The constructor takes the loaded run so that tests build a repair in memory;
+  `from_artifact` is what `load_repair("model=<folder>", …)` calls. A missing
+  artifact is an `ArtifactError`: the CLI prints the `detector train` command to
+  run (exit code 2).
+- The old `knockout_detector.py` split into the task (`detector.py`), the feature
+  sets, the model spec and `ModelKnockoutRepair`; it and `domain/knockouts.py` were
+  deleted in step 7. The repair is no longer refitted in every process: every
+  command loads the same artifact.
+- Main-task CV with a detector trained on all of train is allowed (label-free).
+  A `--refit-detector-per-fold` option, to retrain the artifact inside each outer
+  fold as a check (no difference with the old code: 0.5420 vs 0.5419), is not
+  implemented.
+- The detector work is reproducible from scratch: `detector train` with the same
+  settings rebuilds an artifact with identical P2 probabilities (checked in step 7:
+  `v3` and `v3-repro` agree on all 39,204 candidates).
 
 v11 (the FDS repository) is out of scope: it will be ported natively later,
 as features in `features/core/` and models in `models/`, not as a bridge to an
@@ -487,7 +553,8 @@ python -m domain check input/train.jsonl input/test.jsonl   # unknown species, i
 
 - `domain` never imports addons, so `python -m domain replay` shows the battle
   without repairs and has no `--repair` option; a repaired replay goes through
-  `python main.py replay --repair rule | model=<artifact>` (step 7).
+  `python main.py replay --battle <id> [--file <jsonl>] --repair none | rule | model=<artifact>`
+  (since step 7; `domain.__main__.replay` takes the repair as an argument).
 - `replay` loads the Pokédex written by `build-pokedex`, so replaying a test
   battle never builds one from the test file; `check` builds it from its first
   file only.
@@ -723,11 +790,13 @@ class ResultsLayout:
     def tuning(self) -> Path: ...
     def cache(self, *parts: str) -> Path: ...
     def submission(self, name: str) -> Path: ...
+    def addon(self, kind: str, version: str) -> Path: ...   # addons/knockouts/v3
 ```
 
 A run stores the feature set name, the columns, the feature state, the model,
 and the repair state and Pokédex hash, so `predict` rebuilds exactly the same
-pipeline (today the detector is refitted at predict time). `save` and `load` take
+pipeline: since step 7 the detector is an artifact, not refitted at predict time, and
+`TrainedRun.check_repair` refuses another repair. `save` and `load` take
 a directory: `usecases.train` gets it from `ResultsLayout.run` (or `--out`), and the
 detector artifact of §3.8 is saved outside `results/runs/`. The feature code is not
 saved, so `load` restores the state onto the feature set rebuilt from its name.
@@ -766,19 +835,24 @@ class Settings:
     pokedex: Path = ResultsLayout().cache("species.json")
     plan: FoldPlan = FoldPlan()
     jobs: int = 1; results: ResultsLayout = ResultsLayout()
+    repair: str = "model=results/addons/knockouts/v3"   # DEFAULT_REPAIR; "none", "rule"
 ```
 
 Commands (unchanged names and options): `check`, `evaluate` (`--n-seeds`,
 `--seeds`, `--random-seeds`, `--jobs`, `--reference`), `train`, `predict`, `tune`.
-Step 7 adds `Settings.repair` (`"model=results/addons/knockouts/v3"`, `"none"`, `"rule"`),
-`--repair`, `replay` and the detector group `detector evaluate`, `detector train`,
-`detector tune` (same options, rows = P1 switches); step 8 adds `select`
-(`selection.py` has its own command line until then).
+Step 7 added `Settings.repair` and `--repair` to each of them (validated by
+`addons.check_spec`), `replay`, and the detector group `detector evaluate`,
+`detector train`, `detector tune` (§3.8, rows = P1 switches); `selection.py` and
+`tools/v11_common.py` take the same repair spec. `DomainError`, `ArtifactError`
+and `RepairMismatchError` become one line on stderr and exit code 2. Step 8 adds
+`select` (`selection.py` has its own command line until then).
 
 Defaults, all from `ResultsLayout`: `evaluate` exports to
 `results/evaluations/evaluate_<date>` without `--out`; `train` to `results/runs/`;
 `predict` to `results/submissions/submission.csv`; `tune` keeps the study and the best
-parameters in `results/tuning/` and its fold tables in `results/cache/folds/`.
+parameters in `results/tuning/` and its fold tables in `results/cache/folds/`;
+`detector evaluate` exports to `results/evaluations/detector_<date>`, `detector train`
+to `results/addons/knockouts/<version>/`.
 
 ## 7. Rules that must survive the refactoring
 
@@ -806,12 +880,12 @@ parameters in `results/tuning/` and its fold tables in `results/cache/folds/`.
 - `tests/test_architecture.py`: imports are scanned (ast) to enforce §1
   (`domain` imports only stdlib / numpy and never `addons`, `features`, `models`,
   `gym`; `models` never imports `domain`; `addons` never import `gym`, `tuning`
-  or the CLI).
+  or the CLI). The `domain` and `addons` rules are tested since steps 3 and 7.
 - Regression: `evaluate --features compact_v5 --models logreg ensemble_from_lr
   --seeds 33 66 133` must match the numbers in the goal above (after step 2,
-  the re-measured baseline); `detector evaluate` on `ko_domain30` must match
-  the out-of-fold numbers (log loss 0.0988, AUC 0.9918, 10,130 P2 repairs:
-  re-measure after step 2 (10,109 repairs)).
+  the re-measured baseline); `detector evaluate --features ko_domain30 --models
+  hgb_ko --seeds 42 1 2` must match step 7 (log loss 0.0992, AUC 0.9918, 10,109 P2
+  repairs, symmetry estimate 10,135).
 - Comments: English, only where the code is not self-explanatory; no separator
   comments; every public class and function has a docstring.
 

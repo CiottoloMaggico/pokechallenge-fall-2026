@@ -9,6 +9,10 @@ Predict the winner (`player_won`, P1 wins) of Gen 2 OU battles from the first
 - Data: `input/train.jsonl`, `input/test.jsonl` (never commit them).
 - Outputs only under `results/` (`storage.ResultsLayout`, since step 6). Older outputs in `runs/`
   and `results/<evaluation>/` stay where they are: do not move them.
+- Knockout detector (since step 7): a versioned artifact in `results/addons/knockouts/<version>/`,
+  loaded by every command (`--repair`, default `model=results/addons/knockouts/v3`). If `v3` is
+  missing, rebuild it with `python main.py detector train --version v3 --seeds 42 1 2`
+  (~2 min, same P2 repairs). Versions are never overwritten: a new detector gets a new version.
 
 ## Commands
 Since step 4a no feature depends on the hash seed (contract test in
@@ -17,9 +21,13 @@ only to run commits older than step 4a, such as the recipes in `SUBMISSIONS.md`.
 
 - Tests: `pytest -q` (once `tests/` exists); lint: `ruff check . && ruff format --check .`;
   types: `pyright`.
-- Golden check (every step, a few minutes):
+- Golden check (every step, ~10 min; needs the `v3` artifact, `export --repair` picks
+  another):
   `python tools/golden.py export --out results/golden/candidate`
   `python tools/golden.py check results/golden/reference results/golden/candidate`
+- Detector check (where a step says so, ~2 min):
+  `python main.py detector evaluate --features ko_domain30 --models hgb_ko --seeds 42 1 2`
+  Step 7 numbers: log loss 0.0992, AUC 0.9918, 10,109 P2 repairs, symmetry estimate 10,135.
 - Full regression (only where a step says so, ~30 min):
   `python main.py evaluate --features compact_v5 --models logreg ensemble_from_lr --seeds 33 66 133 --out results/reference_runs/<name>`
   Baseline of step 2 (commit ad7e4c4, run folder:
@@ -36,7 +44,8 @@ only to run commits older than step 4a, such as the recipes in `SUBMISSIONS.md`.
 3. Label-aware features give out-of-fold values on their training rows
    (grouped inner folds) or NaN (`inner_oof = False`). Never in-sample values.
 4. The knockout repair is applied to every battle before any feature. Addons
-   (repairs) never see `player_won`.
+   (repairs) never see `player_won`. A run records its repair and predicts only
+   with the same one.
 5. Do not change formulas, hyper-parameters, seeds, thresholds, column names or
    column order of existing feature sets unless the step explicitly asks it.
 6. No `fork` (multiprocessing, `--jobs`) after LightGBM / XGBoost / CatBoost
@@ -59,7 +68,8 @@ only to run commits older than step 4a, such as the recipes in `SUBMISSIONS.md`.
   and check that the two copies match before using it.
 - After each step: golden check must pass with the default tolerance (1e-9).
   `tools/golden.py` may only change in `_export` (imports / calls of the new
-  modules); its outputs and format must stay identical.
+  modules; step 7 also added `export --repair`); its outputs and format must stay
+  identical.
 - If the golden check fails: stop, do not edit tests or golden files to make it
   pass, and report which file / column / rows differ and the likely cause.
   The only planned exception is the Pokédex change of step 2: report the new
