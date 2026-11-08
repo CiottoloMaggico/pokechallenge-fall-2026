@@ -1,27 +1,26 @@
 """Hyperparameter search with Optuna on fixed, leakage-safe folds.
 
-The feature tables of every fold are built once (``gym.prepare_folds``),
+The feature tables of every fold are built once (``Gym.fold_tables``),
 so each trial only fits the model: hundreds of trials cost little more
 than the features. Each trial reports its running mean after every fold,
 so Optuna can stop bad trials early (median pruning).
 
-With a storage URL (``sqlite:///runs/optuna.db``) a study survives
+With a storage URL (``sqlite:///results/tuning/optuna.db``) a study survives
 restarts and several processes can work on it at once: start the same
 ``tune`` command in more terminals with the same study name.
 
 Example::
 
-    folds = prepare_folds(feature_set, battles, labels, splitter, groups)
+    folds = Gym.fold_tables(train.labelled(), feature_set, FoldPlan(5, (2027,)))[2027]
     tuner = Tuner("hgb", folds, metric="log_loss")
-    study = tuner.run(n_trials=200, storage="sqlite:///runs/optuna.db",
+    study = tuner.run(n_trials=200, storage="sqlite:///results/tuning/optuna.db",
                       study_name="compact__hgb")
-    save_best(study, tuner, "compact", Path("runs/tuning/compact__hgb.json"))
+    save_best(study, tuner, "compact", Path("results/tuning/compact__hgb.json"))
 """
 
 from __future__ import annotations
 
 import json
-import pickle
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -30,7 +29,7 @@ from typing import Any
 import numpy as np
 from sklearn.metrics import accuracy_score, log_loss
 
-from gym import FoldData
+from folds import FoldData
 from models import build, search_spaces
 from models.core.preprocessing import require
 
@@ -101,25 +100,6 @@ class Tuner:
         )
         study.optimize(self.objective, n_trials=n_trials, timeout=timeout)
         return study
-
-
-def cached_folds(
-    path: Path, prepare: Callable[[], list[FoldData]], refresh: bool = False
-) -> list[FoldData]:
-    """Load fold tables from ``path``, or build them with ``prepare`` and save.
-
-    The cache is keyed only by the file name: delete it (or pass
-    ``refresh``) after changing the features or the data. Load only
-    files you created (pickle).
-    """
-    if path.exists() and not refresh:
-        with path.open("rb") as fh:
-            return pickle.load(fh)
-    folds = prepare()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as fh:
-        pickle.dump(folds, fh)
-    return folds
 
 
 def save_best(study: Any, tuner: Tuner, feature_set: str, path: Path) -> Path:

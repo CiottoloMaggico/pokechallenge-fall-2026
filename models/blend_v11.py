@@ -13,6 +13,6 @@ from models.core.logit_blend import LogitBlend
 from registry import model
 
 
-@model("blend_v11")
+@model("blend_v11", requires=("catboost", "lightgbm", "xgboost"))
 def build(name: str = "blend_v11", **params: Any) -> Model:
     return LogitBlend(name=name, **params)

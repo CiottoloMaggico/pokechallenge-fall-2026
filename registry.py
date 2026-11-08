@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     SearchSpace = Callable[[Trial], dict[str, Any]]
 
 TURN_SEPARATOR = "@t"
+FORK_UNSAFE_LIBRARIES = frozenset({"catboost", "lightgbm", "xgboost"})
 
 
 class Registry[T](dict[str, T]):
@@ -54,13 +55,17 @@ class ModelSpec:
 FEATURE_SETS: Registry[FeatureSetBuilder] = Registry("feature set")
 MODELS: Registry[ModelSpec] = Registry("model")
 ENSEMBLES: Registry[tuple[str, ...]] = Registry("ensemble")
+FEATURE_SET_REQUIRES: dict[str, tuple[str, ...]] = {}
 
 
-def feature_set[B: Callable[..., Any]](name: str) -> Callable[[B], B]:
+def feature_set[B: Callable[..., Any]](
+    name: str, requires: tuple[str, ...] = ()
+) -> Callable[[B], B]:
     """Register a builder ``(turn) -> FeatureSet`` whose set is called ``set_name(name, turn)``."""
 
     def register(builder: B) -> B:
         FEATURE_SETS.add(name, builder)
+        FEATURE_SET_REQUIRES[name] = requires
         return builder
 
     return register
@@ -125,6 +130,13 @@ def available() -> list[str]:
         for spec in MODELS.values()
         if all(importlib.util.find_spec(module) is not None for module in spec.requires)
     ]
+
+
+def fork_unsafe_libraries(models: Sequence[str], feature_sets: Sequence[str]) -> list[str]:
+    """Libraries of these models and feature sets whose OpenMP hangs in forked workers."""
+    required = {library for name in models for library in MODELS[name].requires}
+    required.update(library for name in feature_sets for library in FEATURE_SET_REQUIRES[name])
+    return sorted(required & FORK_UNSAFE_LIBRARIES)
 
 
 def search_spaces() -> dict[str, SearchSpace]:

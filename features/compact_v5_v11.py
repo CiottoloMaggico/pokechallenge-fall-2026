@@ -13,7 +13,7 @@ from features.compact_v5 import compact_v5
 from registry import feature_set
 
 
-@feature_set("compact_v5_v11")
+@feature_set("compact_v5_v11", requires=("catboost", "lightgbm", "xgboost"))
 def compact_v5_v11(turn: int | None = None) -> FeatureSet[BattleContext]:
     """compact_v5 + ``v11_proba``; only defined at the last turn."""
     from features.v11_bridge import V11Probability

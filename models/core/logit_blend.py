@@ -11,7 +11,7 @@ it is missing (a test battle identical to a training one) p = p_base.
 ``w`` comes from ``tools/v11_blend_weight.py``; w = 1 is the base alone,
 w = 0 v11 alone.
 
-``tuned`` lists parameter files of ``main.py tune`` (``runs/tuning/*.json``)
+``tuned`` lists parameter files of ``main.py tune`` (``results/tuning/*.json``)
 for the base model or its ensemble members, applied as ``--params`` would.
 """
 

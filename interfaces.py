@@ -3,14 +3,16 @@
 :class:`Feature` is what every concrete feature extends. :class:`FeatureSource` and
 :class:`FittableFeatureSource` are what the gym and the saved runs need from a table of features;
 :class:`feature_set.FeatureSet` is the implementation. :class:`Model` is the binary classifier the
-gym fits and compares, whatever library is behind it.
+gym fits and compares, whatever library is behind it. :class:`LabelledBattles`, :class:`Splitter`
+and :data:`Probe` are what a task and an experiment hand to the gym.
 """
 from __future__ import annotations
 
 import copy
 import pickle
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -282,3 +284,42 @@ def _check_binary(y: np.ndarray) -> None:
     values = set(np.unique(y).tolist())
     if not values <= {0, 1} or len(values) < 2:
         raise ValueError(f"labels must contain both 0 and 1, got {values}")
+
+
+class Splitter(Protocol):
+    """Anything with a scikit-learn style ``split(x, y, groups)``."""
+
+    def split(self, x: Any, y: Any, groups: Any, /) -> Iterable[tuple[np.ndarray, np.ndarray]]: ...
+
+
+@dataclass(frozen=True)
+class LabelledBattles:
+    """What a task gives the gym: any rows, with one label, id and group each.
+
+    Rows of the same group never end up on both sides of a split.
+    """
+
+    items: Sequence[Any]
+    labels: np.ndarray
+    ids: np.ndarray
+    groups: np.ndarray
+
+    def __post_init__(self) -> None:
+        if len({len(self.items), len(self.labels), len(self.ids), len(self.groups)}) != 1:
+            raise ValueError("items, labels, ids and groups must have equal length")
+
+
+@dataclass(frozen=True)
+class FitContext:
+    """Everything a probe can look at after one fit."""
+
+    feature_set: str
+    model_name: str
+    fold: int
+    model: Model
+    x_valid: pd.DataFrame
+    y_valid: np.ndarray
+
+
+ProbeOutput = Mapping[str, Any] | Sequence[Mapping[str, Any]]
+Probe = Callable[[FitContext], ProbeOutput]

@@ -12,7 +12,7 @@ each candidate with the current set fold by fold (paired):
   1.0);
 
 The t-statistics are those of the corrected repeated k-fold t-test
-(``gym.corrected_ttest``, Nadeau & Bengio 2003): the J = folds x repeats
+(``statistics.corrected_ttest``, Nadeau & Bengio 2003): the J = folds x repeats
 differences are not independent, so the naive t is divided by
 sqrt(1 + J * n_test / n_train) (2.18 with 5 folds and 3 repeats; the
 earlier naive threshold t <= -2.5 was only p = 0.27 once corrected).
@@ -29,7 +29,7 @@ Example::
     python selection.py --test input/test.jsonl --model logreg --repeats 3
 
 The result (steps, final columns, scores) is printed and saved to
-``--out`` (default ``runs/selection.json``).
+``--out`` (default ``results/selection.json``).
 """
 
 from __future__ import annotations
@@ -38,41 +38,28 @@ import argparse
 import json
 import sys
 import time
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
 from sklearn.metrics import accuracy_score, log_loss
-from sklearn.model_selection import StratifiedGroupKFold
 
 from data import Dataset
 from domain.pokedex import Pokedex
 from features import sets as feature_sets
-from gym import FoldData, corrected_ttest, prepare_folds
+from folds import FoldData, FoldPlan
+from gym import Gym
 from knockout_detector import detector_from_files
 from models import build
+from statistics import corrected_ttest  # pyright: ignore[reportAttributeAccessIssue]
+from storage import ResultsLayout
 
 DEFAULT_POKEDEX = Path("results/cache/species.json")
 DEFAULT_TRAIN = Path("input/train.jsonl")
-DEFAULT_OUT = Path("runs/selection.json")
+DEFAULT_OUT = ResultsLayout().root / "selection.json"
 PROBA_CLIP = 1e-6
 
 Scores = tuple[np.ndarray, np.ndarray]  # accuracy and log-loss per fold
-
-
-class RepeatedGroupFolds:
-    """``StratifiedGroupKFold`` repeated with several seeds."""
-
-    def __init__(self, n_splits: int, seeds: Sequence[int]) -> None:
-        self.n_splits = n_splits
-        self.seeds = tuple(seeds)
-
-    def split(
-        self, x: np.ndarray, y: np.ndarray, groups: np.ndarray
-    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
-        for seed in self.seeds:
-            folds = StratifiedGroupKFold(self.n_splits, shuffle=True, random_state=seed)
-            yield from folds.split(x, y, groups)
 
 
 class Selector:
@@ -105,7 +92,7 @@ def compare(
     new: Scores, old: Scores, test_train_ratio: float
 ) -> tuple[float, float, float, float]:
     """Mean accuracy change, mean log-loss change, corrected paired t and
-    p of the log-loss (``gym.corrected_ttest``)."""
+    p of the log-loss (``statistics.corrected_ttest``)."""
     d_accuracy, d_loss = new[0] - old[0], new[1] - old[1]
     t, p = corrected_ttest(d_loss, test_train_ratio)
     if np.isnan(t):
@@ -205,17 +192,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     start = feature_sets.build(args.start).declared_columns
     if start is None:
         raise SystemExit(f"{args.start!r} does not declare its columns")
-    seeds = [args.seed + 11 * k for k in range(args.repeats)]
+    seeds = tuple(args.seed + 11 * k for k in range(args.repeats))
     began = time.perf_counter()
-    folds = prepare_folds(
+    tables = Gym.fold_tables(
+        train.labelled(),
         feature_sets.build(args.pool),
-        train.contexts,
-        train.labels,
-        RepeatedGroupFolds(args.folds, seeds),
-        train.duplicate_groups(),
+        FoldPlan(args.folds, seeds),
         unlabeled,
         progress=_progress,
     )
+    folds = [fold for seed in seeds for fold in tables[seed]]
     print(f"pool tables ready in {time.perf_counter() - began:.0f} s", flush=True)
     selector = Selector(folds, args.model)
     missing = set(start) - set(selector.columns)

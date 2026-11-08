@@ -6,7 +6,7 @@ Pipeline::
     records = load_records("input/train.jsonl")
     train = Dataset.from_records(records, pokedex)
 
-    gym.evaluate(train.contexts, train.labels, ids=train.ids)
+    gym.evaluate(train.labelled())
 
 Each battle is replayed into a :class:`battle.BattleContext`, which keeps
 the final state, the raw record and one state per turn.
@@ -38,6 +38,7 @@ from domain.errors import ReplayError
 from domain.pokedex import Missing, Pokedex, UnknownSpeciesPolicy
 from domain.records import LABEL_KEY, fingerprint, read_records
 from domain.repair import NO_REPAIR, TimelineRepair
+from interfaces import LabelledBattles
 
 Record = dict[str, Any]
 
@@ -135,8 +136,8 @@ class Dataset:
     def duplicate_groups(self) -> np.ndarray:
         """One integer group per distinct battle content (ids ignored).
 
-        Pass it to ``Gym.evaluate(groups=...)``: battles with identical
-        teams and timelines then always fall in the same fold.
+        Battles with identical teams and timelines then always fall in the
+        same fold (see :meth:`labelled`).
         """
         keys: dict[str, int] = {}
         groups = []
@@ -144,6 +145,12 @@ class Dataset:
             digest = fingerprint(context.record)
             groups.append(keys.setdefault(digest, len(keys)))
         return np.asarray(groups, dtype=int)
+
+    def labelled(self) -> LabelledBattles:
+        """The battles as the gym takes them; raises for unlabelled data."""
+        return LabelledBattles(
+            self.contexts, self.labels, np.asarray(self.ids), self.duplicate_groups()
+        )
 
     def subset(self, indices: Sequence[int]) -> Dataset:
         labels = (

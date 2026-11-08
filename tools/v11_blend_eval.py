@@ -1,6 +1,6 @@
 """Multi-seed evaluation of the v11 blend against its two parts.
 
-    python tools/v11_blend_eval.py --params runs/tuning/compact_v5_v11__blend_v11.json \\
+    python tools/v11_blend_eval.py --params results/tuning/compact_v5_v11__blend_v11.json \\
         --seeds 33 66 133 --jobs 3
 
 Use seeds that were not used to choose w (``tools/v11_blend_weight.py``),

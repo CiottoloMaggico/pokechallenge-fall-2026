@@ -43,13 +43,13 @@ def _export(out: Path, train: Path) -> None:
     # adapt these imports to the refactored modules; keep the outputs identical
     sys.path.insert(0, str(ROOT))
     from sklearn.metrics import log_loss
-    from sklearn.model_selection import StratifiedGroupKFold
 
     from data import Dataset
     from domain.pokedex import PokedexBuilder
     from domain.records import read_records, without_label
     from features import sets as feature_sets
-    from gym import make_splits, prepare_folds
+    from folds import FoldPlan, make_splits
+    from gym import Gym
     from knockout_detector import detector_from_files
     from models import build
 
@@ -75,11 +75,11 @@ def _export(out: Path, train: Path) -> None:
     print(f"species and P2 repairs exported ({time.perf_counter() - started:.0f} s)", flush=True)
 
     dataset = Dataset.from_jsonl(train, pokedex, repair=repair)
-    ids, y, groups = np.asarray(dataset.ids), dataset.labels, dataset.duplicate_groups()
-    splitter = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=SEED)
-    splits = make_splits(splitter, y, groups)
-    folds = prepare_folds(feature_sets.build(FEATURE_SET), dataset.contexts, y, splitter,
-                          groups=groups)
+    data = dataset.labelled()
+    ids, y = data.ids, data.labels
+    plan = FoldPlan(5, (SEED,))
+    splits = make_splits(dict(plan.splitters())[SEED], y, data.groups)
+    folds = Gym.fold_tables(data, feature_sets.build(FEATURE_SET), plan)[SEED]
     oof = []
     for k, ((tr, va), (x_train, y_train, x_valid, _)) in enumerate(zip(splits, folds, strict=True)):
         x_train.assign(battle_id=ids[tr]).to_csv(out / f"features_f{k}_train.csv", index=False,

@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from artifacts import RUN_INFO_FILE, FeatureMismatchError, TrainedRun, save_runs
+from artifacts import RUN_INFO_FILE, FeatureMismatchError, TrainedRun
 from data import Dataset
 from domain.pokedex import PokedexBuilder
 from domain.records import read_records
@@ -17,7 +17,7 @@ from domain.repair import NO_REPAIR
 from feature_set import FeatureSet
 from features.sets import build
 from gym import Gym
-from interfaces import Feature
+from interfaces import Feature, LabelledBattles
 from models import build as build_model
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "battles.jsonl"
@@ -49,9 +49,9 @@ def source(name: str = "toy") -> FeatureSet[float]:
 @pytest.fixture
 def run() -> TrainedRun:
     battles = [float(i) for i in range(40)]
-    labels = [i % 2 for i in range(40)]
-    gym = Gym(build_model("logreg"), source())
-    return gym.train(battles, labels, repair=MANIFEST)[0]
+    ids = np.arange(40)
+    gym = Gym([build_model("logreg")], [source()])
+    return gym.train(LabelledBattles(battles, ids % 2, ids, ids), repair=MANIFEST)[0]
 
 
 def test_the_manifest_of_the_repair_is_saved(run: TrainedRun, tmp_path: Path) -> None:
@@ -69,7 +69,7 @@ def test_a_run_saved_before_the_manifest_loads_without_it(run: TrainedRun, tmp_p
 
 
 def test_a_loaded_run_predicts_the_same(run: TrainedRun, tmp_path: Path) -> None:
-    folder = save_runs([run], tmp_path)[0]
+    folder = run.save(tmp_path / run.name)
     assert folder.name == "toy__logreg"
     battles = [1.0, 2.5, 30.0]
     loaded = TrainedRun.load(folder, source(), sample_battles=battles)
@@ -91,8 +91,8 @@ def test_a_run_refuses_changed_columns(run: TrainedRun) -> None:
 def test_the_main_feature_set_round_trips(tmp_path: Path) -> None:
     pokedex = PokedexBuilder().add_records(read_records(FIXTURES)).build()
     data = Dataset.from_jsonl(FIXTURES, pokedex)
-    gym = Gym(build_model("logreg"), build("compact_v5"))
-    run = gym.train(data.contexts, data.labels, groups=data.duplicate_groups(), repair=MANIFEST)[0]
+    gym = Gym([build_model("logreg")], [build("compact_v5")])
+    run = gym.train(data.labelled(), repair=MANIFEST)[0]
     loaded = TrainedRun.load(run.save(tmp_path / "run"), build("compact_v5"), data.contexts[:5])
     assert loaded.columns == run.columns
     assert np.array_equal(

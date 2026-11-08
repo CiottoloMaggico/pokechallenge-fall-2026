@@ -1,6 +1,6 @@
 """Blend weight of compact_v5 (base model) and v11, chosen in cross-validation.
 
-    python tools/v11_blend_weight.py --tuned runs/tuning/compact_v5__*.json \\
+    python tools/v11_blend_weight.py --tuned results/tuning/compact_v5__*.json \\
         --seeds 42 43 44 --jobs 3
 
 For every seed and fold v11 is trained on the training part only and
@@ -16,12 +16,12 @@ compact_v5 columns of the same training part. Then:
   compared with the base alone (w = 1) and v11 alone (w = 0), paired on the
   same folds with the corrected repeated k-fold t-test.
 
-Writes ``--out`` (default runs/tuning/compact_v5_v11__blend_v11.json), a
+Writes ``--out`` (default results/tuning/compact_v5_v11__blend_v11.json), a
 parameter file for ``main.py``::
 
     python main.py train --features compact_v5_v11 --models blend_v11 \\
-        --params runs/tuning/compact_v5_v11__blend_v11.json
-    python main.py predict --run runs/compact_v5_v11__blend_v11-tuned --out submission.csv
+        --params results/tuning/compact_v5_v11__blend_v11.json
+    python main.py predict --run results/runs/compact_v5_v11__blend_v11-tuned --out submission.csv
 
 The fold tables are cached in ``--cache``: rerunning with other seeds only
 builds the new ones; ``tools/v11_blend_eval.py`` reuses them.
@@ -44,7 +44,7 @@ GRID = np.round(np.arange(0, 1.0001, 0.05), 2)
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     C.add_common_arguments(parser)
-    parser.add_argument("--out", type=Path, default=C.ROOT / "runs" / "tuning" / "compact_v5_v11__blend_v11.json")
+    parser.add_argument("--out", type=Path, default=C.ROOT / "results" / "tuning" / "compact_v5_v11__blend_v11.json")
     args = parser.parse_args()
     seeds = C.seeds_from(args)
     print(f"seeds {seeds}; base {args.base}; tuned {[str(p) for p in args.tuned]}", flush=True)

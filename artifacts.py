@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import pickle
 import time
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -139,11 +139,6 @@ class TrainedRun:
                 + _describe_column_diff(self.columns, found)
             )
         return x
-
-
-def save_runs(runs: Iterable[TrainedRun], root: str | Path) -> list[Path]:
-    """Save each run in ``root/<feature set>__<model>``."""
-    return [run.save(Path(root) / run.name) for run in runs]
 
 
 def _restore_source(feature_set: FeatureSource, directory: Path, stateful: bool) -> FeatureSource:
