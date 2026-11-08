@@ -14,15 +14,12 @@ extend-exclude = [".env", "results", "runs", "input"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
 
-[tool.ruff.lint.isort]
-known-first-party = ["statistics"]  # our statistics.py, not the standard library's
-
 [tool.pyright]
 typeCheckingMode = "basic"
 strict = [
     "domain",
     "interfaces.py",
-    "statistics.py",
+    "stats_tables.py",
 ]
 include = ["."]
 exclude = [".env", "results", "runs", "input", "**/__pycache__"]

@@ -1,6 +1,4 @@
 """Tables of the gym's results, and the corrected t-test against hand-computed values."""
-# pyright resolves ``statistics`` to the standard library's stub, not to our module.
-# pyright: reportAttributeAccessIssue=false
 
 from __future__ import annotations
 
@@ -8,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from statistics import (
+from stats_tables import (
     calibration_table,
     corrected_ttest,
     paired_table,

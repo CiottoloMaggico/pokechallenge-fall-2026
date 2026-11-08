@@ -8,7 +8,7 @@ cross-validation and keeps the *raw* results:
 * ``folds``: one row per (feature set, model, fold, seed) with metrics, sizes
   and fit time.
 
-Every table for a plot is derived from these (``statistics.py``). Results can
+Every table for a plot is derived from these (``stats_tables.py``). Results can
 be exported and loaded back, so new plots never require re-training. Data that
 needs the fitted model itself (feature importances, coefficients, ...) is
 collected during the run by optional *probes*.
@@ -71,7 +71,7 @@ from interfaces import (
     Splitter,
     is_stateful,
 )
-from statistics import paired_table, seed_table, summary_table  # pyright: ignore[reportAttributeAccessIssue]
+from stats_tables import paired_table, seed_table, summary_table
 
 Metric = Callable[[np.ndarray, np.ndarray], float]
 Progress = Callable[[int, int, float], None]

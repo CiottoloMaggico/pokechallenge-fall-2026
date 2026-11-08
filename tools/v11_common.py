@@ -8,7 +8,7 @@
   model's probability (fitted on the compact_v5 columns of the training part)
   and v11's probability; cached too, keyed by base model and tuned files.
 * ``blend`` / ``scores`` / ``corrected``: logit blend, per-fold accuracy and
-  log loss, corrected repeated k-fold t-test (``statistics.corrected_ttest``).
+  log loss, corrected repeated k-fold t-test (``stats_tables.corrected_ttest``).
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from folds import FoldPlan  # noqa: E402
 from gym import Gym  # noqa: E402
 from knockout_detector import detector_from_files  # noqa: E402
 from models import build_tuned  # noqa: E402
-from statistics import corrected_ttest  # noqa: E402  # pyright: ignore[reportAttributeAccessIssue]
+from stats_tables import corrected_ttest  # noqa: E402
 from tuning import load_params  # noqa: E402
 
 FEATURE_SET = "compact_v5_v11"

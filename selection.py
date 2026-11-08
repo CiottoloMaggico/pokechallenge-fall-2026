@@ -12,7 +12,7 @@ each candidate with the current set fold by fold (paired):
   1.0);
 
 The t-statistics are those of the corrected repeated k-fold t-test
-(``statistics.corrected_ttest``, Nadeau & Bengio 2003): the J = folds x repeats
+(``stats_tables.corrected_ttest``, Nadeau & Bengio 2003): the J = folds x repeats
 differences are not independent, so the naive t is divided by
 sqrt(1 + J * n_test / n_train) (2.18 with 5 folds and 3 repeats; the
 earlier naive threshold t <= -2.5 was only p = 0.27 once corrected).
@@ -51,7 +51,7 @@ from folds import FoldData, FoldPlan
 from gym import Gym
 from knockout_detector import detector_from_files
 from models import build
-from statistics import corrected_ttest  # pyright: ignore[reportAttributeAccessIssue]
+from stats_tables import corrected_ttest
 from storage import ResultsLayout
 
 DEFAULT_POKEDEX = Path("results/cache/species.json")
@@ -92,7 +92,7 @@ def compare(
     new: Scores, old: Scores, test_train_ratio: float
 ) -> tuple[float, float, float, float]:
     """Mean accuracy change, mean log-loss change, corrected paired t and
-    p of the log-loss (``statistics.corrected_ttest``)."""
+    p of the log-loss (``stats_tables.corrected_ttest``)."""
     d_accuracy, d_loss = new[0] - old[0], new[1] - old[1]
     t, p = corrected_ttest(d_loss, test_train_ratio)
     if np.isnan(t):
