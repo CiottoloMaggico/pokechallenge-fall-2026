@@ -25,9 +25,10 @@ identical** (NaN equal) to the reference dumps listed below, in this repository'
 
 ## Decisions already taken by the user (do not reopen)
 
-1. **The artifact of the v11 detector is built by the application**: one new function in
-   `detector.py` (`train_v11`) and one new subcommand in `main.py` (`detector train-v11`). This
-   is the only application change.
+1. **The artifact of the v11 detector is built by the application, with the gym**, like `v3`:
+   `train_v11` and its helpers (`V11Folds`, the probe) in `detector.py`, one new subcommand in
+   `main.py` (`detector train-v11`). The gym itself is not modified. This is the only
+   application change.
 2. **The detector is fitted once on the training file (addon), not inside every fold.** This
    is the accepted, deliberate difference from the current port, the same compromise the
    repository makes with its own `v3` detector:
@@ -54,8 +55,8 @@ identical** (NaN equal) to the reference dumps listed below, in this repository'
   - new addon `addons/knockouts_v11.py` and the spec parsing in `addons/__init__.py`;
   - new model file `models/ko_v11.py` (the detector's classifier), `models/v11.py`,
     `models/core/v11_*.py`;
-  - application: one new function in `detector.py` and one new subcommand in `main.py`
-    (`detector train-v11`), nothing else;
+  - application: `train_v11` and its helpers in `detector.py` (using `Gym`, `TrainedRun` as
+    they are) and one new subcommand in `main.py` (`detector train-v11`), nothing else;
   - the v11 tests (`tests/features/test_v11_*.py`, `tests/models/test_v11_models.py`, new
     `tests/addons/test_knockouts_v11.py`), `AGENTS.md`, `README.md`.
 - Never edit the original repository in `~/Downloads/...`; never re-export the golden reference.
