@@ -237,4 +237,5 @@ class TeamEffect(BaseEstimator, TransformerMixin):
     def _attach(self, X: pd.DataFrame, cols: dict[str, np.ndarray]) -> pd.DataFrame:
         keys = [c for c in X.columns if c.startswith("k_")]
         drop = keys + ([self.base] if self.drop_base else [])
-        return pd.concat([X.drop(columns=drop), pd.DataFrame(cols, index=X.index)], axis=1)
+        out = pd.concat([X.drop(columns=drop), pd.DataFrame(cols, index=X.index)], axis=1)
+        return out.copy()  # one block for the estimator (drop and concat fragment the frame)

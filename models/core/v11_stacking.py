@@ -1,10 +1,11 @@
 """v11's spline logistic regression and cross-fitted stacked logit.
 
 A copy of ``PrefixScale``, ``spline_lr`` and ``StackedLogit`` of the original's ``models.py``
-(``tmp/FDS-Pokemon-Battle-Prediction-main/src``), same constants and operation order. One
-deviation: ``spline_lr`` falls back to ``SPLINE_KEYS`` only when ``keys`` is None (the original:
-when it is empty too), so that a table with none of the keys gets no spline columns instead of an
-error; on the ``v11`` table the keys are never empty and nothing changes.
+(``tmp/FDS-Pokemon-Battle-Prediction-main/src``), same constants and operation order.
+``StackedLogit`` consolidates the frame after dropping its block (same values, no pandas
+fragmentation). One deviation: ``spline_lr`` falls back to ``SPLINE_KEYS`` only when ``keys`` is
+None (the original: when it is empty too), so that a table with none of the keys gets no spline
+columns instead of an error; on the ``v11`` table the keys are never empty and nothing changes.
 """
 
 from __future__ import annotations
@@ -158,5 +159,6 @@ class StackedLogit(BaseEstimator, TransformerMixin):
         return self._attach(X, self.model_.decision_function(X[self.columns]))
 
     def _attach(self, X: pd.DataFrame, score: np.ndarray) -> pd.DataFrame:
-        X = X if self.keep else X.drop(columns=self.columns)
+        # dropping scattered columns splits the frame into hundreds of blocks: copy() joins them
+        X = X if self.keep else X.drop(columns=self.columns).copy()
         return X.assign(**{self.name: score})
