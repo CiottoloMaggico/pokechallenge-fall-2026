@@ -60,6 +60,9 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   probabilities); they work with any repair. Never import `models`, `addons` or the application.
 - `models/`: one file per model (`@model` / `@ensemble` in `registry.py`), shared pieces in
   `models/core/`; a model sees a `DataFrame` and labels only (no `domain`, no `features`).
+  A model is never tied to one feature set: steps that need particular columns (the v11
+  members' team effect and bag logit) take the column roles as parameters and are skipped when
+  the table has no such columns.
 - `interfaces.py` (`Feature`, `Model`, …), `feature_set.py` (`FeatureSet`), `registry.py`.
 - `main.py` only parses arguments, builds `Settings` and calls one function of `usecases.py`.
 
@@ -91,8 +94,13 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   `python main.py predict --run results/runs/v11/v11__v11_blend --test input/test.jsonl --repair v11=results/addons/knockouts_v11/v1 --out results/submissions/submission_v11_blend.csv --proba results/submissions/submission_v11_blend_proba.csv`
   Its probabilities match `results/v11_alignment/dump/original/blend_v11.npy` bit for bit; its
   submission differs by 97 labels from `results/v11_ref/sub20_blend_v11.csv`, as the original
-  run in this `.env` (library versions). Never pass `--test` to `train` / `evaluate` with v11:
-  its label-free features would also learn from the test battles.
+  run in this `.env` (library versions). `train` / `evaluate` refuse `--test` with v11 (its
+  label-free features fit on the training battles only).
+- v11 regression check (~15 min; needs the v11 artifact and `results/v11_alignment/dump/`):
+  `python tools/v11_check.py check` must report max |diff| 0 at every stage. Run it on every
+  change to the domain modules v11 uses (`timeline.py`, `expected_damage.py`, `switches.py`),
+  to `folds.py`, or to v11's addon, features or models; if it fails, stop and report as for the
+  golden check.
 - No feature depends on the hash seed (contract test in
   `tests/features/test_feature_contract.py`).
 

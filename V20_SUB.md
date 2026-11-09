@@ -57,6 +57,23 @@ With `--repair v11=<artifact>`, `train` / `predict` and the original's own proto
 5. **The detector artifact is built by the application with the gym**: `train_v11` in
    `detector.py`, `detector train-v11` in `main.py`. The gym and `TrainedRun` are used as they
    are.
+6. **`--test` is refused with v11 in `train` / `evaluate`.** v11's label-free features must fit
+   on the training battles only; `usecases.train` / `usecases.evaluate` stop with a clear message
+   when a requested feature set is `v11` and `settings.test` is set (a few lines, no new
+   abstraction).
+7. **The v11 models are generic by contract, not tied to the `v11` set.** The steps that need
+   particular columns take their column roles as explicit parameters (`TeamEffect` the team-key
+   columns, default prefix `k_`; the bag `StackedLogit` its prefixes, default `bs_ bh_ bm_`;
+   the full `StackedLogit` excludes the key columns) and are **skipped when the table has no
+   such columns**, so on any feature set a member is at least "stacked logit + booster". No
+   model names or imports the `v11` set. Moving the bag logit and the team effect into the
+   feature layer (as `features/core/pool.py` does with `TeamRating`) would make the members
+   fully generic but changes the numbers (other inner folds; the team effect depends on each
+   member's own base logit): not done here, mention it in the report as possible future work.
+8. **A versioned v11 regression check**: the step-1 harness becomes `tools/v11_check.py`
+   (`export` / `check`, like `tools/golden.py`, which stays unchanged), comparing with the dumps
+   in `results/v11_alignment/dump/`. `AGENTS.md` lists it among the commands, to run on every
+   change to the domain modules v11 uses, to `folds.py`, to the v11 addon, features or models.
 
 ## Hard constraints
 
@@ -72,6 +89,8 @@ With `--repair v11=<artifact>`, `train` / `predict` and the original's own proto
   - new `addons/knockouts_v11.py`, the spec parsing in `addons/__init__.py`;
   - new `models/ko_v11.py`, `models/v11.py`, `models/core/v11_*.py`;
   - `detector.py` (`train_v11` and its probe), `main.py` (`detector train-v11`);
+  - `usecases.py`: only the `--test` guard of decision 6;
+  - new `tools/v11_check.py` (decision 8);
   - the v11 tests, new `tests/addons/test_knockouts_v11.py`, one entry in
     `tests/features/test_feature_contract.py`; `AGENTS.md`, `README.md`.
 - Never edit the original repository in `~/Downloads/...`; never re-export the golden reference;
@@ -240,13 +259,21 @@ paths, same values):
 
 ### Models
 
+- Generic by contract (decision 7): no step names the `v11` set; column roles are parameters
+  with defaults; a step whose columns are absent is skipped (identity), so the pipeline is built
+  once, before seeing the table, and fits any table.
 - `models/core/v11_stacking.py`: `StackedLogit` resolves its columns at fit time from a selector
-  (all but `k_`, or the `bs_ bh_ bm_` prefixes, in `X.columns` order), so the pipeline can be
-  built before seeing the table; spline keys filtered by the resolved columns, as today.
+  (all but the key columns, or the bag prefixes, in `X.columns` order) and passes the table
+  through unchanged when the selection is empty; spline keys filtered by the resolved columns,
+  as today. `spline_lr` keeps only the keys present (none → no spline block).
+- `models/core/v11_team.py`: `TeamEffect` takes the key-column prefix (default `k_`) and is the
+  identity (also for `drop_base`: then it drops nothing it did not add) when the key columns are
+  missing; the base column is a parameter, as today.
 - `models/v11.py`: each member is `EstimatorModel(name, Pipeline([...]))` with today's steps,
   order and parameters (`stack_full` → `stack0` → `team` → booster; `team_base` →
   `team(drop_base)` → `spline_lr`), `@model("v11_*")`. Delete `V11Member` /
-  `models/core/v11_member.py`.
+  `models/core/v11_member.py`. On the `v11` table every step is active and the values are
+  today's (check bitwise); on `compact_v5` (fixtures) the members fit and predict (test).
 - The blend: `LogitBlend(Model)`: `expit(Σ w_i logit(clip(p_i, 1e-6, 1 - 1e-6)))`, weights as
   given (no renormalisation; `EnsembleModel` averages probabilities and divides by the weight
   sum). `@model("v11_blend")`, not `@ensemble` (`build_tuned` would turn it into a probability
@@ -254,7 +281,9 @@ paths, same values):
 
 ## Steps
 
-1. **Harness.** `results/v11_alignment/verify_v20.py` compares bitwise against the dumps:
+1. **Harness = `tools/v11_check.py`** (versioned, decision 8; `check` exits non-zero on any
+   difference and prints rows × columns and max |diff| per stage). It compares bitwise against
+   the dumps (stages that need code not yet written are skipped until they exist):
    - detector: `V11KnockoutRepair.probabilities` of every train battle (tables) and test battle
      vs `p2_faint.pkl`; the cut tables vs the original `fit_detector` on
      `parse(train, dex, cut=c)`;
@@ -291,7 +320,8 @@ paths, same values):
    domain modules, folds option, addon (table hit, truncated hit, fallback, recorded → 1.0,
    keys), v11 features (columns and order, forecast out of fold, works with `none` / `rule`
    repairs, determinism), members and blend (fit / predict / clone / save-load); the v11 entry
-   of the hash-seed contract test. `AGENTS.md` and `README.md` already describe the target:
+   of the hash-seed contract test; the `--test` guard (decision 6); the members on a non-v11
+   table (decision 7). `AGENTS.md` and `README.md` already describe the target:
    check them against what you built, fix mismatches, remove the "In progress" note and the
    README's "pending" line. Commit `docs: v11 on the repository's architecture`.
 9. **Evaluation** (stop before starting it):
@@ -337,5 +367,9 @@ paths, same values):
   | cat_v11 | 0.72043 | 0.54174 | 0.79819 | 0.18325 |
   | blend_v11 | 0.72027 (nested 0.7204) | 0.54096 | 0.79830 | 0.18305 |
 
-- Anything that could not be expressed with the repository's constructs without changing values.
+- Anything that could not be expressed with the repository's constructs without changing values,
+  and the accepted limits: the forecast's own cross-fitting cache (not `FeatureSet`'s inner
+  folds), no `@t` / `--turns` for v11, the v11 detector not comparable in `detector evaluate`,
+  the addon's training-file tables; the possible future "fully generic members" variant
+  (decision 7).
 - End with `git log --oneline -10` and `git status`.
