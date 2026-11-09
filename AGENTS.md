@@ -15,9 +15,19 @@ code's behaviour wins: note the conflict and ask.
   every command (`--repair`, default `model=results/addons/knockouts/v3`). If `v3` is missing,
   rebuild it with `python main.py detector train --version v3 --seeds 42 1 2` (~2 min, same
   P2 repairs). Versions are never overwritten: a new detector gets a new version.
-- The original FDS repository that the v11 port copies is outside this repository, in
+- v11 hidden-faint detector: a versioned artifact in `results/addons/knockouts_v11/<version>/`,
+  built with `python main.py detector train-v11 --version v1` (~3 min) and loaded with
+  `--repair v11=results/addons/knockouts_v11/v1` by every v11 command. Never overwritten.
+- The original FDS repository of v11 is outside this repository, in
   `~/Downloads/FDS-Pokemon-Battle-Prediction/FDS-Pokemon-Battle-Prediction`. Never edit it.
-  `results/v11_ref/sub20_blend_v11.csv` is the submission it produced with `blend_v11`.
+  `results/v11_ref/sub20_blend_v11.csv` is the submission it produced with `blend_v11`;
+  `results/v11_alignment/dump/` holds its outputs recomputed in this `.env` (detector
+  probabilities, feature matrices, member / blend probabilities, out-of-fold predictions of its
+  own protocol): the reference v11 must match bit for bit. Never delete it.
+- **In progress: `V20_SUB.md`** (v11 rebuilt on the repository's architecture). This file
+  already describes the target; until that task is done the code still holds the old port
+  (`V11Features`, v11's own detector inside the feature). Where the two disagree on v11, follow
+  `V20_SUB.md`; do not ask.
 
 ## Architecture
 Layers (enforced on the imports by `tests/test_architecture.py`):
@@ -37,11 +47,14 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
 - `domain/` imports only the standard library and numpy: records, Pokédex, type chart, damage,
   replay (`BattleReplay`, `BattleContext`), transitions. It defines `TimelineRepair` but never
   imports an implementation.
-- `addons/`: the knockout repairs (`none`, `rule`, `model=<artifact>`); never import the
-  application or the CLI.
+- `addons/`: the knockout repairs (`none`, `rule`, `model=<artifact>`, `v11=<artifact>`);
+  never import the application or the CLI. An artifact is built by `detector.py`
+  (`detector train`, `detector train-v11`) under `results/addons/<kind>/<version>/`.
 - `features/`: one file per feature set (`features/<set>.py`, registered with `@feature_set`
   and imported by `features/sets.py`), feature families in `features/core/`, the detector's
-  sets in `features/transitions/`. Never import `models`, `addons` or the application.
+  sets in `features/transitions/`. v11: one `Feature` per group in `features/core/v11/`,
+  computed from `BattleContext` (record, the repository's Pokédex, the v11 repair's
+  probabilities). Never import `models`, `addons` or the application.
 - `models/`: one file per model (`@model` / `@ensemble` in `registry.py`), shared pieces in
   `models/core/`; a model sees a `DataFrame` and labels only (no `domain`, no `features`).
 - `interfaces.py` (`Feature`, `Model`, …), `feature_set.py` (`FeatureSet`), `registry.py`.
@@ -68,12 +81,15 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   `results/evaluations/models_compact_v5/folds.csv` (same seeds; ensemble_from_lr
   0.7207 / 0.5402, logreg 0.7191 / 0.5426, accuracy / log loss); a change that must not
   move the results matches them fold by fold.
-- v11 (native port of the FDS repository's `blend_v11`, ~13 min train, ~1.5 min predict):
-  `python main.py train --features v11 --models v11_blend --out results/runs/v11`
-  `python main.py predict --run results/runs/v11/v11__v11_blend --test input/test.jsonl --out results/submissions/submission_v11_blend.csv --proba results/submissions/submission_v11_blend_proba.csv`
-  The port must be identical in logic to the original's `blend_v11` (features and models)
-  with similar metrics; its submission may differ by a few labels from
-  `results/v11_ref/sub20_blend_v11.csv` (library versions, platform).
+- v11 (the FDS repository's `blend_v11` on this repository's constructs, ~13 min train,
+  ~1.5 min predict; build the detector artifact first):
+  `python main.py detector train-v11 --version v1`
+  `python main.py train --features v11 --models v11_blend --repair v11=results/addons/knockouts_v11/v1 --out results/runs/v11`
+  `python main.py predict --run results/runs/v11/v11__v11_blend --test input/test.jsonl --repair v11=results/addons/knockouts_v11/v1 --out results/submissions/submission_v11_blend.csv --proba results/submissions/submission_v11_blend_proba.csv`
+  Its probabilities match `results/v11_alignment/dump/original/blend_v11.npy` bit for bit; its
+  submission differs by 97 labels from `results/v11_ref/sub20_blend_v11.csv`, as the original
+  run in this `.env` (library versions). Never pass `--test` to `train` / `evaluate` with v11:
+  its label-free features would also learn from the test battles.
 - No feature depends on the hash seed (contract test in
   `tests/features/test_feature_contract.py`).
 
@@ -87,12 +103,18 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
    (grouped inner folds) or NaN (`inner_oof = False`). Never in-sample values.
 4. The knockout repair is applied to every battle before any feature. Addons
    (repairs) never see `player_won`. A run records its repair and predicts only
-   with the same one. The one exception is `v11`: `V11Features` reads the raw record
-   and runs v11's own hidden-faint detector, so `--repair` does not change its columns.
+   with the same one. v11 runs use the v11 repair (`--repair v11=<artifact>`). Like `v3`, a
+   detector artifact is fitted once on the training file, not inside each fold of `evaluate`
+   (accepted: it never reads `player_won`).
 5. Do not change formulas, hyper-parameters, seeds, thresholds, column names or
    column order of existing feature sets or models unless the user explicitly asks.
-   The v11 port (`features/core/v11/`, `models/core/v11_*.py`, `models/v11.py`) must stay an
-   exact copy of the original: do not "fix" it.
+   v11 (`features/core/v11/`, `addons/knockouts_v11.py`, `models/ko_v11.py`,
+   `models/core/v11_*.py`, `models/v11.py`) keeps the logic of the original's `blend_v11`
+   exactly (formulas, constants, operation and iteration order, seeds, hyper-parameters, blend
+   weights): do not "fix" it. Its implementation uses the repository's constructs (domain
+   Pokédex and type chart unchanged, detector as a repair addon, one `Feature` per group,
+   `EstimatorModel` members), and its outputs must stay bitwise identical to
+   `results/v11_alignment/dump/` for `train` / `predict` and the original's protocol.
 6. No `fork` (multiprocessing, `--jobs`) after LightGBM / XGBoost / CatBoost
    have been used in the parent process: the workers hang at 0% CPU.
 7. Every comparison of models or feature sets uses the corrected repeated

@@ -14,10 +14,11 @@ The pipeline:
 2. **Knockout repair** (`addons/`): the records do not show every faint of P2's Pokémon. A
    detector (gradient boosting on P1's switches, a versioned artifact in
    `results/addons/knockouts/`) estimates the hidden knockouts and repairs the replay before any
-   feature is computed.
+   feature is computed. v11 has its own detector, also a repair addon with a versioned artifact
+   (`results/addons/knockouts_v11/`).
 3. **Features** (`features/`): named feature sets, from a single HP difference (`hp30`) to the
-   selected `compact_v5` (18 columns) and `v11` (819 columns, a native port of the `blend_v11`
-   model of the FDS course repository, with its own hidden-faint detector, team effects,
+   selected `compact_v5` (18 columns) and `v11` (819 columns, the `blend_v11` model of the FDS
+   course repository rebuilt on this repository's constructs: same logic, with team effects,
    simulations and a learned forecast of the next turns).
 4. **Models** (`models/`): logistic regression, gradient boosting (scikit-learn, LightGBM,
    XGBoost, CatBoost), boosting started from the logistic regression's log-odds, probability
@@ -67,13 +68,17 @@ python main.py predict --run results/runs/compact_v5__ensemble_from_lr \
     --proba results/submissions/submission_proba.csv
 ```
 
-The v11 model (`v11` features, `v11_blend` model) trains in about 13 minutes and predicts the
-test set in about 1.5 minutes. It ports the `blend_v11` model of the original FDS repository
-(same feature and model logic; a few test labels can differ with other library versions):
+The v11 model (`v11` features, `v11_blend` model) reproduces the `blend_v11` model of the
+original FDS repository (same feature and model logic; a few test labels can differ with other
+library versions). It needs its detector artifact (about 3 minutes, once), then trains in about
+13 minutes and predicts the test set in about 1.5 minutes:
 
 ```sh
-python main.py train --features v11 --models v11_blend --out results/runs/v11
+python main.py detector train-v11 --version v1
+python main.py train --features v11 --models v11_blend \
+    --repair v11=results/addons/knockouts_v11/v1 --out results/runs/v11
 python main.py predict --run results/runs/v11/v11__v11_blend --test input/test.jsonl \
+    --repair v11=results/addons/knockouts_v11/v1 \
     --out results/submissions/submission_v11_blend.csv
 ```
 
@@ -87,9 +92,9 @@ Other commands:
 - `select --method forward|backward --start <set> [--pool <set>]`: column selection with the
   corrected t-test.
 - `detector evaluate | train | tune`: the knockout detector on its own task (rows = P1's
-  switches).
-- `--repair none | rule | model=<folder>`: which knockout repair to apply (a saved run predicts
-  only with its own repair).
+  switches); `detector train-v11`: the artifact of v11's detector.
+- `--repair none | rule | model=<folder> | v11=<folder>`: which knockout repair to apply (a
+  saved run predicts only with its own repair; v11 uses `v11=`).
 
 Feature sets: `hp30` (HP difference only), `material`, `hazards`, `switch`, `core` (the three
 together), `compact` … `compact_v5` (successive selections, each with an `_orig` variant),
@@ -106,7 +111,7 @@ main.py            command line (parses arguments, calls usecases.py)
 usecases.py        one function per command
 gym.py folds.py    cross-validation, fold plans, leakage checks
 domain/            records, Pokédex, type chart, damage, replay, transitions (stdlib + numpy)
-addons/            knockout repairs: none, rule, trained detector artifact
+addons/            knockout repairs: none, rule, trained detector artifact, v11's detector
 features/          one file per feature set; families in features/core/, v11 in features/core/v11/
 models/            one file per model; shared pieces in models/core/
 tuning/ selection.py stats_tables.py   Optuna search, column selection, corrected t-test
@@ -217,4 +222,17 @@ The 30 domain columns match the 50 raw ones with the default detector (`hgb_ko`,
 
 ### v11
 
-(pending: v11 is being re-ported to the submitted version)
+(pending: v11 is being rebuilt on the repository's architecture, see `V20_SUB.md`)
+
+Protocol note: v11's detector is a repair addon fitted once on the training file, like `v3`, so
+in these cross-validations it is not refitted inside each fold; it never reads the outcome. With
+the original's own protocol (features built once on all training battles, 5 folds × 3 repeats,
+seeds 42–44) v11 gives the original's numbers exactly in this environment:
+
+| pipeline | accuracy | log loss | ROC AUC | Brier |
+|---|---|---|---|---|
+| lr_spline_v11 | 0.7166 | 0.5468 | 0.7927 | 0.1855 |
+| xgb_v11 | 0.7196 | 0.5434 | 0.7965 | 0.1840 |
+| lgbm_v11 | 0.7201 | 0.5429 | 0.7967 | 0.1838 |
+| cat_v11 | 0.7204 | 0.5417 | 0.7982 | 0.1832 |
+| blend_v11 | 0.7203 (nested 0.7204) | 0.5410 | 0.7983 | 0.1831 |
