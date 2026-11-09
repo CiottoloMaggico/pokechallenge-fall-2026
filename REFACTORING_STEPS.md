@@ -272,7 +272,7 @@ has its own detector inside the feature; `uses_labels` declared without reading 
 | 0 | done (3c17ecd): the two `.env` runs are identical (every file; `features.pkl` differs only in `info["seconds"]`), ~18 min per run, detector AUC 0.98307; `orig` venv vs reference: 50 / 5,000 label flips, max prob. diff 0.0439 (same `p2_faint`, features differ only in `t_hd_slope10` and the `q_*_h10` forecasts; members up to 0.10); old `results/submissions/v11_test_proba.csv` (4,993 non-NaN rows): 107 flips, max diff 0.0977 |
 | 1 | done (b6cbee1): port and original give identical `Battle`s (sides, spikes, `transitions` of p1 and p2, NaN equal) on 15,000 battles (10,000 train + 5,000 test), 306,475 transitions, Pokédex of 239 species; 11 tests |
 | 2 | done (2176d68): `p2_faint` equals the reference exactly: train 10,000 battles / 101,294 entries (cross-fitted), test 5,000 battles / 50,798 entries, max diff 0; detector AUC 0.98307, ~20 s |
-| 3a | todo |
+| 3a | done (this commit): `battle_features` equals the reference bitwise (NaN equal) on 813 columns × 10,000 train + 5,000 test rows (all reference columns except the 528 `bt_ bc_ bf_ bg_ u_`, `cut` and the 6 `q_*`), ~60 s with the detector; 3 tests. `simulation.py` (332 lines in the original, ~470 formatted) is split into `simulation.py` (first version, `MoveTable`, `used_move`) and `simulation2.py` (`simulation_features`); `_proxies` / `_attack` became public `proxies` / `is_attack`; `simulate` / `simulate2` return early when a side is empty (the original breaks out of the loop at once: same result) so the indices are never `None` for pyright |
 | 3b | todo |
 | 4 | todo |
 | 5 | todo |
