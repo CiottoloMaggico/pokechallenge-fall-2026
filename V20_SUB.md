@@ -6,64 +6,82 @@ current port was verified bit for bit against the original; see "Starting point"
 ## Goal
 
 Today v11 is a **foreign body** in the repository: one monolithic `Feature` (`V11Features`) runs
-a copy of the original `build()` on the raw records, with its own Pokédex, its own type chart, its
-own hidden-faint detector fitted inside the feature, and a private model wrapper. Rebuild it so
-that it follows the layered architecture of `AGENTS.md`:
+a copy of the original `build()` on the raw records, with its own Pokédex, type chart, timeline
+parser and hidden-faint detector (fitted inside the feature), and a private model wrapper.
+Rebuild it on the layered architecture of `AGENTS.md`:
 
-- **domain**: v11 uses the repository's `domain` as it is (Pokédex, type chart, records,
-  `BattleContext`, the `TimelineRepair` protocol). **No file of `domain/` changes.**
-- **addons**: v11's hidden-faint detector becomes a repair addon (`--repair v11=<artifact>`),
-  like the repository's own detector; its artifact is built by an application command.
-- **features**: the v11 columns come from ordinary `Feature`s, one per group, registered in the
-  `v11` `FeatureSet`, computed from `BattleContext` (record, species, repair).
+- **domain**: v11 uses the repository's `domain` (Pokédex, type chart, records, `BattleContext`,
+  `TimelineRepair`) plus **three new generic modules** (observed timeline, expected damage,
+  switch descriptions). The domain stays agnostic: no model, feature set or version in it.
+- **folds**: a non-stratified `FoldPlan` option, used **only** by the v11 detector.
+- **addons**: v11's hidden-faint detector is a repair addon (`--repair v11=<artifact>`), built
+  with the gym like `v3`.
+- **features**: one ordinary `Feature` per v11 group in the `v11` `FeatureSet`, on
+  `BattleContext`, working with **any** repair.
 - **models**: the members are `EstimatorModel`s of static scikit-learn pipelines; the blend is a
   small logit-average `Model`.
 
-**Hard requirement: the numbers do not move.** Same logic, same formulas, constants, operation
-and iteration order, seeds, hyper-parameters, blend weights. Every stage must stay **bitwise
-identical** (NaN equal) to the reference dumps listed below, in this repository's `.env`.
+**Hard requirement: v11 replicates the original as faithfully as possible.** Same logic,
+formulas, constants, operation and iteration order, seeds, hyper-parameters, blend weights.
+With `--repair v11=<artifact>`, `train` / `predict` and the original's own protocol must stay
+**bitwise identical** (NaN equal) to the reference dumps below, in this repository's `.env`.
 
-## Decisions already taken by the user (do not reopen)
+## Decisions taken by the user (do not reopen)
 
-1. **The artifact of the v11 detector is built by the application, with the gym**, like `v3`:
-   `train_v11` and its helpers (`V11Folds`, the probe) in `detector.py`, one new subcommand in
-   `main.py` (`detector train-v11`). The gym itself is not modified. This is the only
-   application change.
-2. **The detector is fitted once on the training file (addon), not inside every fold.** This
-   is the accepted, deliberate difference from the current port, the same compromise the
-   repository makes with its own `v3` detector:
-   - `train` / `predict` and the original's protocol (features once on all training battles)
-     stay **bitwise identical** to the original and to the dumps;
-   - in `evaluate` the training rows of a fold get the values cross-fitted on the whole
-     training file and the validation rows their cross-fitted value (the current port refits
-     the detector and the Pokédex inside each fold), so the `evaluate` numbers of the new v11
-     are **not** expected to match the current port bit for bit. The detector never reads
-     `player_won` (it learns from P1's recorded faints), so there is no label leakage; the
-     difference is transductive and small. Write it in `AGENTS.md` and in the README section
-     of v11.
-   - The Pokédex is the repository's (`results/cache/species.json`, built on the whole training
-     file), not one rebuilt per fold: same consequence, same treatment.
+1. **Domain additions are generic.** New modules only; no change to the logic of existing domain
+   files. Name them by concept, never by version, model or feature set (no `v10`, `v11`, `ko_`
+   in `domain/`); numeric choices are documented as assumptions of an estimate, with defaults.
+   Pyright strict and tests in `tests/domain/`.
+2. **Non-stratified folds exist only for v11.** `folds.FoldPlan` gets an option
+   (`stratified: bool = True`); with `False` it is a shuffled `KFold` over the **groups** it
+   receives (in order of first appearance, each row in the fold of its group). It is used
+   exclusively by the v11 detector artifact: do not expose it in the CLI, `evaluate`, `tune` or
+   `select` (the fold-table cache key would not tell it apart).
+3. **One repair at a time, independent of the predictive models.** v11's features read
+   `BattleContext.repair` and work with every repair (`none`, `rule`, `model=…` such as `v3`,
+   `v11=…`). The faithful reference is `--repair v11=<artifact>`; v11 with `v3` is a legitimate
+   variant (to be compared with the corrected t-test). Other feature sets may also run with the
+   v11 repair.
+4. **v11 is faithful to the original** (the bitwise requirement above), hence:
+   - the v11 detector's cross-fitted tables use the original's folds: `KFold(5, shuffle=True,
+     random_state=42)` over the **battles** (groups = battle index, not fingerprint). This is a
+     **declared exception to rule 2** limited to these tables (15 of the 17 duplicate groups of
+     the training file fall in different detector folds; the detector never reads
+     `player_won`);
+   - the inner cross-validations of `StackedLogit` / `TeamEffect` (not grouped by duplicates)
+     and of the forecast stay as in the original: declared as v11's logic;
+   - the detector (and the Pokédex) are fitted **once on the training file**, like `v3`, not
+     inside each fold of `evaluate`. `train` / `predict` and the original's protocol are
+     unaffected; the `evaluate` numbers are expected close to, not equal to, those of the old
+     per-fold port.
+5. **The detector artifact is built by the application with the gym**: `train_v11` in
+   `detector.py`, `detector train-v11` in `main.py`. The gym and `TrainedRun` are used as they
+   are.
 
 ## Hard constraints
 
-- Do not modify `domain/` (no new file there either), `interfaces.py`, `feature_set.py`,
-  `registry.py`, `gym.py`, `folds.py`, `data.py`, `artifacts.py`, `stats_tables.py`,
-  `tools/golden.py`, `results/golden/`, `requirements.txt`, any other feature set or model, or the
-  tests of anything that is not v11 (exception: the one-line additions listed in step 6).
+- Do not change the logic of existing files of `domain/`, nor `interfaces.py`, `feature_set.py`,
+  `registry.py`, `gym.py`, `data.py`, `artifacts.py`, `stats_tables.py`, `tools/golden.py`,
+  `results/golden/`, `requirements.txt`, any other feature set or model, or the tests of
+  anything that is not v11 / the new code.
 - Allowed changes:
-  - `features/core/v11/*`, `features/v11.py`;
-  - new addon `addons/knockouts_v11.py` and the spec parsing in `addons/__init__.py`;
-  - new model file `models/ko_v11.py` (the detector's classifier), `models/v11.py`,
-    `models/core/v11_*.py`;
-  - application: `train_v11` and its helpers in `detector.py` (using `Gym`, `TrainedRun` as
-    they are) and one new subcommand in `main.py` (`detector train-v11`), nothing else;
-  - the v11 tests (`tests/features/test_v11_*.py`, `tests/models/test_v11_models.py`, new
-    `tests/addons/test_knockouts_v11.py`), `AGENTS.md`, `README.md`.
-- Never edit the original repository in `~/Downloads/...`; never re-export the golden reference.
+  - new `domain/timeline.py`, `domain/expected_damage.py`, `domain/switches.py` and their tests;
+  - `folds.py`: the `stratified` option of `FoldPlan` (default unchanged) and its test;
+  - `features/core/v11/*`, `features/v11.py`, new `features/transitions/ko_v11.py` (not
+    registered in `TRANSITION_SETS`);
+  - new `addons/knockouts_v11.py`, the spec parsing in `addons/__init__.py`;
+  - new `models/ko_v11.py`, `models/v11.py`, `models/core/v11_*.py`;
+  - `detector.py` (`train_v11` and its probe), `main.py` (`detector train-v11`);
+  - the v11 tests, new `tests/addons/test_knockouts_v11.py`, one entry in
+    `tests/features/test_feature_contract.py`; `AGENTS.md`, `README.md`.
+- Never edit the original repository in `~/Downloads/...`; never re-export the golden reference;
+  never delete `results/v11_alignment/`.
 - At most two heavy processes at a time; poll long jobs with sleeps ≤ 5 min and report.
 - One change per commit, after golden check, `pytest`, `ruff check . && ruff format --check .`,
-  `pyright`. Messages `refactor(v11): …` (value-preserving), `feat(addons): …`, `docs: …`.
-  No push, no history rewrite.
+  `pyright`. Messages `feat(domain): …`, `feat(folds): …`, `feat(addons): …`,
+  `refactor(v11): …`, `docs: …`. No push, no history rewrite.
+- If something cannot be expressed with the repository's constructs without changing values,
+  stop and ask instead of changing the logic.
 
 ## Starting point (what exists and is already verified)
 
@@ -71,7 +89,7 @@ identical** (NaN equal) to the reference dumps listed below, in this repository'
   `features/v11.py`, `models/core/v11_{member,stacking,team}.py`, `models/v11.py`. It is
   bitwise identical to the original `blend_v11` (replay, detector, `X_train` / `X_test`,
   members, blend, the original's 5×3 CV out-of-fold predictions).
-- **Reference dumps** (git-ignored, do not delete), produced by the original in `.env`:
+- **Reference dumps** (git-ignored), produced by the original in `.env`:
   - `results/v11_alignment/dump/original/p2_faint.pkl`: detector probabilities
     (`{"train": [dict per battle], "test": [...]}`, keys = timeline index of P2's switches);
   - `results/v11_alignment/dump/original/features_v10.pkl`: `X_train` (10,000 rows), `X_test`
@@ -81,143 +99,109 @@ identical** (NaN equal) to the reference dumps listed below, in this repository'
     probabilities;
   - `results/v11_alignment/dump/cv/original_<pipeline>.npy`, `original_blend_v11.npy`:
     out-of-fold predictions of the original's protocol (`cv.make_folds`, seeds 42–44);
-  - scripts to reuse: `results/v11_alignment/{compare.py, cv_step3.py, port_dump.py}`.
+  - scripts to reuse: `results/v11_alignment/{compare.py, cv_step3.py, port_dump.py}` and the
+    copy of the original in `results/v11_alignment/original/` (importable as `src` with
+    `FDS_DATA_DIR=results/v11_alignment/data`).
 - Facts already checked:
-  - the repository Pokédex (`results/cache/species.json`, `domain.pokedex.Pokedex`) has the
-    same 239 species as v11's Pokédex with identical base stats, types (``notype`` dropped)
-    and base stat total (int); `Pokedex.lookup(record, Missing())` = v11's
-    `Pokedex.for_battle(record).get` (None for a species without stats);
-  - the type chart file is the same; `domain.typechart.TypeChart.multiplier` raises
-    `KeyError` on a type outside `domain.pokedex.TYPES`, and the records contain the move type
-    `threequestionmarks` (Curse) and the defender type `notype`, which v11 treats as neutral
-    (1.0) / skipped.
+  - the repository Pokédex (`results/cache/species.json`) has the same 239 species as v11's
+    Pokédex with identical base stats, types (`notype` dropped) and base stat total (ints);
+    `Pokedex.lookup(record, Missing())` = v11's `Pokedex.for_battle(record).get` (None for a
+    species without stats);
+  - the type chart file is the same; `TypeChart.multiplier` raises `KeyError` on a type outside
+    `domain.pokedex.TYPES`; the records contain the move type `threequestionmarks` (Curse) and
+    the defender type `notype`, which v11 treats as neutral (1.0) / skipped;
+  - `features/core/v11/state.p2_track` takes the max of the repair's probability and the
+    recorded `fnt` status, so probabilities given only for candidate switches (as `v3`) work.
 
 ## Target design, layer by layer
 
-### Domain (unchanged, only used)
+### Domain: three new generic modules (pure, stdlib + numpy, pyright strict)
 
-| v11 needs | repository construct |
-|---|---|
-| raw record (timeline, team details, levels, items) | `BattleContext.record` (label-free copy) |
-| species stats (`dex.get(name)` → dict or None) | `BattleContext.species(name)` → `PokemonGen2 \| None` |
-| type multipliers | `features.common.type_chart()` (`domain.typechart.TypeChart`) |
-| `b.p2_faint` (P2 switch index → P(faint)) | `BattleContext.repair.probabilities(context.record)` |
-| truncated timelines (forecast cuts) | `BattleContext.at_turn(cut)` (replays `timeline[:cut]` with the same repair) |
-| content key of a battle | `domain.records.fingerprint` |
+Moved from the current port, made independent of v11 by name and documentation only (same code
+paths, same values):
+
+| module | content | from |
+|---|---|---|
+| `domain/timeline.py` | `ObservedTimeline`: what a record shows at each entry, per side: active names, HP, status, effects (`noeffect` dropped), boosts, move field; **fresh move events** (changes of the move field); moves revealed per Pokémon (P2's lead counts as revealed, from `p2_lead_details`); first / last index; Spikes on each side (laid by the opponent, cleared by Rapid Spin); `used_move(side, i)` (the move actually used at an entry) | `features/core/v11/replay.py` (`Side`, `Battle._spikes`), `simulation.used_move` |
+| `domain/expected_damage.py` | a quick, roll-free damage estimate: `stat_value` (maximal DVs / stat experience, as documented), `stage_mult`, `expected_damage` (share of max HP, accuracy-weighted, mean roll factor 0.925, STAB, burn, Thick Club / Light Ball of the attacker, Explosion halving defence, fixed-damage moves), `best_damage`, `effective_speed`, `effectiveness` over a `TypeChart` that skips `notype` and treats a type outside `TYPES` as neutral. Species as `PokemonGen2`, moves as competition-format move records (mappings) | `features/core/v11/mechanics.py` |
+| `domain/switches.py` | `SwitchExtractor`: every change of active Pokémon of one side described for a hidden-faint detector, the "basic" description (no physical-evidence columns, unlike `domain/transitions.py`): leaver, incoming Pokémon, opponent, the estimate of `expected_damage`; P1's recorded faints described from the row before, so they look like hidden P2 faints; `recorded`, `final`, `label`; candidates = P2 rows not recorded and final | `features/core/v11/replay.py` (`transitions`, `_transition_features`) |
+
+- The docstrings explain how `switches.py` differs from `transitions.py` (basic description,
+  simpler damage estimate) and how `timeline.py` differs from `BattleReplay` (records what is
+  observed, simulates nothing).
+- What is **not** domain: the merge of the timeline with the repair's probabilities and the
+  tracks (`p2_track`, …), move classes used by features (`HEAL`, `SETUP`, …), simulations,
+  bags, team models: they stay in `features/core/v11/`.
+
+### Folds: `FoldPlan(stratified=False)` (only for v11)
+
+- `stratified=True` (default) is today's `StratifiedGroupKFold`, unchanged.
+- `stratified=False`: a splitter that runs `KFold(n_folds, shuffle=True, random_state=seed)` on
+  the unique groups in order of first appearance and maps every row to the fold of its group;
+  train / valid row indices ascending. With groups = battle index it reproduces the original
+  detector folds exactly (verify).
+- Used only by `detector.train_v11`. Test it in `tests/application/`.
 
 ### Addon: `addons/knockouts_v11.py` (`V11KnockoutRepair`, implements `TimelineRepair`)
 
-- `probabilities(record)` returns exactly the original's `battle.p2_faint`: for every P2
-  transition row `i` (`Battle.transitions("p2")`), 1.0 if `recorded`, the detector's P(faint)
-  if `not recorded and final`, else 0.0; same keys, same insertion order.
-  - **Training battles of the artifact** get the **cross-fitted** value stored in the artifact
-    (the original's `fit_detector` on the training file: `KFold(5, shuffle=True,
-    random_state=42)` over the battles in file order). Key: `(battle_id, fingerprint(record))`
-    (training duplicates have distinct ids and can fall in different folds; test ids can repeat
-    training ids).
-  - **Truncated training battles** (`len(timeline) == cut` for `cut` in
-    `forecast.CUTS = (12, 14, ..., 24)`) get the cross-fitted value of the detector refitted
-    on the truncated training battles of that cut (the original's
-    `truncated_features → fit_detector(battles_cut, [])`). Key: `(battle_id,
-    fingerprint(truncated record))`.
-  - **Any other record** (validation / test battles) is scored with the detector fitted on all
-    P1 rows of the training file (the original's `full` model).
-- `repairs(record)`: the P2 indices with probability ≥ 0.5 (the v11 "hard" threshold); v11
-  features never read it, it only feeds the generic domain replay.
+- Uses the infrastructure of `v3`: the protocol, the repair specs (`check_spec`, `load_repair`
+  accept `v11=<artifact folder>`), the artifact layout (`results/addons/knockouts_v11/<version>/`,
+  `info.json`, never overwritten, a clear error when missing), `TrainedRun.load`, the run's
+  recorded repair.
+- `probabilities(record)` = the original's `battle.p2_faint`: for every P2 row `i` of
+  `SwitchExtractor`, 1.0 if `recorded`, P(faint) if candidate, else 0.0; same keys and order.
+  - **training battles of the artifact**: the cross-fitted value of the tables, key
+    `(battle_id, fingerprint(record))` (training duplicates have distinct ids and different
+    folds; test ids can repeat training ids);
+  - **truncated training battles** (`len(timeline) == cut`, `cut` in `CUTS = (12, 14, …, 24)`):
+    the cross-fitted value of that cut's detector, key `(battle_id, fingerprint(record))`;
+  - **any other record**: the full detector (`TrainedRun.predict_proba` on the record's P2
+    candidates, one batch per record; check bitwise equal to the original's batch scoring).
+- `repairs(record)`: P2 rows with probability ≥ 0.5 (only feeds the generic domain replay).
 - `describe()`: `{"name": "knockouts_v11", "version": ..., "params": {...}}` from `info.json`.
-- `addons/__init__.py`: `check_spec` / `load_repair` accept `v11=<artifact folder>`.
-- The rows, the columns (`META`, `astype(float)`), the candidate selection and the LightGBM
-  parameters are the original's `faint.py`, unchanged. The per-battle transition rows come from
-  `features/core/v11/transitions.py` (see features); addons may import features.
+- Imports: `domain` (switches, records, pokedex), `features.transitions.ko_v11`, `artifacts`, as
+  `knockouts_model.py` does.
 
-### Application: the v11 detector artifact
+### Application: the artifact, with the gym (`detector.train_v11`, `detector train-v11`)
 
-**Use the detector infrastructure that already exists; do not build a parallel one.** The v11
-detector plugs into exactly the same pieces as the `v3` detector:
-- the `domain.repair.TimelineRepair` protocol (`probabilities`, `repairs`, `describe`), applied
-  by `BattleReplay` and kept in `BattleContext.repair`;
-- the repair specs of `addons/__init__.py` (`check_spec`, `load_repair`), next to `model=`;
-- the artifact layout and conventions of `addons/knockouts_model.py` / `detector.train`:
-  `settings.results.addon(<kind>, <version>)`, `INFO_FILE` (`info.json` with version, params,
-  `train_sha256`, `pokedex_sha256`, saved time), versions never overwritten, a clear
-  `ArtifactError`-style message when the folder is missing;
-- the **gym** (`gym.Gym.train`, `Gym.evaluate`, probes) and `artifacts.TrainedRun` (a feature
-  set on v11's transition rows + a classifier registered in `models/`), saved with
-  `TrainedRun.save` as the `v3` artifact;
-- the run's recorded repair (`describe()` stored with the run, `predict` refuses another one).
-What stays v11's own is only **what** is fitted, not the machinery: the rows and columns of the
-original `faint.py`, the original's battle-level folds for the cross-fitted tables, the seven
-truncated detectors. Do not use `detector train` itself (its rows are `domain.transitions`, its
-feature sets `ko_*`), and do not register the v11 detector set in `TRANSITION_SETS` (it would
-become a choice of `detector train` / `evaluate`, which feed domain `Transition`s).
-
-- Feature set of the detector: `features/core/v11/transitions.py` gives one row object per
-  transition (battle index, `i`, `x`, `recorded`, `final`, `label` and the feature values) and
-  a builder of a `FeatureSet` (name `ko_v11`) with **one** `Feature` returning the feature
-  values in the original's column order (`feats` of `_collect`: every key but `META`), declared
-  in `output_names`. `FeatureSet` turns booleans into floats as the original's
-  `astype(float)`.
-- `detector.py`: `train_v11(settings, version)` writes `results/addons/knockouts_v11/<version>/`
-  (`settings.results.addon("knockouts_v11", version)`, never overwritten), entirely with the
-  gym:
-  - **task**: `LabelledBattles` of P1's rows with `final & x_hp.notna()` (label = recorded
-    faint, id = row, group = battle index), in battle order then row order, as the original;
-  - **cross-fitted tables**: `Gym([lgbm_ko_v11], [ko_v11 set], plan=V11Folds(),
-    probes={"p2": ...})`. `V11Folds` is a `FoldPlan` subclass defined in `detector.py` (one
-    "seed" 42) whose splitter reproduces the original folds: `KFold(5, shuffle=True,
-    random_state=42)` over the battle indices, each row in the fold of its battle (train /
-    valid indices ascending, as the original's boolean masks). The default `FoldPlan`
-    (`StratifiedGroupKFold`) must **not** be used here: it changes the values. The probe gets the
-    fold's fitted model (`FitContext.model`, `fold`) and returns `(battle, i, p)` for the P2
-    candidates (`~recorded & final`) of the battles of that fold, featurized with the same
-    (stateless) set; recorded P2 rows get 1.0, the other P2 rows 0.0. The gym's out-of-fold
-    AUC on the P1 rows is the original's `detector_auc`;
-  - the same for each cut of `forecast.CUTS`, on the battles truncated to `cut` entries (one
-    gym `evaluate` per cut);
-  - **full model**: `gym.train(task)` → the `TrainedRun` (feature set `ko_v11`,
-    `lgbm_ko_v11`) fitted on all P1 rows, saved with `run.save(target)` like `v3`;
-  - **diagnostics** (optional, like `v3`): `gym.evaluate` with the default `FoldPlan` and the
-    seeds of `--seeds` on the same task, its summary in `info.json`; it does not change the
-    artifact;
-  - `tables.pkl`: the cross-fitted probabilities (full length and per cut), keyed as above;
-  - `info.json`: version, model params, columns, cuts, `train_sha256`, `pokedex_sha256`, the
-    original's diagnostics (`detector_auc`, `detector_pos_rate`, `p2_hidden_per_battle`), the
-    optional gym summary, timestamp.
-  Check bitwise, before anything else, that the tables equal
-  `results/v11_alignment/dump/original/p2_faint.pkl` (train) and a run of the original
-  `fit_detector` on the truncated battles (cuts).
-- `addons/knockouts_v11.py` loads the run with `TrainedRun.load(folder, <ko_v11 set>)` (the set
-  built directly, not through `TRANSITION_SETS`) and the tables, and scores new records with
-  `run.predict_proba(rows)` (batch per record; check bitwise equal to the original's batch
-  scoring of the test battles).
-- `main.py`: `python main.py detector train-v11 --version v1` (parses arguments, calls the
-  function; nothing else).
+- `features/transitions/ko_v11.py`: a `FeatureSet` (name `ko_v11`) over `SwitchExtractor` rows
+  with one `Feature` returning the feature values in the original's column order (every key but
+  `b, i, x, recorded, final, label`), declared in `output_names`; booleans become floats as the
+  original's `astype(float)`. Not registered in `TRANSITION_SETS` (`detector train` / `evaluate`
+  feed domain `Transition`s).
 - `models/ko_v11.py`: `@model("lgbm_ko_v11", requires=("lightgbm",))` →
-  `EstimatorModel(name, LGBMClassifier(**PARAMS))` with the original's `PARAMS` (`SEED = 42`,
-  `N_JOBS = 4`, deterministic, force_row_wise). No `DropEmptyColumns` (it could drop columns).
+  `EstimatorModel(name, LGBMClassifier(**PARAMS))`, the original's `PARAMS` (`SEED = 42`,
+  `N_JOBS = 4`, deterministic, force_row_wise); no `DropEmptyColumns`.
+- `train_v11(settings, version)` writes `settings.results.addon("knockouts_v11", version)`:
+  - task: `LabelledBattles` of P1's rows with `final & x_hp.notna()` (label = recorded faint,
+    id = row, group = battle index), battles in file order, rows in order;
+  - cross-fitted tables: `Gym([lgbm_ko_v11], [ko_v11], plan=FoldPlan(5, (42,),
+    stratified=False), probes={"p2": probe})`; the probe receives each fold's fitted model and
+    returns `(battle, i, p)` for the P2 candidates of the battles of that fold (recorded P2 rows
+    1.0, other P2 rows 0.0). The gym's out-of-fold AUC on P1 rows is the original's
+    `detector_auc`;
+  - the same for each `cut` on the training battles truncated to `cut` entries;
+  - full model: `gym.train(task)` → `TrainedRun` saved with `run.save(target)`;
+  - optional diagnostics like `v3` (`gym.evaluate` with the default plan and `--seeds`): only
+    written to `info.json`;
+  - `tables.pkl` (full length and per cut) and `info.json` (version, params, columns, cuts,
+    `train_sha256`, `pokedex_sha256`, `detector_auc`, `detector_pos_rate`,
+    `p2_hidden_per_battle`, optional gym summary, timestamp).
+- `main.py`: `python main.py detector train-v11 --version v1` (arguments, then the call).
 
 ### Features: one `Feature` per group, on `BattleContext`
 
-- `features/core/v11/mechanics.py`: keep v11's formulas (`stat_value`, `stage_mult`,
-  `damage_fraction`, `best_damage`, `stab_effectiveness`, `effective_speed`, move classes) but
-  **delete** v11's `Pokedex` and `type_chart()`:
-  - `entry(species: PokemonGen2 | None) -> dict | None`: `{"hp", "atk", "def", "spa", "spd",
-    "spe", "types", "bst"}` from `base_*`, `types`, `base_stat_total` (ints, same values);
-  - `effectiveness(move_type, def_types)`: product of `type_chart().multiplier(a, d)` over the
-    defender's types, skipping `notype`, and 1.0 for any pair with a type outside
-    `domain.pokedex.TYPES` (equivalent to the original's `chart.get(pair, 1.0)`, since the chart
-    file only holds known types).
-- `features/core/v11/replay.py`: `Side` unchanged; `Battle.from_context(context)` builds the view
-  from `context.record` (timeline, team, lead, levels, items), `dex` = a mapping-like adapter
-  `name -> entry(context.species(name))` (only `.get(name)` and `name in dex` are used: check
-  with `rg "dex"`), and `p2_faint = dict(context.repair.probabilities(context.record))`.
-  Memoize per context with `context.cached(("v11", "battle"), ...)` and the tracks with
-  `("v11", "tracks")` (values derived only from that battle and its repair).
-- `features/core/v11/transitions.py`: `Battle.transitions(side)` and the row features, moved out
-  of `replay.py` (used by the addon and the application).
-- Group features (each a `Feature[BattleContext]`, `output_names` known after fit for bags,
-  otherwise declared), registered **in this order** (the original matrix order, which the four
-  members read):
+- `features/core/v11/battle.py` (replaces `replay.py`): the per-battle view the group functions
+  read, built from a `BattleContext`: `ObservedTimeline(context.record)`, species
+  `context.species`, levels and items from the record, `p2_faint =
+  dict(context.repair.probabilities(context.record))`. Memoized with `context.cached(("v11",
+  ...), ...)` (derived only from that battle and its repair).
+- The group functions keep their logic; species accesses become `PokemonGen2` attributes
+  (`d["hp"]` → `d.base_hp`, `d["types"]` → `d.types`, `d["bst"]` → `d.base_stat_total`, same
+  ints) and damage / speed / effectiveness calls go to `domain.expected_damage`. Move classes and
+  simulation constants stay in `features/core/v11/`.
+- Group features, registered **in this order** (the original matrix order, read by the four
+  members):
 
   | feature | columns | fitted state (training battles only) |
   |---|---|---|
@@ -236,131 +220,114 @@ become a choice of `detector train` / `evaluate`, which feed domain `Transition`
   | `V11Condition` | `c_` | `TeamModel` |
   | `V11Forecast` | `q_*` (6 columns) | regressors + its own `MoveTable`, `TeamModel`, `SwitchRates` |
 
-  The group functions (`static_features`, `state_features`, …) stay as they are; the features
-  only wrap them. `cut` is **not** an output (no member reads it); the forecast uses it
-  internally.
+  `cut` is not an output (no member reads it); the forecast uses it internally.
 - `V11Forecast` (the original `forecast.py` + `truncated_features`):
-  - `fit(battles)`: `cut = float(len(first record's timeline))`; for each `c` in `CUTS`, the
-    input columns (`inputs(...)`: groups `s_ … c_` without bags / keys, then `cut`) of
-    `battle.at_turn(c)` with helpers fitted on the full battles; the targets from `paths`; the
-    out-of-fold `q_*` of the fitted battles (`KFold(5, shuffle=True, random_state=42)` over
-    their order, indexed by battle id) cached by `(battle_id, fingerprint)`; the six regressors
-    fitted on all truncated rows.
-  - `prepare(battles)`: score in one batch the battles that are neither fitted nor cached
-    (one `predict` per regressor, as the original's test matrix).
-  - `compute(battle)`: the cached out-of-fold row for a fitted battle, else the batch row.
+  - `fit(battles)`: `cut = float(len(first record's timeline))`; for each `c` in `CUTS` the
+    input columns (non-bag groups `s_ … c_` in matrix order, then `cut`) of
+    `battle.at_turn(c)` (replayed with the same repair, so the v11 repair gives that cut's
+    table) with helpers fitted on the full battles; targets from `paths`; out-of-fold `q_*` of
+    the fitted battles (`KFold(5, shuffle=True, random_state=42)` over their order, indexed by
+    battle id) cached by `(battle_id, fingerprint)`; the six regressors on all truncated rows;
+  - `prepare(battles)`: one batch `predict` per regressor for the other battles;
+  - `compute(battle)`: the cached out-of-fold row, else the batch row.
 - `features/v11.py`: `make_set("v11", None, [...the 14 features...])`, `requires=("lightgbm",)`,
-  `@t` still refused.
-- **Delete** `features/core/v11/build.py`, `feature.py`, `faint.py`, v11's `Pokedex` /
-  `type_chart`, the `uses_labels=True` workaround: every v11 feature is label-free
-  (`requires_fit` only where the table says so).
-- Rule: do not pass `--test` (unlabeled battles) to `train` / `evaluate` for v11: label-free
-  features would then learn from the test battles too (repository semantics), and the numbers
-  would move. The documented commands never do.
+  `@t` refused.
+- Delete `features/core/v11/build.py`, `feature.py`, `faint.py`, `replay.py`, `mechanics.py`
+  (moved to the domain), v11's `Pokedex` / `type_chart`, the `uses_labels=True` workaround:
+  every v11 feature is label-free.
+- Never pass `--test` to `train` / `evaluate` with v11 (label-free features would learn from the
+  test battles too).
 
 ### Models
 
-- `models/core/v11_stacking.py`: `StackedLogit` gets the columns at fit time from a selector
-  (e.g. `columns=None, exclude_prefixes=("k_",)` / `prefixes=("bs_", "bh_", "bm_")`, resolved
-  on `X.columns` in their order), so that a pipeline can be built before seeing the table. The
-  spline keys of the base are filtered by the resolved columns, as today. Everything else
-  unchanged.
-- `models/v11.py`: each member is `EstimatorModel(name, Pipeline([...]))` with the same steps and
-  order as today (`stack_full` → `stack0` → `team` → booster; `team_base` → `team(drop_base)` →
-  `spline_lr`), the same parameters, `@model("v11_*")`. Delete `V11Member` and
-  `models/core/v11_member.py` (`make` moves to `models/v11.py` or stays as a helper there).
-- The blend: a `LogitBlend(Model)` (in `models/v11.py` or `models/core/v11_blend.py`):
-  `expit(Σ w_i logit(clip(p_i, 1e-6, 1 - 1e-6)))` with the weights **as given** (no
-  renormalisation: `EnsembleModel` averages probabilities and divides by the weight sum, which
-  changes the last bits). Registered with `@model("v11_blend")`, not `@ensemble`
-  (`build_tuned` rebuilds an ensemble as a probability average).
+- `models/core/v11_stacking.py`: `StackedLogit` resolves its columns at fit time from a selector
+  (all but `k_`, or the `bs_ bh_ bm_` prefixes, in `X.columns` order), so the pipeline can be
+  built before seeing the table; spline keys filtered by the resolved columns, as today.
+- `models/v11.py`: each member is `EstimatorModel(name, Pipeline([...]))` with today's steps,
+  order and parameters (`stack_full` → `stack0` → `team` → booster; `team_base` →
+  `team(drop_base)` → `spline_lr`), `@model("v11_*")`. Delete `V11Member` /
+  `models/core/v11_member.py`.
+- The blend: `LogitBlend(Model)`: `expit(Σ w_i logit(clip(p_i, 1e-6, 1 - 1e-6)))`, weights as
+  given (no renormalisation; `EnsembleModel` averages probabilities and divides by the weight
+  sum). `@model("v11_blend")`, not `@ensemble` (`build_tuned` would turn it into a probability
+  average).
 
 ## Steps
 
-1. **Baseline.** Note the current outputs of the port (already equal to the dumps). Create a
-   scratch harness `results/v11_alignment/verify_v20.py` that, with the new code, writes and
-   compares bitwise against the dumps:
-   - detector: `V11KnockoutRepair.probabilities` of every train (from the table) and test
-     battle vs `p2_faint.pkl` (also the truncated tables against a run of the original
-     `fit_detector` on `parse(train, dex, cut=c)` for each cut);
-   - features: `features.sets.build("v11").fit_transform(train contexts)` vs `X_train[cols]`
-     and `.to_frame(test contexts)` vs `X_test[cols]` (same column order, NaN equal), with the
-     contexts from `Dataset.from_jsonl(..., repair=<v11 repair>)`; check first that the
-     Dataset keeps the 10,000 / 5,000 records in file order with the same content minus the
-     label;
-   - members and blend fitted on the dumped `X_train[cols]` vs the dumped test probabilities;
+1. **Harness.** `results/v11_alignment/verify_v20.py` compares bitwise against the dumps:
+   - detector: `V11KnockoutRepair.probabilities` of every train battle (tables) and test battle
+     vs `p2_faint.pkl`; the cut tables vs the original `fit_detector` on
+     `parse(train, dex, cut=c)`;
+   - folds: `FoldPlan(5, (42,), stratified=False)` with groups = battle index vs the original
+     `KFold` assignment;
+   - domain: `ObservedTimeline` / `SwitchExtractor` vs the original `Side` / `transitions` on all
+     15,000 battles;
+   - features: `build("v11").fit_transform(train contexts)` vs `X_train[cols]`,
+     `.to_frame(test contexts)` vs `X_test[cols]` (contexts from `Dataset.from_jsonl(...,
+     repair=<v11 repair>)`; first check that the Dataset keeps the records in file order with
+     the same content minus the label);
+   - members and blend on the dumped `X_train[cols]` vs the dumped test probabilities;
    - the original's CV protocol (`cv_step3.py port`) vs `dump/cv/original_*.npy`.
-2. **Detector addon + artifact** (`features/core/v11/transitions.py`, `models/ko_v11.py`,
-   `addons/knockouts_v11.py`, `addons/__init__.py`, `detector.train_v11`, `main.py`). Build
-   `python main.py detector train-v11 --version v1`; check the detector stage of the harness
-   (max |diff| 0). Commit `feat(addons): v11 hidden-faint detector as a repair addon`.
-3. **Features on `BattleContext`**: `mechanics.py` on the domain Pokédex / chart,
-   `Battle.from_context`, the 14 group features, `features/v11.py`; delete the monolith. Check
-   the feature stage (0 differing cells on 10,000 × 819 and 5,000 × 819). Commit
-   `refactor(v11): one feature per group on BattleContext, domain Pokédex and repair`.
-4. **Models on `EstimatorModel`** and `LogitBlend`. Check members and blend (max |diff| 0) and
-   the CV protocol stage. Commit `refactor(v11): members as EstimatorModel pipelines, logit blend`.
-5. **End to end** with the repository commands (v11 repair everywhere):
-   `python main.py train --features v11 --models v11_blend --repair v11=results/addons/knockouts_v11/v1 --out results/runs/v11`
-   then `predict` twice (same files); compare the probabilities with
-   `results/v11_alignment/dump/original/blend_v11.npy` (expected max |diff| 0) and count the
-   label differences with `results/v11_ref/sub20_blend_v11.csv` (expected 97, as the original
-   in `.env`).
-6. **Tests and docs.**
-   - Tests on `tests/fixtures/battles.jsonl` only (no `input/`, no `results/`): the addon
-     (table hit, truncated hit, full-model fallback, recorded → 1.0, keys), the v11 features
-     (columns and order, training rows out of fold for the forecast, determinism), the members
-     and the blend (fit / predict / clone / save-load). Build a tiny v11 artifact inside the
-     test (`tmp_path`).
-   - Add the v11 set to the hash-seed contract test (`tests/features/test_feature_contract.py`,
-     one entry, with the tiny artifact) and `knockouts_v11.py` to the files checked in
-     `tests/test_architecture.py` if the test lists addons by name.
-   - `AGENTS.md` and `README.md` were already updated by the user to the target state (v11
-     artifact, `--repair v11=...` commands, rules 4 and 5, protocol note, "In progress:
-     `V20_SUB.md`"). Check that they match what you built (commands, timings, paths), fix any
-     mismatch, and remove the "In progress" note from `AGENTS.md` and the "pending" line from the
-     README's v11 section (the rows come in step 7).
-   - Commit `docs: v11 on the repository's architecture`.
-7. **Evaluation** (the one stopped earlier), now with the v11 repair:
+2. **Domain modules** (`timeline.py`, `expected_damage.py`, `switches.py`, tests); the current
+   port switched to them; harness: domain and features stages at 0. Commit
+   `feat(domain): observed timeline, expected damage estimate, switch descriptions`.
+3. **Folds option** (`FoldPlan(stratified=False)`, test; harness folds stage). Commit
+   `feat(folds): non-stratified group k-fold plan (v11 detector only)`.
+4. **Detector addon + artifact** (`ko_v11` set, `lgbm_ko_v11`, `knockouts_v11.py`,
+   `addons/__init__.py`, `train_v11`, `main.py`); `python main.py detector train-v11 --version
+   v1`; harness detector stage at 0. Commit `feat(addons): v11 hidden-faint detector as a
+   repair addon`. **Stop and show the harness results.**
+5. **Features on `BattleContext`** (the 14 features, `battle.py`, `features/v11.py`, delete the
+   monolith); harness features stage (0 differing cells on 10,000 × 819 and 5,000 × 819). Commit
+   `refactor(v11): one feature per group on BattleContext and the repair`.
+6. **Models** (`EstimatorModel` members, `LogitBlend`); harness members, blend and CV stages at
+   0. Commit `refactor(v11): members as EstimatorModel pipelines, logit blend`.
+7. **End to end**: `train` (with `--repair v11=results/addons/knockouts_v11/v1`) and `predict`
+   twice (same files); probabilities vs `dump/original/blend_v11.npy` (max |diff| 0); label
+   differences vs `results/v11_ref/sub20_blend_v11.csv` (expected 97, as the original in
+   `.env`). Also run `train` + `predict` with `--repair model=results/addons/knockouts/v3` once,
+   to show v11 works with another repair (numbers differ, by design). **Stop and show.**
+8. **Tests and docs.** Tests on `tests/fixtures/` only (tiny v11 artifact built in `tmp_path`):
+   domain modules, folds option, addon (table hit, truncated hit, fallback, recorded → 1.0,
+   keys), v11 features (columns and order, forecast out of fold, works with `none` / `rule`
+   repairs, determinism), members and blend (fit / predict / clone / save-load); the v11 entry
+   of the hash-seed contract test. `AGENTS.md` and `README.md` already describe the target:
+   check them against what you built, fix mismatches, remove the "In progress" note and the
+   README's "pending" line. Commit `docs: v11 on the repository's architecture`.
+9. **Evaluation** (stop before starting it):
    `python main.py evaluate --features v11 --models v11_lr_spline v11_xgb v11_lgbm v11_cat v11_blend logreg hgb lightgbm xgboost catboost --seeds 33 66 133 --reference v11/v11_blend --repair v11=results/addons/knockouts_v11/v1 --out results/evaluations/models_v11`
-   (~1.6 h per seed per pass; several hours). Then the learning curve / plots and the README rows
-   as described in `V11_SUB20.md` step 5 (merged with `results/logs/compare.py`, corrected
-   t-test), commit `docs(readme): …`.
+   (several hours), then the learning curve / plots and the README rows as in `V11_SUB20.md`
+   step 5 (merged with `results/logs/compare.py`, corrected t-test); commit `docs(readme): …`.
 
-## Pitfalls that break bitwise identity (check each one)
+## Pitfalls that break bitwise identity
 
-- **Battle order**: every KFold (detector, truncated detectors, forecast) runs over the battles
-  in file order; `FeatureSet.fit` receives them in `Dataset` order (= file order).
-- **Keys**: training duplicates share the fingerprint but not the id, and get different
-  cross-fitted values; test ids may equal training ids. Always key by `(battle_id, fingerprint)`.
-- **Detector dict**: same keys and order as the original `p2_faint` (all P2 transition rows, not
-  only candidates); the tracks read it by index.
-- **Types**: return Python floats / numpy floats from `compute` (`FeatureSet` rejects a
-  non-`Real` such as `numpy.bool_`); `float(x)` is value-preserving.
+- **Battle order**: every KFold (detector, cut detectors, forecast) runs over the battles in file
+  order; `FeatureSet.fit` receives them in `Dataset` order (= file order).
+- **Keys**: always `(battle_id, fingerprint)`; duplicates share the fingerprint, not the id.
+- **Detector dict**: same keys and order as the original `p2_faint` (all P2 rows, not only
+  candidates).
+- **Species**: `PokemonGen2` base stats are ints, as v11's dicts; `None` for a species without
+  stats (`Missing`), never `without_stats` (NaN stats would change the branches).
+- **Types**: `compute` returns floats (`FeatureSet` rejects a non-`Real` such as `numpy.bool_`).
 - **Column order**: the 14 features in the table order; inside a group, the dict order of the
   group function; bag columns in `Vocab`'s sorted order.
-- **Forecast inputs**: the original's `inputs(X_train.columns)` = non-bag groups in matrix order,
-  then `cut`; the truncated rows are computed with helpers fitted on the **full** training
-  battles and the detector of **that cut**.
-- **`cut`**: `float(len(first training record's timeline))`, the same for every battle.
-- **Index of the model table**: `FeatureSet` returns a `RangeIndex` (unique), so `StackedLogit` /
-  `TeamEffect` use `StratifiedKFold`, as the original (unique battle ids). Keep it unique.
-- **LightGBM batch vs row**: score new battles in batches (`prepare`); check bitwise that
-  per-battle detector scoring in the addon equals the original's batch scoring.
-- **Threads**: `N_JOBS = 4` everywhere, as today. No `fork` after LightGBM / XGBoost / CatBoost
-  (rule 6).
-- **Evaluation protocol** (decision 2, accepted): with the addon the detector is fitted once
-  on the training file, as the repository's `v3`; do not try to reproduce the per-fold refit
-  of the current port in `evaluate`. `train` / `predict` and the original's protocol must
-  match the dumps exactly. State the difference in `AGENTS.md` and the README.
+- **Forecast**: inputs = non-bag groups in matrix order, then `cut`; truncated rows with helpers
+  fitted on the full battles and the detector of that cut; `cut` from the first training record.
+- **Model table index**: unique (`RangeIndex`), so `StackedLogit` / `TeamEffect` use
+  `StratifiedKFold`, as the original.
+- **LightGBM**: batch scoring (`prepare`, one batch per record in the addon), checked bitwise.
+- **Threads**: `N_JOBS = 4`; no `fork` after LightGBM / XGBoost / CatBoost (rule 6).
+- **Strict typing in the domain** must not change a computation (no int → float conversions,
+  same operation order).
 
 ## Report
 
-- File map: what moved where, what was deleted, what was added (per layer).
-- For each stage of the harness: rows × columns compared and max |diff| (expected 0).
-- The end-to-end probabilities vs the dump, the label differences vs `sub20_blend_v11.csv`.
-- The metrics of step 7 (repository protocol, detector fitted once: expected close to, not
-  equal to, the numbers below) next to the step-3 numbers of the original's protocol:
+- File map per layer: moved, deleted, added.
+- For each harness stage: rows × columns compared and max |diff| (expected 0).
+- End-to-end probabilities vs the dump; label differences vs `sub20_blend_v11.csv`; the run with
+  the `v3` repair (metrics are not expected equal).
+- The metrics of step 9 (repository protocol, detector fitted once: close to, not equal to, the
+  numbers below) next to the original's protocol in this `.env`:
 
   | pipeline | accuracy | log loss | ROC AUC | Brier |
   |---|---|---|---|---|
@@ -370,6 +337,5 @@ become a choice of `detector train` / `evaluate`, which feed domain `Transition`
   | cat_v11 | 0.72043 | 0.54174 | 0.79819 | 0.18325 |
   | blend_v11 | 0.72027 (nested 0.7204) | 0.54096 | 0.79830 | 0.18305 |
 
-- Anything that could not be expressed with the repository's constructs without changing values,
-  and how it was handled.
-- End with `git log --oneline -8` and `git status`.
+- Anything that could not be expressed with the repository's constructs without changing values.
+- End with `git log --oneline -10` and `git status`.

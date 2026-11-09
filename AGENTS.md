@@ -45,16 +45,19 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
 ```
 
 - `domain/` imports only the standard library and numpy: records, Pokédex, type chart, damage,
-  replay (`BattleReplay`, `BattleContext`), transitions. It defines `TimelineRepair` but never
-  imports an implementation.
+  replay (`BattleReplay`, `BattleContext`), transitions, observed timeline (`timeline.py`),
+  expected-damage estimate (`expected_damage.py`), switch descriptions (`switches.py`). It
+  defines `TimelineRepair` but never imports an implementation. The domain is agnostic: no
+  model, feature set or version appears in it (modules are named by concept); new needs are
+  met by new generic modules, not by changing the logic of existing ones.
 - `addons/`: the knockout repairs (`none`, `rule`, `model=<artifact>`, `v11=<artifact>`);
   never import the application or the CLI. An artifact is built by `detector.py`
   (`detector train`, `detector train-v11`) under `results/addons/<kind>/<version>/`.
 - `features/`: one file per feature set (`features/<set>.py`, registered with `@feature_set`
   and imported by `features/sets.py`), feature families in `features/core/`, the detector's
   sets in `features/transitions/`. v11: one `Feature` per group in `features/core/v11/`,
-  computed from `BattleContext` (record, the repository's Pokédex, the v11 repair's
-  probabilities). Never import `models`, `addons` or the application.
+  computed from `BattleContext` (record, the repository's Pokédex, the repair's
+  probabilities); they work with any repair. Never import `models`, `addons` or the application.
 - `models/`: one file per model (`@model` / `@ensemble` in `registry.py`), shared pieces in
   `models/core/`; a model sees a `DataFrame` and labels only (no `domain`, no `features`).
 - `interfaces.py` (`Feature`, `Model`, …), `feature_set.py` (`FeatureSet`), `registry.py`.
@@ -98,23 +101,32 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
    test battles are only predicted. The Pokédex comes only from records in the
    competition format, never from external data.
 2. Duplicated battles (same fingerprint) stay in the same fold; every split is
-   checked for leakage.
+   checked for leakage. Declared exception, for fidelity to the original: the cross-fitted
+   tables of the v11 detector artifact use the original's folds over battles (groups = battle
+   index, `FoldPlan(stratified=False)`, the only user of that option); v11's own inner
+   cross-validations (`StackedLogit`, `TeamEffect`, forecast) are not grouped either, as in the
+   original.
 3. Label-aware features give out-of-fold values on their training rows
    (grouped inner folds) or NaN (`inner_oof = False`). Never in-sample values.
 4. The knockout repair is applied to every battle before any feature. Addons
    (repairs) never see `player_won`. A run records its repair and predicts only
-   with the same one. v11 runs use the v11 repair (`--repair v11=<artifact>`). Like `v3`, a
-   detector artifact is fitted once on the training file, not inside each fold of `evaluate`
-   (accepted: it never reads `player_won`).
+   with the same one. One repair at a time; repairs are independent of the models, so any
+   feature set can run with any repair. The faithful v11 uses the v11 repair
+   (`--repair v11=<artifact>`); v11 with `v3` is a variant, compared with the corrected
+   t-test. Like `v3`, a detector artifact (and the Pokédex) is fitted once on the training
+   file, not inside each fold of `evaluate` (accepted: it never reads `player_won`).
 5. Do not change formulas, hyper-parameters, seeds, thresholds, column names or
    column order of existing feature sets or models unless the user explicitly asks.
    v11 (`features/core/v11/`, `addons/knockouts_v11.py`, `models/ko_v11.py`,
    `models/core/v11_*.py`, `models/v11.py`) keeps the logic of the original's `blend_v11`
    exactly (formulas, constants, operation and iteration order, seeds, hyper-parameters, blend
    weights): do not "fix" it. Its implementation uses the repository's constructs (domain
-   Pokédex and type chart unchanged, detector as a repair addon, one `Feature` per group,
-   `EstimatorModel` members), and its outputs must stay bitwise identical to
+   Pokédex, type chart and the generic timeline / expected-damage / switch modules, detector
+   as a repair addon built with the gym, one `Feature` per group, `EstimatorModel` members),
+   and with the v11 repair its outputs must stay bitwise identical to
    `results/v11_alignment/dump/` for `train` / `predict` and the original's protocol.
+   `FoldPlan(stratified=False)` is used only by the v11 detector: never in `evaluate`, `tune`,
+   `select` or the CLI.
 6. No `fork` (multiprocessing, `--jobs`) after LightGBM / XGBoost / CatBoost
    have been used in the parent process: the workers hang at 0% CPU.
 7. Every comparison of models or feature sets uses the corrected repeated

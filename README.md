@@ -110,7 +110,8 @@ together), `compact` … `compact_v5` (successive selections, each with an `_ori
 main.py            command line (parses arguments, calls usecases.py)
 usecases.py        one function per command
 gym.py folds.py    cross-validation, fold plans, leakage checks
-domain/            records, Pokédex, type chart, damage, replay, transitions (stdlib + numpy)
+domain/            records, Pokédex, type chart, damage, replay, transitions, observed timeline,
+                   expected-damage estimate, switch descriptions (stdlib + numpy)
 addons/            knockout repairs: none, rule, trained detector artifact, v11's detector
 features/          one file per feature set; families in features/core/, v11 in features/core/v11/
 models/            one file per model; shared pieces in models/core/
@@ -224,9 +225,13 @@ The 30 domain columns match the 50 raw ones with the default detector (`hgb_ko`,
 
 (pending: v11 is being rebuilt on the repository's architecture, see `V20_SUB.md`)
 
-Protocol note: v11's detector is a repair addon fitted once on the training file, like `v3`, so
-in these cross-validations it is not refitted inside each fold; it never reads the outcome. With
-the original's own protocol (features built once on all training battles, 5 folds × 3 repeats,
+Protocol notes. v11's detector is a repair addon fitted once on the training file, like `v3`, so
+in these cross-validations it is not refitted inside each fold; it never reads the outcome. For
+fidelity to the original, its cross-fitted values use the original's folds over battles (not
+grouped by duplicates: 15 of the 17 duplicate groups are split) and v11's inner
+cross-validations are not grouped either. The repair is independent of the model: the reference
+rows use `--repair v11=…`; v11 can also run with `v3` (a variant). With the original's own
+protocol (features built once on all training battles, 5 folds × 3 repeats,
 seeds 42–44) v11 gives the original's numbers exactly in this environment:
 
 | pipeline | accuracy | log loss | ROC AUC | Brier |
