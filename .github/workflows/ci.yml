@@ -18,7 +18,7 @@ jobs:
         # pyproject.toml points pyright at the virtual environment .env
         run: |
           python -m venv .env
-          .env/bin/pip install -r requirements.txt ruff==0.17.3 pyright==1.1.414 pytest==9.2.0
+          .env/bin/pip install -r requirements.txt
       - name: Ruff
         run: |
           .env/bin/ruff check .
