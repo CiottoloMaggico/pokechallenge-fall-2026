@@ -35,7 +35,8 @@ must equal the one of the original (`python -m src.cli submit --blend blend_v11`
 
 **Not the target:** `submission_blend_v11.csv` (root, and its copy in `tmp/`) is the
 afternoon blend `0.55·logit(ensemble_from_lr on compact_v5) + 0.45·logit(v11)` (see
-`SUBMISSIONS.md`); its labels differ from v11 alone on 328 of 4,993 test battles, so a port
+`SUBMISSIONS.md`); its labels differ from v11 alone on 339 of the 5,000 test battles (328 of
+the 4,993 non-NaN rows of the recovered `results/submissions/v11_test_proba.csv`), so a port
 of `blend_v11` cannot reproduce it.
 
 ## Rules of the port (on top of `CLAUDE.md`)
@@ -144,7 +145,7 @@ and `cli.predict_test` step by step, saving:
 | file | content |
 |---|---|
 | `p2_faint_train.pkl`, `p2_faint_test.pkl` | `{battle_id: {row: p}}` after `fit_detector(train, test)` |
-| `features.pkl` | `X_train`, `X_test` (all columns, `cut` and `q_*` included), `y`, `info` |
+| `features.pkl` | `X_train`, `X_test` (all columns, `cut` and `q_*` included), `y`, `groups`, `info` |
 | `members_test.csv` | battle_id + test probability of each of the four members |
 | `blend_test_proba.csv` | battle_id, `p_player_won` of `blend_v11` |
 | `submission_blend_v11.csv` | battle_id, `player_won` (`p > 0.5`), test file order |
@@ -152,7 +153,7 @@ and `cli.predict_test` step by step, saving:
 
 ---
 
-## Step 0 – Reference from the original (model: small; ~40 min per run)
+## Step 0 – Reference from the original (model: small; ~18 min per run)
 
 **Do**
 - Copy `tmp/FDS-Pokemon-Battle-Prediction-main/{src,configs}` to `results/v11_reference/repo/`;
@@ -270,7 +271,7 @@ has its own detector inside the feature; `uses_labels` declared without reading 
 |---|---|
 | 0 | done (3c17ecd): the two `.env` runs are identical (every file; `features.pkl` differs only in `info["seconds"]`), ~18 min per run, detector AUC 0.98307; `orig` venv vs reference: 50 / 5,000 label flips, max prob. diff 0.0439 (same `p2_faint`, features differ only in `t_hd_slope10` and the `q_*_h10` forecasts; members up to 0.10); old `results/submissions/v11_test_proba.csv` (4,993 non-NaN rows): 107 flips, max diff 0.0977 |
 | 1 | done (b6cbee1): port and original give identical `Battle`s (sides, spikes, `transitions` of p1 and p2, NaN equal) on 15,000 battles (10,000 train + 5,000 test), 306,475 transitions, Pokédex of 239 species; 11 tests |
-| 2 | done (this commit): `p2_faint` equals the reference exactly: train 10,000 battles / 101,294 entries (cross-fitted), test 5,000 battles / 50,798 entries, max diff 0; detector AUC 0.98307, ~20 s |
+| 2 | done (2176d68): `p2_faint` equals the reference exactly: train 10,000 battles / 101,294 entries (cross-fitted), test 5,000 battles / 50,798 entries, max diff 0; detector AUC 0.98307, ~20 s |
 | 3a | todo |
 | 3b | todo |
 | 4 | todo |
