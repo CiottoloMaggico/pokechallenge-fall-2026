@@ -9,7 +9,7 @@ dev = ["ruff", "pyright", "pytest"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-# tools/golden.py may change only in _export (CLAUDE.md), so it is not reformatted or retyped;
+# tools/golden.py may change only in _export (AGENTS.md), so it is not reformatted or retyped;
 # the sketches of the markdown guides are not Python files to format.
 extend-exclude = [".env", "results", "runs", "input", "tools/golden.py", "*.md"]
 

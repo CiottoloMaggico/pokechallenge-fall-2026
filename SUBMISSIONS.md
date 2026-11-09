@@ -1,7 +1,7 @@
 # Submissions of 2026-11-05
 
 Both files were produced with the Pokédex built from train only (step 2,
-commit `ad7e4c4`). They live in `results/submissions/` (git-ignored); the
+commit `b6df4a1`). They live in `results/submissions/` (git-ignored); the
 hashes below identify them. The afternoon evidence in `runs/` and
 `submission_*.csv` in the root was not modified.
 
@@ -13,7 +13,7 @@ Run times come from jobs running at the same time, so they are upper bounds.
 
 The recipes check out older commits: `tools/blend_from_saved.py`, the v11 bridge
 (`features/v11_bridge.py`, `compact_v5_v11`, `blend_v11`) and `tools/v11_*` were deleted
-from `main` in step 8 and live at the tag `submission-final` (and at `ad7e4c4`).
+from `main` in step 8 and live at the tag `submission-final` (and at `b6df4a1`).
 
 ## `submission_ensemble_step2.csv` (`ee42414df7342f10`)
 
@@ -22,7 +22,7 @@ parameters were checked equal to `runs/compact_v5__ensemble_from_lr-tuned/model.
 `run.json` does not record whether the 13:18 run used `--test`; this one does not.
 
 ```sh
-git checkout ad7e4c4
+git checkout b6df4a1
 export PYTHONHASHSEED=0
 python -m domain build-pokedex input/train.jsonl --out results/cache/species.json
 python main.py train --features compact_v5 --models ensemble_from_lr \
@@ -53,7 +53,7 @@ weight selected for that base. Its seeds in that file are 33 66 99.
 export PYTHONHASHSEED=0
 
 # 1. new base, on the step 2 commit
-git checkout ad7e4c4
+git checkout b6df4a1
 python main.py train --features compact_v5 --models ensemble_from_lr \
     --out runs/step2__ensemble_from_lr
 python main.py predict --run runs/step2__ensemble_from_lr/compact_v5__ensemble_from_lr \
@@ -62,7 +62,7 @@ python main.py predict --run runs/step2__ensemble_from_lr/compact_v5__ensemble_f
 git checkout submission-final
 
 # 2. old base: the model saved inside the blend, with the features before step 2
-git worktree add <scratch>/old_code 5bd0bf0
+git worktree add <scratch>/old_code bae92ff
 ln -s "$PWD/input" <scratch>/old_code/input
 (cd <scratch>/old_code && python "$OLDPWD/tools/blend_from_saved.py" old-base \
     --blend-run "$OLDPWD/runs/compact_v5_v11__blend_v11-tuned" \
@@ -95,7 +95,7 @@ would overwrite `runs/compact_v5_v11__blend_v11-tuned`, the evidence of the afte
 The v11 repository is not under git, so its version cannot be recorded here.
 
 ```sh
-git checkout ad7e4c4
+git checkout b6df4a1
 export PYTHONHASHSEED=0 V11_REPO=../FDS-Pokemon-Battle-Prediction-main FDS_N_JOBS=16
 python main.py train --features compact_v5_v11 --models blend_v11 \
     --params runs/tuning/compact_v5_v11__blend_v11.json --out runs/step2_scratch
