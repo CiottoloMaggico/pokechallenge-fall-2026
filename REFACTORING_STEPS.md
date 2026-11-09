@@ -1,239 +1,278 @@
-# Refactoring – one prompt per step
+# Port of v11 (`blend_v11`) – one prompt per step
+
+The refactoring steps 0-9 that this file held until commit `f681c2d` are finished; read them
+with `git show f681c2d:REFACTORING_STEPS.md`. This file now drives the native port of the v11
+model of the FDS repository (`tmp/FDS-Pokemon-Battle-Prediction-main/`, "the original").
 
 Give the agent one step at a time, in a new session, with this preamble:
 
-> Read `CLAUDE.md`, `REFACTORING.md` and this step of `REFACTORING_STEPS.md`.
-> Do only this step. Before finishing run the checks listed under
-> "Acceptance" and paste their output. If a golden check fails, stop and report.
-> If they pass, commit as `CLAUDE.md` says (explicit paths, no push) and end the
-> report with `git log --oneline -3` and `git status`.
+    Read `CLAUDE.md`, `REFACTORING.md` §1 and §10, and this whole file. Find the first step
+    whose status (table at the end) is not `done` and do only that step. Before finishing run
+    the checks under "Acceptance" and paste their output. If a check fails, try to fix the new
+    code (never the original, the reference, existing tests or golden files); if it still
+    fails, set the status to `blocked: <reason>` and stop. If the checks pass, set the status
+    to `done (<commit>)` with the numbers asked, commit as `CLAUDE.md` says (explicit paths,
+    no push, message `feat(v11 step N): <what>`) and end with `git log --oneline -3` and
+    `git status`.
 
-"Model" says where a smaller model is enough (mechanical work with a tight
-check) and where a stronger one is safer (design decisions across many files).
+## What is ported
+
+`blend_v11` = the logit average, with the fixed weights of `configs/blends.json`, of four
+pipelines of `configs/pipelines.json`: `lr_spline_v11`, `xgb_v11`, `lgbm_v11`, `cat_v11`.
+Their features come from `src/features/build.py` (`build`), which includes v11's own
+**hidden-faint detector** (`src/faint.py`, LightGBM on P1 transitions, cross-fitted on the
+training battles). Nothing of `compact_v5` is involved: "blend" means only this blend.
+
+The goal is an exact copy: the submission written by
+
+    python main.py train --features v11 --models v11_blend --out results/runs/v11
+    python main.py predict --run results/runs/v11/v11__v11_blend --test input/test.jsonl \
+        --out results/submissions/submission_v11_blend.csv \
+        --proba results/submissions/submission_v11_blend_proba.csv
+
+must equal the one of the original (`python -m src.cli submit --blend blend_v11`) trained on
+`input/train.jsonl`, generated in step 0 (`results/v11_reference/`).
+
+**Not the target:** `submission_blend_v11.csv` (root, and its copy in `tmp/`) is the
+afternoon blend `0.55·logit(ensemble_from_lr on compact_v5) + 0.45·logit(v11)` (see
+`SUBMISSIONS.md`); its labels differ from v11 alone on 328 of 4,993 test battles, so a port
+of `blend_v11` cannot reproduce it.
+
+## Rules of the port (on top of `CLAUDE.md`)
+
+1. **Existing files are not modified**, with exactly two exceptions: one import line in
+   `features/sets.py` (step 3b) and one in `models/__init__.py` (step 4). Everything else is a
+   new file. `REFACTORING_STEPS.md` (this file) is updated with the status of each step.
+   Never edit `tmp/`, existing tests, `tools/golden.py`, `results/golden/`.
+2. **Behaviour first**: copy the original's code and formulas byte for byte (same constants,
+   same operation order, same iteration order, same seeds, `SEED = 42`). Only rename to the
+   repository's style, add type hints and docstrings, split modules over ~400 lines.
+   Do not "fix" anything of the original, even if it looks wrong (note it in the status).
+3. **Drop only what `blend_v11` never runs**: `usage_bags` (`bt_`, `bc_`), `hidden_features`
+   (`bf_`, `bg_`, `u_`), the `cut` column as an output, `Monotone`, `SeedBag`, `et`, `rf`,
+   `lr`, the training-set augmentation, `TeamEffect(joint=…, split=…)`, `cv.py`, `tune.py`,
+   `ensemble.fit_weights` / `nested_accuracy`, the CLI. Keep everything that reaches the
+   submission. `TeamModel` stays (used by `condition` and `simulation`).
+4. **Thread count**: the original reads `FDS_N_JOBS` (default 4). The port uses the constant
+   `N_JOBS = 4` in the detector, the forecast and the tree models; the reference is generated
+   without `FDS_N_JOBS`, so with 4 threads.
+5. **Layers** (`tests/test_architecture.py`): the features never import `models`, the models
+   never import `domain` / `features`. The features may import `domain.records.fingerprint`,
+   `lightgbm`, `sklearn`, `pandas`.
+6. Data: the original reads `type_chart_gen2.csv` from its data folder; the port reads
+   `assets/type_chart_gen2.csv` (`features.common.TYPE_CHART_PATH`) with the original's own
+   semantics (product over the defender's types, `notype` skipped, missing pair = 1.0). Do not
+   use `domain.typechart.TypeChart` (it rejects unknown types) nor `domain.damage` (other
+   formulas) nor `domain.pokedex` (other conflict rules): v11 has its own Pokédex (first record
+   wins, `for_battle` adds the battle's own species), fitted on the training battles only.
+7. Checks against the original run in scratch scripts under `results/v11_reference/checks/`
+   (git-ignored, not committed). Committed tests read only `tests/fixtures/` (CLAUDE.md).
+8. Quality gates: `tmp/` is untracked and not ours, so run
+   `ruff check . --extend-exclude tmp && ruff format --check . --extend-exclude tmp` and
+   `pyright addons domain features models tests tuning tools *.py` (pyright's `include = ["."]`
+   would scan `tmp/`). New modules must be clean; `pytest -q` must pass.
+
+## Design
+
+```
+features/core/v11/            # the original's src/ (features side), one module per file
+  mechanics.py   chart, effectiveness, Pokedex, stat / damage formulas, move classes
+  replay.py      Side, Battle (timeline parsing, events, Spikes, transitions), parse
+  faint.py       the hidden-faint detector (fit_detector)
+  static.py state.py active.py events.py matchup.py sleep.py bags.py team.py
+  team_model.py simulation.py switching.py condition.py forecast.py
+  build.py       battle_features, the training / new-battle matrices
+  feature.py     V11Features (the Feature of the set)
+features/v11.py               # @feature_set("v11", requires=("lightgbm",))
+models/core/v11_stacking.py   # spline_lr, PrefixScale, StackedLogit
+models/core/v11_team.py       # TeamEffect (link, pair, soft, raw)
+models/core/v11_member.py     # V11Member (one pipeline) and V11Blend (fixed logit weights)
+models/v11.py                 # @model v11_lr_spline, v11_xgb, v11_lgbm, v11_cat, v11_blend
+```
+
+**`V11Features`** (one `Feature[BattleContext]`, `requires_fit = True`, `uses_labels = True`,
+`inner_oof = False`). It never reads the labels: `uses_labels` only keeps
+`FeatureSet.fit` from passing it unlabeled (test) battles, because v11 fits on the training
+battles alone; `inner_oof = False` because its training rows are already cross-fitted by v11
+itself. It reads `context.record` (the raw record without `player_won`), so the repository's
+knockout repair (`--repair`) does not change its values: v11 uses its own detector (REFACTORING
+rule 4 does not apply to it; the old bridge did the same).
+
+- `fit(battles, labels)`: from `[c.record for c in battles]` (in this order) run exactly the
+  original `build()` with these records as train and no test: Pokédex, `parse`, `fit_detector`
+  (cross-fitted P2 probabilities), `Vocab`, `TeamModel`, `MoveTable`, `SwitchRates`, the
+  training matrix, `truncated_features` at `forecast.CUTS`, the forecast (out of fold on the
+  training rows). Keep: the training rows (the output columns only) keyed by
+  `(battle_id, fingerprint(record))`, the Pokédex, the full detector model (fitted on all P1
+  rows, as `fit_detector(train, test)` does for test), the helpers, the 6 forecast regressors
+  fitted on all truncated rows, `cut` (= length of the first training timeline), the columns.
+- `prepare(battles)`: for the battles whose key is not a training key and not cached, compute
+  their rows in one batch exactly as the original treats `test` (detector: full model on P2
+  candidates, recorded faints = 1; features; forecast with the full regressors; columns
+  reindexed to the training columns).
+- `compute(battle)`: the training row for a training key, else the cached row (calling
+  `prepare([battle])` if missing). Why the key: a training battle must get its cross-fitted
+  values, a new one the full-model values; train duplicates have distinct ids, and on the
+  competition files no test battle shares `(battle_id, fingerprint)` with a training one.
+- `output_names`: the columns after `fit` (None before). Order: the original matrix order
+  (the order of `battle_features`, then `q_*`) restricted to the groups of the four pipelines:
+  `static state traj active events matchup wincon sleep bag_species bag_hp bag_moves sim
+  behaviour sim2 context forecast` plus `team` (`k_*`). Column order matters (tree models
+  sample columns by position).
+- The state (`get_state`) holds the training rows: `predict` of a saved run needs no
+  training battle.
+
+**Models.** `V11Member(kind, params)` builds at fit time, from the columns it receives, the
+original `pipelines.estimator(spec, cols)`: `stack_full` (`StackedLogit` on the non-`k_`
+columns, `C = 0.003`, `keep=True`) and the bag stack (`bs_ bh_ bm_` columns, `C = 0.01`) for
+the tree members; `team_base` (spline `StackedLogit`, `base_C`, `base_spline`) for
+`lr_spline`; then `TeamEffect(a=1.0, p2=True, link=True, pair=True, soft=True, raw=True)`;
+then the estimator of `models.make`. Each step is added only when its columns exist (bag
+stack: bag columns; team steps: `k_p1team`; spline keys: the present ones), so the model
+contract test, which fits every registered model on four random columns, also passes; on the
+`v11` table this is exactly the original. `V11Blend` fits the four members and returns
+`expit(Σ w_i · logit(clip(p_i, 1e-6, 1 - 1e-6)))` with `np.tensordot`, the weights of
+`blends.json` `blend_v11` as constants in `models/v11.py`. The parameters of the four
+pipelines are constants copied from `configs/pipelines.json` (no file read at run time).
+
+## Reference (`results/v11_reference/`, git-ignored)
+
+Written in step 0 by `results/v11_reference/make_reference.py`, which imports the original
+(`results/v11_reference/repo/`, a copy of `tmp/.../src` and `configs`) and repeats `build()`
+and `cli.predict_test` step by step, saving:
+
+| file | content |
+|---|---|
+| `p2_faint_train.pkl`, `p2_faint_test.pkl` | `{battle_id: {row: p}}` after `fit_detector(train, test)` |
+| `features.pkl` | `X_train`, `X_test` (all columns, `cut` and `q_*` included), `y`, `info` |
+| `members_test.csv` | battle_id + test probability of each of the four members |
+| `blend_test_proba.csv` | battle_id, `p_player_won` of `blend_v11` |
+| `submission_blend_v11.csv` | battle_id, `player_won` (`p > 0.5`), test file order |
+| `run_<env>_<k>/` | the same files of each run (env = `ours` / `orig` venv) |
 
 ---
 
-## Step 0 – Tooling and reference (model: small)
-
-**Goal** – Prepare the safety net before touching code.
+## Step 0 – Reference from the original (model: small; ~40 min per run)
 
 **Do**
-- `pyproject.toml`: ruff (pep8, isort, pyupgrade, bugbear; line length 100),
-  pyright (basic for now), pytest; no change to runtime dependencies.
-- `tests/fixtures/battles.jsonl`: 200 battles of `input/train.jsonl` chosen to
-  cover a P1 faint, a double KO, a voluntary switch, Roar / Whirlwind,
-  Explosion, Spikes, a duplicated battle, a species without stats; a script
-  `tests/fixtures/make_fixtures.py` that rebuilds the file from train.
-- `python tools/golden.py export --out results/golden/reference` on the
-  untouched code; `results/` git-ignored.
+- Copy `tmp/FDS-Pokemon-Battle-Prediction-main/{src,configs}` to `results/v11_reference/repo/`;
+  data folder `results/v11_reference/data/` with links to `input/train.jsonl`,
+  `input/test.jsonl`, `assets/type_chart_gen2.csv`.
+- `make_reference.py <out dir>` (env `FDS_DATA_DIR=results/v11_reference/data`, no
+  `FDS_N_JOBS`): the steps of `build()` (keeping the battles to dump `p2_faint`) and of
+  `predict_test(members)` + `ensemble.blend` for `blend_v11`.
+- Run it twice with this repository's venv (`.env`) and once with the original's venv
+  (`tmp/.../.env`: numpy 2.4.6, scipy 1.17.1, xgboost 3.2.0 instead of 2.5.4 / 1.18.1 / 3.4.1).
+  The two `.env` runs must be identical; copy one of them to the top of
+  `results/v11_reference/` (the reference). Report the differences of the `orig` run (they
+  only show what the library versions change; the port is compared with `.env`).
 
-**Do not** – change any `.py` outside `tests/` and `tools/golden.py`.
+**Acceptance** – the two `.env` runs identical (all files); report the label flips and max
+probability difference of the `orig` run and of the old `results/submissions/v11_test_proba.csv`
+(v11 recovered from the afternoon blend) against the reference. Nothing to commit except this
+file's status.
 
-**Acceptance** – `results/golden/reference/metrics.json` exists; `ruff check`
-runs (errors are fine at this point, list their count); `pytest` collects 0+
-tests without import errors.
+## Step 1 – Mechanics and replay (model: small)
 
----
+**Do** – `features/core/v11/mechanics.py` (`data.py`'s `type_chart` / `effectiveness` /
+`ALL_TYPES` / `STATS` / `Pokedex` + `mechanics.py`) and `replay.py`. Tests in
+`tests/features/test_v11_replay.py` on the fixtures: hand-checked `stat_value`,
+`damage_fraction` (STAB, immunity, Seismic Toss, Explosion, burn, Thick Club), events of a
+repeated move, Spikes laid and spun, a P1 faint skipping the `fnt` row in `transitions`.
 
-## Step 1 – Domain values: records, errors, type chart, moves, damage (model: strong)
+**Acceptance** – scratch check: for every train and test battle, `Battle` of the port and of
+the original (same Pokédex built from train) give identical `sides` (names, hp, status,
+effects, boosts, moves, events, revealed, first / last index), `spikes` and
+`transitions("p1")`, `transitions("p2")` (same keys, same values, NaN equal). pytest, ruff,
+pyright on the new files.
 
-**Goal** – `domain/records.py`, `domain/errors.py`, `fingerprint()`,
-`TypeChart`, `Move`, `Field`, `Combatant`, `DamageCalculator` as in
-REFACTORING.md §3.1, §3.2, §3.4, wrapping the current formulas.
+## Step 2 – Hidden-faint detector (model: small)
 
-**Do**
-- Move code, keep formulas byte-for-byte; old call sites call the new objects.
-- One `fingerprint()` used by duplicate groups (today in `data.py`).
-- Tests: damage table of hand-checked cases (STAB, immunity, crit, Reflect,
-  Light Screen, sand, burn, paralysis Speed), record validation errors.
+**Do** – `features/core/v11/faint.py`: `fit_detector(train, test)` as the original
+(`N_JOBS = 4`). Test on the fixtures: a recorded faint gets 1, candidates get a probability in
+[0, 1], the same call twice gives the same values.
 
-**Do not** – touch the Pokédex, the replay, the detector.
+**Acceptance** – scratch check: with the battles of step 1, `p2_faint` of every train battle
+(cross-fitted) and test battle equals `p2_faint_train.pkl` / `p2_faint_test.pkl` exactly
+(report the number of entries compared and the max difference, which must be 0).
 
-**Acceptance** – golden check passes; new tests pass; `pyright` strict passes
-on the new modules.
+## Step 3a – Feature groups (model: strong)
 
----
+**Do** – `static`, `state` (`p1_track`, `p2_track`), `active`, `events`, `matchup`
+(+ `wincon`), `sleep` (only `sleep_features`), `bags` (`Vocab`, `bag_features`), `team`
+(`team_id`, `team_keys`), `team_model` (`TeamModel`), `simulation`, `switching`, `condition`,
+and `build.battle_features` without `usage_bags` / `hidden_features`. Tests on the fixtures:
+every group returns the same keys for every battle, `team_id` is stable, `TeamModel`
+probabilities sum to the hidden slots.
 
-## Step 2 – Pokédex from train only (model: strong) — planned result change
+**Acceptance** – scratch check: with the detector of step 2 and the helpers fitted on train,
+`battle_features` of every train and test battle equals the reference `X_train` / `X_test` on
+every column it produces (bitwise, NaN equal; `cut` and `q_*` excluded).
 
-**Before (separate session, ~30 min, no code change)** – on the step 1 commit
-run the full regression (3 seeds) and write the numbers and the run folder in
-`CLAUDE.md` as "Baseline of step 1"; commit only `CLAUDE.md`
-(`docs: regression baseline of step 1`). This keeps the logreg seed fix out of
-the Pokédex comparison.
+## Step 3b – Forecast, `V11Features`, feature set `v11` (model: strong)
 
-**Goal** – REFACTORING.md §3.3: `PokedexBuilder` from competition-format
-records only, `for_battle(record)`, policies `Strict` and `Missing`; remove the
-manual species file and the random replacement; `python -m domain build-pokedex`.
-
-**Do**
-- Count and report the species that lose their stats (they were only in the
-  manual file) and the battles that contain them.
-- Features that need stats of a missing species return NaN; the damage
-  calculator returns `None` for them.
+**Do** – `forecast.py` (`CUTS`, `TARGETS`, `inputs`, `paths`, `forecast_features`, split into
+"fit" and "predict" so that `prepare` can reuse the fitted regressors with identical values),
+`build.py` (training and new-battle matrices, `truncated_features`), `feature.py`
+(`V11Features`, see Design), `features/v11.py` (`@feature_set("v11", requires=("lightgbm",))`,
+refuses a turn like `hp30`), and the import line in `features/sets.py`. Tests: the feature
+contract test now covers `v11` automatically (keep it passing, it fits v11 on the 200
+fixtures); a test that a saved state predicts a new battle like the fitted feature.
 
 **Acceptance**
-- Golden check: report the differences (expected in `species.csv` and in the
-  rows of battles with those species); everything else must match.
-- Full regression (3 seeds): report the numbers and the paired difference with
-  the corrected t-test against the baseline run of step 1 (folder in
-  `CLAUDE.md`, same seeds). Stop here, without committing: the user decides;
-  then commit, re-export `results/golden/reference` (twice, checked) and
-  update the expected numbers in `CLAUDE.md`.
+- scratch check: `build("v11")` fitted on the train contexts (`Dataset.from_jsonl`, any
+  repair) — `fit_transform` on train and `to_frame` on test — equals the reference `X_train` /
+  `X_test` restricted to the output columns, same column order, bitwise (report rows ×
+  columns compared, the fit time).
+- golden check passes (the import line must not move anything); pytest; ruff; pyright.
 
----
+## Step 4 – Models (model: strong)
 
-## Step 3 – Replay, addon and repair ports, transitions (model: strong)
-
-**Goal** – §3.5–§3.7: `BattleReplay` / `BattleContext` / `TurnState`,
-`TimelineRepair` (with `describe()`), `NoRepair`,
-`TransitionExtractor` (the switch description moved out of
-`domain/knockouts.py`), `python -m domain replay | check`.
-
-**Do**
-- The current detector keeps working through an adapter implementing
-  `TimelineRepair` (it moves for real in step 7).
-- `domain` imports only stdlib and numpy; add `tests/test_architecture.py`
-  for the domain rule now.
-- Tests per transition case with the fixtures (P1 faint skips the `fnt` row,
-  double KO carries no features, phazing, Explosion).
-
-**Acceptance** – golden check passes; architecture test passes; pyright strict
-on `domain/`.
-
----
-
-## Step 4 – Interfaces, registry, artifacts, features (model: strong for 4a, small for 4b)
-
-**4a** – `interfaces.py` (Feature with `prepare`, `inner_oof`; FeatureSet with
-`without`), `registry.py` (`@feature_set`, `@model`, `@ensemble`, `@t<N>`
-parsing), `artifacts.py` (`TrainedRun` save / load, storing the repair
-manifest). Contract test parametrised over every registered feature. The
-contract test also runs each feature in two subprocesses with different
-`PYTHONHASHSEED` and requires identical output; fix the features that fail
-(`TeamKnowledgeFeatures` and any other set / frozenset iteration) by sorting.
-If a compact_v5 column changes, report it like the Pokédex change of step 2.
-
-**4b** – Move every feature to `features/core/<family>.py` (field_features.py
-included) and every feature set to its own file with its history in the
-docstring (`compact`, `compact_v2` … `compact_v5`, `*_orig`); delete
-`feature_catalog.py`. Pure moves: no renaming of columns or ids. 4a left the
-catalog declaring its sets with `@feature_set`, so they move as they are. Deleting
-the catalog breaks `tools/v11_common.py`, and `tools/blend_from_saved.py old-base`
-if it is run on this code instead of the old worktree of `SUBMISSIONS.md`: ask the
-user before deleting it.
-
-**Acceptance** – golden check passes; contract tests pass for all features;
-`python main.py evaluate --features compact_v5 --models logreg --seeds 33`
-gives the logreg number of `metrics.json`.
-
----
-
-## Step 5 – Models (model: small, with the contract test)
-
-**Goal** – §5: `models/core/` (EstimatorModel, EnsembleModel,
-BoostFromLogreg, LogitBlend, preprocessing), one file per model with its
-`ModelSpec` (builder, search space, required modules); delete
-`model_catalog.py`; `build`, `build_tuned`, `available` in the registry.
-`ModelSpec`, `@model` and `@ensemble` exist since 4a, used by `model_catalog.py`.
-
-**Do not** – change any default parameter or search space.
-
-**Acceptance** – golden check passes; model contract test (fit / predict /
-clone / get_params JSON / save-load) for every registered model whose
-libraries are installed; `--params` files of `results/tuning/` still load.
-
----
-
-## Step 6 – Gym, statistics, storage, settings, CLI (model: strong)
-
-**Goal** – §6: `FoldPlan`, `Gym` on any rows / labels / groups
-(evaluate, train, fold tables cached), `GymResult` with seeds and corrected
-paired tests, `stats_tables.py`, `ResultsLayout` (everything under `results/`),
-`Settings`, thin `main.py` with the same commands and options.
-
-**Do**
-- `--jobs` disabled automatically (with a message) when a selected model or
-  feature uses LightGBM / XGBoost / CatBoost.
-- Old `runs/` and `results/` folders: a one-off move script, not code paths
-  (`tools/move_old_outputs.py`; not applied, the user keeps the old outputs in place).
-
-**Acceptance** – golden check passes; full regression (3 seeds) matches the
-reference numbers; `train` + `predict` produce the same submission as before
-the step (`diff` of the CSVs is empty).
-
----
-
-## Step 7 – Knockout detector as a task and a versioned addon (model: strong)
-
-**Goal** – §3.8: `detector.py` (table of P1 switches) with its checks (symmetry estimate,
-adversarial AUC P1 vs P2, agreement with a reference artifact),
-`features/transitions/ko_raw50.py` and `ko_domain30.py`, model `hgb_ko`,
-commands `detector evaluate | train | tune`, artifact
-`results/addons/knockouts/<version>/` with `info.json`,
-`addons/knockouts_model.py` (`ModelKnockoutRepair`) and
-`addons/knockouts_rule.py` (deterministic), `--repair none | rule | model=<path>`.
-Delete `knockout_detector.py` and the column lists of `domain/knockouts.py`.
-
-**Do**
-- Check whether the detector's input uses anything outside the timeline; if not,
-  the timeline key is correct, document why; if yes, switch to fingerprint with
-  a golden check, and report the 5 shared keys.
+**Do** – `models/core/v11_stacking.py`, `models/core/v11_team.py`,
+`models/core/v11_member.py`, `models/v11.py` (`v11_lr_spline`, `v11_xgb`, `v11_lgbm`,
+`v11_cat` with `requires` of their library, `v11_blend` with all three, as `@model`, not
+`@ensemble`: `build_tuned` would turn an ensemble into a probability average), and the import
+line in `models/__init__.py`. Tests: `TeamEffect` on a small hand-made table (P1 / P2 team
+keys, soft matching of a 5-species team, raw ratings), `StackedLogit.fit_transform` is out of
+fold; the model contract test covers the new models automatically.
 
 **Acceptance**
-- `detector evaluate --features ko_domain30 --models hgb_ko --seeds 42 1 2`
-  (GroupKFold on battles, as the old experiments) gives log loss ≈ 0.0988,
-  AUC ≈ 0.9918; the symmetry probe reports ≈ 10,130 repaired P2 switches
-  (all three: re-measure after step 2 (10,109 repairs)).
-- `detector train --version v3`, then golden check with
-  `--repair model=results/addons/knockouts/v3`: `repairs_p2.csv` and every
-  other file identical to the reference.
-- A run trained with one repair refuses to predict with another.
+- scratch check: each member, fitted on the reference `X_train` restricted to the `v11`
+  output columns, predicts on `X_test` the probabilities of `members_test.csv` exactly (max
+  difference 0; report it per member and the fit times).
+- golden check passes; pytest; ruff; pyright.
 
-**Result (commit ca1a010)** – log loss 0.0992 (folds: the gym's `StratifiedGroupKFold`,
-grouped by duplicate battle), AUC 0.9918, 10,109 P2 repairs, symmetry estimate 10,135,
-adversarial AUC 0.586; golden check passed with `v3`. The detector reads the team details
-(species stats), so its cache key is now `fingerprint` (5 shared timeline keys, no golden
-change). Not done: `--refit-detector-per-fold` (REFACTORING.md §3.8).
+## Step 5 – `v11_blend` end to end (model: small; ~1 h)
 
----
+**Do** – run the two commands of "What is ported" (pokedex and repair at their defaults).
 
-## Step 8 – Tuning, selection, cleanup (model: small)
+**Acceptance** – `diff results/submissions/submission_v11_blend.csv
+results/v11_reference/submission_blend_v11.csv` is empty; the probabilities equal
+`blend_test_proba.csv` (max difference reported, expected 0, at most 1e-12). Report the run
+times and the size of `results/runs/v11/v11__v11_blend/`. A second `predict` from the saved run
+gives the same files.
 
-**Goal** – `tuning/tuner.py`, `tuning/params.py`, `selection.py`
-(`backward` with corrected one-sided p, `forward`) on the generic gym; delete
-`exp/`, `tools/` except `tools/golden.py`, `selection.log`, old scripts; the v11
-bridge is not carried over. The v11 bridge and `tools/blend_from_saved.py` are
-needed to reproduce `submission_blend_step2.csv`, so deleting them is the user's
-decision.
+## Step 6 – Quality gates and report (model: small)
 
-**Acceptance** – golden check passes; `tune --trials 3` and
-`select --repeats 1` run end to end on the fixtures.
+**Do** – full `pytest -q`, ruff, pyright (rule 8), golden check. Add a short "v11" section at
+the end of this file: commands, what is exact, the known differences with the original's
+protocol (its own CV uses features fitted once on all of train; `main.py evaluate` refits v11
+inside every fold, about 30 min per fold), the deviations from `REFACTORING.md` (rule 4: v11
+has its own detector inside the feature; `uses_labels` declared without reading labels).
 
-**Result (commit b5fa791)** – golden check passed; `tune --trials 3` and
-`select --repeats 1` (forward and backward) ran on the fixtures. `tuning/params.py` has
-two functions instead of the `ParamsFile` class; `select` is a command of `main.py`
-(seeds 11, 22, 33 … as the old script, report in `results/selections/`); `forward` no
-longer drops the last column (it crashed on the fixtures). With the user's agreement the
-v11 bridge (`features/v11_bridge.py`, `compact_v5_v11`, `blend_v11`), `tools/v11_*`,
-`tools/blend_from_saved.py` and `tools/move_old_outputs.py` were deleted: they are at the
-tag `submission-final` (and `c62b744` for the last one); `LogitBlend` stays (§10). There
-was no `exp/`.
+**Acceptance** – all green; golden check passes.
 
 ---
 
-## Step 9 – Quality gates (model: small)
+## Status
 
-**Goal** – §8: ruff clean, pyright (strict where listed) clean, architecture
-test for all rules of §1, end-to-end test on the fixtures (evaluate → train →
-predict, under a minute), CI workflow running ruff, pyright, pytest.
-
-**Acceptance** – all green locally and in CI; final full regression matches
-the reference; `detector evaluate` matches step 7.
-
-**Result (commit 60707d3)** – ruff, ruff format, pyright: clean (`tools/golden.py` and
-the markdown files excluded); `pytest`: 651 passed, 43 skipped, also in a copy without
-`input/` and `results/`; end-to-end test about 10 s. Final regression
-(`results/reference_runs/step9_final`) identical to `step2_pokedex` in all 30 folds and
-60,000 predictions; detector: log loss 0.0992, AUC 0.9918, 10,109 P2 repairs, symmetry
-estimate 10,135. The CI workflow was not run on GitHub (nothing pushed).
+| step | status |
+|---|---|
+| 0 | todo |
+| 1 | todo |
+| 2 | todo |
+| 3a | todo |
+| 3b | todo |
+| 4 | todo |
+| 5 | todo |
+| 6 | todo |
