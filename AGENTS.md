@@ -111,7 +111,7 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
 2. Duplicated battles (same fingerprint) stay in the same fold; every split is
    checked for leakage. Declared exception, for fidelity to the original: the cross-fitted
    tables of the v11 detector artifact use the original's folds over battles (groups = battle
-   index, `FoldPlan(stratified=False)`, the only user of that option); v11's own inner
+   index, `folds.PredefinedFoldPlan`, whose only user is v11); v11's own inner
    cross-validations (`StackedLogit`, `TeamEffect`, forecast) are not grouped either, as in the
    original.
 3. Label-aware features give out-of-fold values on their training rows
@@ -133,7 +133,7 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
    as a repair addon built with the gym, one `Feature` per group, `EstimatorModel` members),
    and with the v11 repair its outputs must stay bitwise identical to
    `results/v11_alignment/dump/` for `train` / `predict` and the original's protocol.
-   `FoldPlan(stratified=False)` is used only by the v11 detector: never in `evaluate`, `tune`,
+   `PredefinedFoldPlan` is used only by the v11 detector: never in `evaluate`, `tune`,
    `select` or the CLI.
 6. No `fork` (multiprocessing, `--jobs`) after LightGBM / XGBoost / CatBoost
    have been used in the parent process: the workers hang at 0% CPU.

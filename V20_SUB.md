@@ -13,7 +13,8 @@ Rebuild it on the layered architecture of `AGENTS.md`:
 - **domain**: v11 uses the repository's `domain` (Pokédex, type chart, records, `BattleContext`,
   `TimelineRepair`) plus **three new generic modules** (observed timeline, expected damage,
   switch descriptions). The domain stays agnostic: no model, feature set or version in it.
-- **folds**: a non-stratified `FoldPlan` option, used **only** by the v11 detector.
+- **folds**: a non-stratified plan with a predefined fold per group, used **only** by the v11
+  detector.
 - **addons**: v11's hidden-faint detector is a repair addon (`--repair v11=<artifact>`), built
   with the gym like `v3`.
 - **features**: one ordinary `Feature` per v11 group in the `v11` `FeatureSet`, on
@@ -32,11 +33,15 @@ With `--repair v11=<artifact>`, `train` / `predict` and the original's own proto
    files. Name them by concept, never by version, model or feature set (no `v10`, `v11`, `ko_`
    in `domain/`); numeric choices are documented as assumptions of an estimate, with defaults.
    Pyright strict and tests in `tests/domain/`.
-2. **Non-stratified folds exist only for v11.** `folds.FoldPlan` gets an option
-   (`stratified: bool = True`); with `False` it is a shuffled `KFold` over the **groups** it
-   receives (in order of first appearance, each row in the fold of its group). It is used
-   exclusively by the v11 detector artifact: do not expose it in the CLI, `evaluate`, `tune` or
-   `select` (the fold-table cache key would not tell it apart).
+2. **Non-stratified folds exist only for v11.** `folds.py` gets `PredefinedFoldPlan`, a
+   `FoldPlan` whose folds are given by the caller as a fold index per group (each row in the
+   fold of its group; train / valid row indices ascending; a row whose group has no fold is an
+   error). A plain `KFold` over the task's groups would **not** do: 24 training battles have no
+   usable P1 row (15 of them have P2 candidates), so the task's groups are 9,976 battles while
+   the original runs `KFold(5, shuffle=True, random_state=42)` over all 10,000 battle indices;
+   the assignment over all battles is computed by `detector.train_v11` (v11's logic) and handed
+   to the plan. Used exclusively by the v11 detector artifact: never in the CLI, `evaluate`,
+   `tune` or `select` (the fold-table cache key would not tell it apart).
 3. **One repair at a time, independent of the predictive models.** v11's features read
    `BattleContext.repair` and work with every repair (`none`, `rule`, `model=…` such as `v3`,
    `v11=…`). The faithful reference is `--repair v11=<artifact>`; v11 with `v3` is a legitimate
@@ -83,7 +88,7 @@ With `--repair v11=<artifact>`, `train` / `predict` and the original's own proto
   anything that is not v11 / the new code.
 - Allowed changes:
   - new `domain/timeline.py`, `domain/expected_damage.py`, `domain/switches.py` and their tests;
-  - `folds.py`: the `stratified` option of `FoldPlan` (default unchanged) and its test;
+  - `folds.py`: the new `PredefinedFoldPlan` (`FoldPlan` unchanged) and its test;
   - `features/core/v11/*`, `features/v11.py`, new `features/transitions/ko_v11.py` (not
     registered in `TRANSITION_SETS`);
   - new `addons/knockouts_v11.py`, the spec parsing in `addons/__init__.py`;
@@ -152,13 +157,17 @@ paths, same values):
   tracks (`p2_track`, …), move classes used by features (`HEAL`, `SETUP`, …), simulations,
   bags, team models: they stay in `features/core/v11/`.
 
-### Folds: `FoldPlan(stratified=False)` (only for v11)
+### Folds: `PredefinedFoldPlan` (only for v11)
 
-- `stratified=True` (default) is today's `StratifiedGroupKFold`, unchanged.
-- `stratified=False`: a splitter that runs `KFold(n_folds, shuffle=True, random_state=seed)` on
-  the unique groups in order of first appearance and maps every row to the fold of its group;
-  train / valid row indices ascending. With groups = battle index it reproduces the original
-  detector folds exactly (verify).
+- `FoldPlan` (today's `StratifiedGroupKFold`) is unchanged.
+- `PredefinedFoldPlan(fold_of: Mapping[group, int], seed: int)`: a `FoldPlan` (one "seed", used
+  only as a label in the results) whose splitter puts every row in the fold of its group;
+  folds `0 .. n_folds - 1`, train / valid row indices ascending; the gym's leakage checks apply
+  as usual. Generic (any grouping), non-stratified.
+- `detector.train_v11` builds `fold_of` exactly as the original: `KFold(5, shuffle=True,
+  random_state=42).split(np.arange(n_battles))` over **all** training battles (also those
+  without P1 rows: their P2 candidates are still scored by their fold's model through the
+  probe). The same `fold_of` serves every cut (same battles, same seed).
 - Used only by `detector.train_v11`. Test it in `tests/application/`.
 
 ### Addon: `addons/knockouts_v11.py` (`V11KnockoutRepair`, implements `TimelineRepair`)
@@ -194,10 +203,10 @@ paths, same values):
 - `train_v11(settings, version)` writes `settings.results.addon("knockouts_v11", version)`:
   - task: `LabelledBattles` of P1's rows with `final & x_hp.notna()` (label = recorded faint,
     id = row, group = battle index), battles in file order, rows in order;
-  - cross-fitted tables: `Gym([lgbm_ko_v11], [ko_v11], plan=FoldPlan(5, (42,),
-    stratified=False), probes={"p2": probe})`; the probe receives each fold's fitted model and
-    returns `(battle, i, p)` for the P2 candidates of the battles of that fold (recorded P2 rows
-    1.0, other P2 rows 0.0). The gym's out-of-fold AUC on P1 rows is the original's
+  - cross-fitted tables: `Gym([lgbm_ko_v11], [ko_v11], plan=PredefinedFoldPlan(fold_of, 42),
+    probes={"p2": probe})`; the probe receives each fold's fitted model and returns
+    `(battle, i, p)` for the P2 candidates of **all** battles with `fold_of[battle] == fold`
+    (also those with no P1 row; recorded P2 rows 1.0, other P2 rows 0.0). The gym's out-of-fold AUC on P1 rows is the original's
     `detector_auc`;
   - the same for each `cut` on the training battles truncated to `cut` entries;
   - full model: `gym.train(task)` → `TrainedRun` saved with `run.save(target)`;
@@ -287,8 +296,9 @@ paths, same values):
    - detector: `V11KnockoutRepair.probabilities` of every train battle (tables) and test battle
      vs `p2_faint.pkl`; the cut tables vs the original `fit_detector` on
      `parse(train, dex, cut=c)`;
-   - folds: `FoldPlan(5, (42,), stratified=False)` with groups = battle index vs the original
-     `KFold` assignment;
+   - folds: the splits of `PredefinedFoldPlan` on the P1 task vs the original's boolean masks
+     (`fold_of[p1["b"]] == f`), and the P2 candidates scored per fold (including the 15 battles
+     with candidates but no P1 row);
    - domain: `ObservedTimeline` / `SwitchExtractor` vs the original `Side` / `transitions` on all
      15,000 battles;
    - features: `build("v11").fit_transform(train contexts)` vs `X_train[cols]`,
@@ -300,8 +310,8 @@ paths, same values):
 2. **Domain modules** (`timeline.py`, `expected_damage.py`, `switches.py`, tests); the current
    port switched to them; harness: domain and features stages at 0. Commit
    `feat(domain): observed timeline, expected damage estimate, switch descriptions`.
-3. **Folds option** (`FoldPlan(stratified=False)`, test; harness folds stage). Commit
-   `feat(folds): non-stratified group k-fold plan (v11 detector only)`.
+3. **Folds** (`PredefinedFoldPlan`, test; harness folds stage). Commit
+   `feat(folds): predefined group fold plan (v11 detector only)`.
 4. **Detector addon + artifact** (`ko_v11` set, `lgbm_ko_v11`, `knockouts_v11.py`,
    `addons/__init__.py`, `train_v11`, `main.py`); `python main.py detector train-v11 --version
    v1`; harness detector stage at 0. Commit `feat(addons): v11 hidden-faint detector as a
@@ -334,6 +344,8 @@ paths, same values):
 - **Battle order**: every KFold (detector, cut detectors, forecast) runs over the battles in file
   order; `FeatureSet.fit` receives them in `Dataset` order (= file order).
 - **Keys**: always `(battle_id, fingerprint)`; duplicates share the fingerprint, not the id.
+- **Battles without P1 rows**: the detector's folds are assigned over all battles, not over the
+  task's groups (24 battles have no usable P1 row, 15 of them have P2 candidates).
 - **Detector dict**: same keys and order as the original `p2_faint` (all P2 rows, not only
   candidates).
 - **Species**: `PokemonGen2` base stats are ints, as v11's dicts; `None` for a species without
