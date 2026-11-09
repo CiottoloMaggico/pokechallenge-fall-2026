@@ -140,25 +140,55 @@ detector plugs into exactly the same pieces as the `v3` detector:
   `settings.results.addon(<kind>, <version>)`, `INFO_FILE` (`info.json` with version, params,
   `train_sha256`, `pokedex_sha256`, saved time), versions never overwritten, a clear
   `ArtifactError`-style message when the folder is missing;
-- a classifier registered in `models/` (`@model`, `EstimatorModel`) and saved / loaded with the
-  repository's `Model.save` / `Model.load` (or `artifacts.TrainedRun` if it fits without
-  changing values);
+- the **gym** (`gym.Gym.train`, `Gym.evaluate`, probes) and `artifacts.TrainedRun` (a feature
+  set on v11's transition rows + a classifier registered in `models/`), saved with
+  `TrainedRun.save` as the `v3` artifact;
 - the run's recorded repair (`describe()` stored with the run, `predict` refuses another one).
-Only the **fitting method** is v11's own (the original `fit_detector`: one KFold with seed 42
-over the training battles, the cross-fitted tables, the seven truncated detectors, no gym
-evaluation and no checks): it is part of v11's logic and must not be replaced by
-`detector train`'s gym / multi-seed CV.
+What stays v11's own is only **what** is fitted, not the machinery: the rows and columns of the
+original `faint.py`, the original's battle-level folds for the cross-fitted tables, the seven
+truncated detectors. Do not use `detector train` itself (its rows are `domain.transitions`, its
+feature sets `ko_*`), and do not register the v11 detector set in `TRANSITION_SETS` (it would
+become a choice of `detector train` / `evaluate`, which feed domain `Transition`s).
 
+- Feature set of the detector: `features/core/v11/transitions.py` gives one row object per
+  transition (battle index, `i`, `x`, `recorded`, `final`, `label` and the feature values) and
+  a builder of a `FeatureSet` (name `ko_v11`) with **one** `Feature` returning the feature
+  values in the original's column order (`feats` of `_collect`: every key but `META`), declared
+  in `output_names`. `FeatureSet` turns booleans into floats as the original's
+  `astype(float)`.
 - `detector.py`: `train_v11(settings, version)` writes `results/addons/knockouts_v11/<version>/`
-  (`settings.results.addon("knockouts_v11", version)`, never overwritten):
-  - `model.pkl`: the full detector (`models/ko_v11.py`, fitted on every P1 row of the training
-    file with `final & x_hp.notna()`);
-  - `tables.pkl`: the cross-fitted probabilities of the training battles (full length) and of
-    each cut, keyed as above;
-  - `info.json`: version, params, columns, cuts, `train_sha256`, `pokedex_sha256`, the
-    original's diagnostics (`detector_auc`, `detector_pos_rate`, `p2_hidden_per_battle`),
-    timestamp.
-  The cross-fitting loop is a move of the original `fit_detector` (same KFold, same order).
+  (`settings.results.addon("knockouts_v11", version)`, never overwritten), entirely with the
+  gym:
+  - **task**: `LabelledBattles` of P1's rows with `final & x_hp.notna()` (label = recorded
+    faint, id = row, group = battle index), in battle order then row order, as the original;
+  - **cross-fitted tables**: `Gym([lgbm_ko_v11], [ko_v11 set], plan=V11Folds(),
+    probes={"p2": ...})`. `V11Folds` is a `FoldPlan` subclass defined in `detector.py` (one
+    "seed" 42) whose splitter reproduces the original folds: `KFold(5, shuffle=True,
+    random_state=42)` over the battle indices, each row in the fold of its battle (train /
+    valid indices ascending, as the original's boolean masks). The default `FoldPlan`
+    (`StratifiedGroupKFold`) must **not** be used here: it changes the values. The probe gets the
+    fold's fitted model (`FitContext.model`, `fold`) and returns `(battle, i, p)` for the P2
+    candidates (`~recorded & final`) of the battles of that fold, featurized with the same
+    (stateless) set; recorded P2 rows get 1.0, the other P2 rows 0.0. The gym's out-of-fold
+    AUC on the P1 rows is the original's `detector_auc`;
+  - the same for each cut of `forecast.CUTS`, on the battles truncated to `cut` entries (one
+    gym `evaluate` per cut);
+  - **full model**: `gym.train(task)` → the `TrainedRun` (feature set `ko_v11`,
+    `lgbm_ko_v11`) fitted on all P1 rows, saved with `run.save(target)` like `v3`;
+  - **diagnostics** (optional, like `v3`): `gym.evaluate` with the default `FoldPlan` and the
+    seeds of `--seeds` on the same task, its summary in `info.json`; it does not change the
+    artifact;
+  - `tables.pkl`: the cross-fitted probabilities (full length and per cut), keyed as above;
+  - `info.json`: version, model params, columns, cuts, `train_sha256`, `pokedex_sha256`, the
+    original's diagnostics (`detector_auc`, `detector_pos_rate`, `p2_hidden_per_battle`), the
+    optional gym summary, timestamp.
+  Check bitwise, before anything else, that the tables equal
+  `results/v11_alignment/dump/original/p2_faint.pkl` (train) and a run of the original
+  `fit_detector` on the truncated battles (cuts).
+- `addons/knockouts_v11.py` loads the run with `TrainedRun.load(folder, <ko_v11 set>)` (the set
+  built directly, not through `TRANSITION_SETS`) and the tables, and scores new records with
+  `run.predict_proba(rows)` (batch per record; check bitwise equal to the original's batch
+  scoring of the test battles).
 - `main.py`: `python main.py detector train-v11 --version v1` (parses arguments, calls the
   function; nothing else).
 - `models/ko_v11.py`: `@model("lgbm_ko_v11", requires=("lightgbm",))` →
