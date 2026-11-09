@@ -16,14 +16,17 @@ code's behaviour wins: note the conflict and ask.
   rebuild it with `python main.py detector train --version v3 --seeds 42 1 2` (~2 min, same
   P2 repairs). Versions are never overwritten: a new detector gets a new version.
 - v11 hidden-faint detector: a versioned artifact in `results/addons/knockouts_v11/<version>/`,
-  built with `python main.py detector train-v11 --version v1` (~3 min) and loaded with
+  built with `python main.py detector train-v11 --version v1 --seeds 42 1 2` (~10 min; the
+  repository's standard `FoldPlan`, as `v3`) and loaded with
   `--repair v11=results/addons/knockouts_v11/v1` by every v11 command. Never overwritten.
 - The original FDS repository of v11 is outside this repository, in
   `~/Downloads/FDS-Pokemon-Battle-Prediction/FDS-Pokemon-Battle-Prediction`. Never edit it.
   `results/v11_ref/sub20_blend_v11.csv` is the submission it produced with `blend_v11`;
   `results/v11_alignment/dump/` holds its outputs recomputed in this `.env` (detector
   probabilities, feature matrices, member / blend probabilities, out-of-fold predictions of its
-  own protocol): the reference v11 must match bit for bit. Never delete it.
+  own protocol). v11's code must match them bit for bit when fed the original's detector
+  probabilities (`tools/v11_check.py`); with v11's own repair (standard folds for the detector)
+  the numbers are within noise of them. Never delete it.
 - **In progress: `V20_SUB.md`** (v11 rebuilt on the repository's architecture). This file
   already describes the target; until that task is done the code still holds the old port
   (`V11Features`, v11's own detector inside the feature). Where the two disagree on v11, follow
@@ -89,12 +92,12 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   move the results matches them fold by fold.
 - v11 (the FDS repository's `blend_v11` on this repository's constructs, ~13 min train,
   ~1.5 min predict; build the detector artifact first):
-  `python main.py detector train-v11 --version v1`
+  `python main.py detector train-v11 --version v1 --seeds 42 1 2`
   `python main.py train --features v11 --models v11_blend --repair v11=results/addons/knockouts_v11/v1 --out results/runs/v11`
   `python main.py predict --run results/runs/v11/v11__v11_blend --test input/test.jsonl --repair v11=results/addons/knockouts_v11/v1 --out results/submissions/submission_v11_blend.csv --proba results/submissions/submission_v11_blend_proba.csv`
-  Its probabilities match `results/v11_alignment/dump/original/blend_v11.npy` bit for bit; its
-  submission differs by 97 labels from `results/v11_ref/sub20_blend_v11.csv`, as the original
-  run in this `.env` (library versions). `train` / `evaluate` refuse `--test` with v11 (its
+  Its probabilities are within noise of `results/v11_alignment/dump/original/blend_v11.npy`
+  (the detector's training values use the repository's folds); the original run in this
+  `.env` differs by 97 labels from `results/v11_ref/sub20_blend_v11.csv` (library versions). `train` / `evaluate` refuse `--test` with v11 (its
   label-free features fit on the training battles only).
 - v11 regression check (~15 min; needs the v11 artifact and `results/v11_alignment/dump/`):
   `python tools/v11_check.py check` must report max |diff| 0 at every stage. Run it on every
@@ -109,11 +112,9 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
    test battles are only predicted. The Pokédex comes only from records in the
    competition format, never from external data.
 2. Duplicated battles (same fingerprint) stay in the same fold; every split is
-   checked for leakage. Declared exception, for fidelity to the original: the cross-fitted
-   tables of the v11 detector artifact use the original's folds over battles (groups = battle
-   index, `folds.PredefinedFoldPlan`, whose only user is v11); v11's own inner
-   cross-validations (`StackedLogit`, `TeamEffect`, forecast) are not grouped either, as in the
-   original.
+   checked for leakage. Declared exception, for fidelity to the original: v11's own inner
+   cross-validations (`StackedLogit`, `TeamEffect`, forecast) are not grouped by duplicates,
+   as in the original. (v11's detector artifact uses the standard grouped `FoldPlan`.)
 3. Label-aware features give out-of-fold values on their training rows
    (grouped inner folds) or NaN (`inner_oof = False`). Never in-sample values.
 4. The knockout repair is applied to every battle before any feature. Addons
@@ -131,10 +132,10 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
    weights): do not "fix" it. Its implementation uses the repository's constructs (domain
    Pokédex, type chart and the generic timeline / expected-damage / switch modules, detector
    as a repair addon built with the gym, one `Feature` per group, `EstimatorModel` members),
-   and with the v11 repair its outputs must stay bitwise identical to
-   `results/v11_alignment/dump/` for `train` / `predict` and the original's protocol.
-   `PredefinedFoldPlan` is used only by the v11 detector: never in `evaluate`, `tune`,
-   `select` or the CLI.
+   and fed the original's detector probabilities its outputs must stay bitwise identical to
+   `results/v11_alignment/dump/` (`tools/v11_check.py`). The one accepted change of logic: the
+   detector's cross-fitted training values come from the standard `FoldPlan` (mean over
+   `--seeds`) instead of the original's `KFold` over battles (measured: within noise).
 6. No `fork` (multiprocessing, `--jobs`) after LightGBM / XGBoost / CatBoost
    have been used in the parent process: the workers hang at 0% CPU.
 7. Every comparison of models or feature sets uses the corrected repeated

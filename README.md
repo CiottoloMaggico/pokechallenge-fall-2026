@@ -69,12 +69,13 @@ python main.py predict --run results/runs/compact_v5__ensemble_from_lr \
 ```
 
 The v11 model (`v11` features, `v11_blend` model) reproduces the `blend_v11` model of the
-original FDS repository (same feature and model logic; a few test labels can differ with other
-library versions). It needs its detector artifact (about 3 minutes, once), then trains in about
-13 minutes and predicts the test set in about 1.5 minutes:
+original FDS repository (same feature and model logic; its detector is cross-fitted with this
+repository's folds, which moves the numbers only within noise). It needs its detector artifact
+(about 10 minutes, once), then trains in about 13 minutes and predicts the test set in about
+1.5 minutes:
 
 ```sh
-python main.py detector train-v11 --version v1
+python main.py detector train-v11 --version v1 --seeds 42 1 2
 python main.py train --features v11 --models v11_blend \
     --repair v11=results/addons/knockouts_v11/v1 --out results/runs/v11
 python main.py predict --run results/runs/v11/v11__v11_blend --test input/test.jsonl \
@@ -226,13 +227,15 @@ The 30 domain columns match the 50 raw ones with the default detector (`hgb_ko`,
 (pending: v11 is being rebuilt on the repository's architecture, see `V20_SUB.md`)
 
 Protocol notes. v11's detector is a repair addon fitted once on the training file, like `v3`, so
-in these cross-validations it is not refitted inside each fold; it never reads the outcome. For
-fidelity to the original, its cross-fitted values use the original's folds over battles (not
-grouped by duplicates: 15 of the 17 duplicate groups are split) and v11's inner
-cross-validations are not grouped either. The repair is independent of the model: the reference
-rows use `--repair v11=…`; v11 can also run with `v3` (a variant). With the original's own
-protocol (features built once on all training battles, 5 folds × 3 repeats,
-seeds 42–44) v11 gives the original's numbers exactly in this environment:
+in these cross-validations it is not refitted inside each fold; it never reads the outcome. Its
+cross-fitted training values use this repository's grouped, stratified folds (mean over seeds
+42, 1, 2) instead of the original's plain `KFold` over battles: on the detector this moves the
+probabilities less than re-seeding the original's own folds (mean |Δp| 0.012 vs 0.015). As in
+the original, v11's inner cross-validations (stacked logits, team effect, forecast) are not
+grouped by duplicates. The repair is independent of the model: the reference rows use
+`--repair v11=…`; v11 can also run with `v3` (a variant). The original, rerun in this
+environment with its own protocol (features built once on all training battles, 5 folds × 3
+repeats, seeds 42–44), gives:
 
 | pipeline | accuracy | log loss | ROC AUC | Brier |
 |---|---|---|---|---|
