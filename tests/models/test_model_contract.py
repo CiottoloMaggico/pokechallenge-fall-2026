@@ -11,7 +11,6 @@ import pytest
 
 import models
 from interfaces import Model
-from models.core.logit_blend import LogitBlend
 from tuning.params import load_params
 
 NAMES = models.available()
@@ -66,15 +65,6 @@ def test_fit_predict_clone_params_and_save_load(name: str, tmp_path: Path) -> No
     path = tmp_path / "model.pkl"
     fitted.save(path)
     assert np.array_equal(Model.load(path).predict_proba(x), proba)
-
-
-def test_logit_blend_blends_with_the_probability_column() -> None:
-    x, y = table()
-    x["other_proba"] = np.nan
-    blend = LogitBlend("blend", w=0.5, base="logreg", column="other_proba").fit(x, y)
-    x["other_proba"] = 0.5
-    assert np.isfinite(blend.predict_proba(x)).all()
-    assert json.dumps(blend.get_params())
 
 
 def test_params_files_of_the_tuner_still_build_tuned_models(tmp_path: Path) -> None:

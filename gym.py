@@ -89,39 +89,6 @@ META_FILE = "meta.json"
 PROBES_DIR = "probes"
 
 
-@dataclass(frozen=True)
-class PrecomputedFeatures:
-    """Feature source backed by an already computed table.
-
-    With ``key`` (a function battle -> id) the table must be indexed by
-    that id, and any subset of battles can be looked up. Without it,
-    rows must be aligned one to one with the battles given.
-
-    The gym treats it as stateless: the table must have been computed
-    battle by battle, without labels and without statistics learned on
-    other battles, or the evaluation will leak.
-    """
-
-    name: str
-    table: pd.DataFrame
-    key: Callable[[Any], Any] | None = None
-
-    def to_frame(self, battles: Iterable[Any]) -> pd.DataFrame:
-        battles = list(battles)
-        if self.key is not None:
-            ids = [self.key(b) for b in battles]
-            missing = [i for i in ids if i not in self.table.index]
-            if missing:
-                raise KeyError(f"ids not in the table: {missing[:5]}")
-            return self.table.reindex(ids).reset_index(drop=True)
-        if len(battles) != len(self.table):
-            raise ValueError(
-                f"precomputed table has {len(self.table)} rows, "
-                f"got {len(battles)} battles: pass key= to look rows up"
-            )
-        return self.table.reset_index(drop=True)
-
-
 @dataclass
 class GymResult:
     """Raw results of an evaluation, plus helpers to analyse them."""
@@ -417,25 +384,3 @@ def _check_unique(kind: str, names: Sequence[str]) -> None:
 def _jsonable(params: Mapping[str, Any]) -> dict[str, Any]:
     simple = (str, int, float, bool, type(None))
     return {k: v if isinstance(v, simple) else repr(v) for k, v in params.items()}
-
-
-def permutation_importance_probe(n_repeats: int = 3, seed: int = 0) -> Probe:
-    """Accuracy drop when each feature is shuffled in the valid fold."""
-
-    def probe(ctx: FitContext) -> list[dict[str, Any]]:
-        rng = np.random.default_rng(seed)
-        y = ctx.y_valid
-        base = float((ctx.model.predict(ctx.x_valid) == y).mean())
-        rows = []
-        for column in ctx.x_valid.columns:
-            drops = []
-            for _ in range(n_repeats):
-                shuffled = ctx.x_valid.copy()
-                values = np.asarray(shuffled[column])
-                shuffled[column] = rng.permutation(values)
-                acc = float((ctx.model.predict(shuffled) == y).mean())
-                drops.append(base - acc)
-            rows.append({"feature": column, "accuracy_drop": float(np.mean(drops))})
-        return rows
-
-    return probe

@@ -1,4 +1,4 @@
-"""Dependency rules of REFACTORING.md §1, checked on the imports of every module (ast).
+"""Dependency rules of the layers (AGENTS.md), checked on the imports of every module (ast).
 
 * ``domain`` imports only the standard library and numpy (so never an addon, a feature,
   a model or the application);
@@ -76,7 +76,7 @@ def test_every_layer_has_modules_to_check() -> None:
     assert {"compact_v5.py", "material.py", "feature_set.py"} <= {
         p.name for p in FORBIDDEN["features"][0]
     }
-    assert {"logreg.py", "estimator.py", "logit_blend.py"} <= {p.name for p in modules("models")}
+    assert {"logreg.py", "estimator.py", "from_logreg.py"} <= {p.name for p in modules("models")}
 
 
 @pytest.mark.parametrize("path", modules("domain"), ids=lambda p: p.name)

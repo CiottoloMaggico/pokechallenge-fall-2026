@@ -201,12 +201,6 @@ class FeatureSet[BattleT]:
         for feature in features:
             self.register(feature, prefix=prefix)
 
-    def unregister(self, feature_id: str) -> None:
-        """Remove a feature by its registry id."""
-        if feature_id not in self._entries:
-            raise KeyError(f"no feature registered as {feature_id!r}")
-        del self._entries[feature_id]
-
     # ------------------------------------------------------------------
     # fitting (see "Leakage rules" in the module docstring)
     # ------------------------------------------------------------------
@@ -582,45 +576,3 @@ def _free_name(name: str, taken: Iterable[str]) -> str:
 # ----------------------------------------------------------------------
 # helpers to build common feature shapes
 # ----------------------------------------------------------------------
-def delta_feature[BattleT](
-    name: str,
-    per_side: Callable[[BattleT, str], float],
-    reverse: bool = False,
-) -> FeatureFn:
-    """Build a ``p1 - p2`` feature from a per-side getter.
-
-    ``per_side(battle, side)`` returns the quantity for ``"p1"`` or
-    ``"p2"``. With ``reverse=True`` the feature is ``p2 - p1``, so that
-    a positive value still means an advantage for P1 when the quantity
-    is bad to have (fainted Pokémon, statuses, ...).
-    """
-
-    def feature(battle: BattleT) -> FeatureValue:
-        p1, p2 = (per_side(battle, side) for side in SIDES)
-        return name, (p2 - p1) if reverse else (p1 - p2)
-
-    feature.__name__ = name
-    return feature
-
-
-def side_features[BattleT](name: str, per_side: Callable[[BattleT, str], float]) -> list[FeatureFn]:
-    """Build one feature per side: ``p1_<name>`` and ``p2_<name>``."""
-
-    def make(side: str) -> FeatureFn:
-        def feature(battle: BattleT) -> FeatureValue:
-            return f"{side}_{name}", per_side(battle, side)
-
-        feature.__name__ = f"{side}_{name}"
-        return feature
-
-    return [make(side) for side in SIDES]
-
-
-def constant_feature(name: str, value: float) -> FeatureFn:
-    """Build a feature that always returns ``value`` (useful in tests)."""
-
-    def feature(_: object) -> FeatureValue:
-        return name, value
-
-    feature.__name__ = name
-    return feature

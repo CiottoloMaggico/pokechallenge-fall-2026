@@ -12,13 +12,11 @@ from data import Dataset
 from domain.battle import BattleContext
 from domain.pokedex import Pokedex, PokedexBuilder, species_without_stats
 from features import sets as feature_sets
-from features.core.matchup import TeamMatchup, active_duel, ttk_advantage
-from features.core.montecarlo import MC_OUTPUTS, MonteCarloSimulation
+from features.core.matchup import active_duel, ttk_advantage
 from features.core.moves import resisted_share
 from features.core.pool import PoolBulk
 from features.core.simulation import BattleSimulation
 from features.core.team import HiddenTeamStrength, hpw_spd
-from features.core.wincon import _sets_up
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "battles.jsonl"
 CHART = feature_sets.type_chart()
@@ -68,19 +66,11 @@ def test_active_matchups_are_nan(stats_gone_on_active: BattleContext) -> None:
     assert math.isnan(ttk_advantage(CHART)(stats_gone_on_active))
 
 
-def test_team_matchup_is_nan(stats_gone_on_active: BattleContext) -> None:
-    values = TeamMatchup(CHART).compute(stats_gone_on_active)
-    assert math.isnan(values["mx_win"]) and math.isnan(values["mx_cover"])
-
-
-def test_simulations_are_nan(
+def test_simulation_is_nan(
     stats_gone_on_active: BattleContext, contexts: tuple[BattleContext, ...]
 ) -> None:
     simulation = BattleSimulation(CHART).fit(contexts)
     assert math.isnan(simulation.compute(stats_gone_on_active)["sim_seen_left"])
-    montecarlo = MonteCarloSimulation(CHART, runs=1).fit(contexts)
-    values = montecarlo.compute(stats_gone_on_active)
-    assert all(math.isnan(values[name]) for name in MC_OUTPUTS)
 
 
 def test_bulk_share_is_nan_when_a_seen_species_is_alive(
@@ -119,10 +109,3 @@ def test_pool_bulk_with_a_likely_team_without_stats_gives_nan(
     context = next(c for c in contexts if c.side("p2").team_size > len(c.side("p2").team))
     feature.pool.most_likely = lambda revealed: ["no-stats-anywhere"]  # type: ignore[method-assign]
     assert math.isnan(feature.compute(context)["phpw_spd"])
-
-
-def test_curse_on_a_species_without_types_is_nan(contexts: tuple[BattleContext, ...]) -> None:
-    pokemon = contexts[0].new_pokemon("no-stats-anywhere")
-    assert _sets_up(pokemon) == 0.0
-    pokemon.known_moves["curse"] = None  # type: ignore[assignment]
-    assert math.isnan(_sets_up(pokemon))

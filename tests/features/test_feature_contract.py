@@ -1,4 +1,4 @@
-"""Contract of every feature (REFACTORING.md §4.1), on the fixtures.
+"""Contract of every feature (``interfaces.Feature``), on the fixtures.
 
 A feature gives exactly its declared columns as floats, the same values every time and under any
 ``PYTHONHASHSEED``, survives a save / load of its state and never sees the label. The features of
@@ -32,22 +32,9 @@ from domain.records import read_records
 from domain.transitions import Transition
 from features import sets as feature_sets
 from features import transitions
-from features.core.bag import BagLogit
 from features.core.encoding import TeamEffect
-from features.core.knowledge import TeamKnowledgeFeatures
-from features.core.matchup import TeamMatchup, ttk_advantage
-from features.core.material import hp_dealt
-from features.core.montecarlo import MonteCarloSimulation
-from features.core.team import bst_hp_left
-from features.core.trajectory import hp_balance_delta, hp_balance_mean, ko_balance_mean
+from features.core.matchup import ttk_advantage
 from features.core.turn import AtTurn
-from features.core.wincon import (
-    healers,
-    phazers,
-    setup_users,
-    sleepers,
-    spikes_advantage,
-)
 from gym import Gym
 from interfaces import Feature
 from models import build
@@ -65,22 +52,8 @@ Row = list[tuple[str, str]]
 def unregistered_features() -> list[Feature[BattleContext]]:
     """Features only the experiments use: in no feature set, but under the same contract."""
     return [
-        TeamKnowledgeFeatures(CHART),
         TeamEffect(),
-        BagLogit(),
-        TeamMatchup(CHART),
-        MonteCarloSimulation(CHART, runs=2),
-        AtTurn("wc_healers", healers),
-        AtTurn("wc_setup", setup_users),
-        AtTurn("wc_phazers", phazers),
-        AtTurn("wc_sleepers", sleepers),
-        AtTurn("wc_spikes_adv", spikes_advantage),
-        AtTurn("bst_hp_left", bst_hp_left),
         AtTurn("act_ttk_adv", ttk_advantage(CHART)),
-        AtTurn("hp_balance_mean", hp_balance_mean),
-        AtTurn("ko_balance_mean", ko_balance_mean),
-        AtTurn("hp_balance_delta", hp_balance_delta),
-        AtTurn("hp_dealt", hp_dealt),
     ]
 
 
@@ -246,7 +219,7 @@ def test_contexts_never_carry_the_label() -> None:
 
 def test_every_family_of_features_is_checked() -> None:
     ids = {key.partition(":")[0] for key in KEYS}
-    assert {"team_knowledge", "pool_bulk_spd", "team_rating", "team_encoding"} <= ids
+    assert {"pool_bulk_spd", "team_rating", "team_encoding"} <= ids
 
 
 if __name__ == "__main__":

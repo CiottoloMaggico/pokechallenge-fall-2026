@@ -82,7 +82,6 @@ CURE_BERRIES = {
     "burntberry": {"frz"},
     "miracleberry": {"slp", "par", "psn", "tox", "brn", "frz"},
 }
-CURE_BERRIES_VOLATILE = {"bitterberry": {"confusion"}, "miracleberry": {"confusion"}}
 TEAM_CURE = {"healbell"}
 
 # The records repeat a Pokémon's last move on turns it did not act: when
@@ -125,7 +124,6 @@ class PokemonState:
 
         self.item = item
         self.item_used = False
-        self.item_stolen = False
 
         self.known_moves: dict[str, Move] = {}
         self.seen = False
@@ -193,7 +191,6 @@ class LeadState:
         self.pokemon = pokemon
         self.effects: dict[str, int] = {}
         self.boosts = {s: 0 for s in STATS}
-        self.turns_in = 0
         self.last_move: str | None = None
         self.events: set[str] = set()
 
@@ -204,9 +201,6 @@ class LeadState:
         for e in effects:
             self.effects.pop(e, None)
 
-    def reset_boosts(self) -> None:
-        self.boosts = {s: 0 for s in STATS}
-
     def baton_pass_payload(self) -> tuple[dict[str, int], dict[str, int]]:
         return (
             {e: n for e, n in self.effects.items() if e in BATON_PASSABLE},
@@ -214,7 +208,6 @@ class LeadState:
         )
 
     def tick(self) -> None:
-        self.turns_in += 1
         for e in list(self.effects):
             self.effects[e] += 1
             if e in MAX_TURNS and self.effects[e] >= MAX_TURNS[e]:
@@ -229,7 +222,6 @@ class PlayerState:
         self.lead: LeadState | None = None
         self.spikes = False
         self.screens: dict[str, int] = {}
-        self.n_switches = 0
 
     def add_pokemon(self, pokemon: PokemonState) -> None:
         if pokemon.name in self.team:
@@ -246,7 +238,6 @@ class PlayerState:
         old = self.lead
         self.lead = LeadState(pokemon)
         if old is not None:
-            self.n_switches += 1
             old.pokemon.on_switch_out()
             if baton_pass:
                 effects, boosts = old.baton_pass_payload()
@@ -527,7 +518,6 @@ class Battle:
                 if not p.fainted and p is not user.pokemon:
                     p.status, p.status_turns = NO_STATUS, 0
         if name == "thief" and not user.pokemon.has_item and target.pokemon.has_item:
-            target.pokemon.item_stolen = True
             user.pokemon.item, target.pokemon.item = target.pokemon.item, NO_ITEM
 
         user.last_move = name
@@ -782,7 +772,3 @@ class BattleContext:
     def window(self, last_n: int) -> tuple[TurnState, ...]:
         """The last ``last_n`` turns (all of them if there are fewer)."""
         return self.history[-last_n:]
-
-    def series(self, side: str, attribute: str) -> list[Any]:
-        """One attribute of one side across all turns, e.g. hp_total."""
-        return [getattr(t.side(side), attribute) for t in self.history]

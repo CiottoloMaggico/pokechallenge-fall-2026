@@ -81,11 +81,6 @@ class TypeChart:
             result *= self.multiplier(move_type, defending_type)
         return result
 
-    def best_effectiveness(self, attacking: Iterable[str], defending: Iterable[str]) -> float:
-        """Highest effectiveness among several attacking types (e.g. STAB)."""
-        defenders = tuple(defending)
-        return max((self.effectiveness(t, defenders) for t in attacking), default=NEUTRAL)
-
     def __len__(self) -> int:
         return len(self._table)
 

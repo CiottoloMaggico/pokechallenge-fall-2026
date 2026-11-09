@@ -9,9 +9,6 @@
   fainted), in [-1, 1]. Snorlax is the pillar of most Gen 2 OU teams;
   while P2 has not shown it, it counts as at full HP with the
   probability that it is among P2's unrevealed slots.
-* ``bst_hp_left``: base stat total weighted by the HP left, summed over
-  alive Pokémon (P2's unrevealed slots as the mean of its revealed
-  Pokémon at full HP), as a share difference in [-1, 1].
 * ``hidden_bst``: how strong P2's unrevealed Pokémon probably are. A
   label-free model learned from P1 teams (which species appear
   together) completes P2's revealed team; the feature is minus the mean
@@ -25,7 +22,7 @@ import math
 from collections.abc import Mapping, Sequence
 
 from domain.battle import BattleContext, PlayerState
-from features.core.turn import AtTurn, check_turn
+from features.core.turn import check_turn
 from interfaces import Feature
 
 MAX_BST = 600
@@ -67,22 +64,6 @@ def _snorlax_hp(player: PlayerState, guess_hidden: bool = False) -> float:
         return 0.0
     unrevealed = player.team_size - len(player.team)
     return SNORLAX_IN_TEAM * unrevealed / (player.team_size - 1)
-
-
-def bst_hp_left(context: BattleContext) -> float:
-    """``bst_hp_left`` (see the module docstring)."""
-    a, b = (_strength(context.side(s)) for s in ("p1", "p2"))
-    return (a - b) / (a + b) if a + b else 0.0
-
-
-def _strength(player: PlayerState) -> float:
-    known = list(player.team.values())
-    total = sum(p.hp_pct * p.info.base_stat_total for p in known if not p.fainted)
-    unrevealed = player.team_size - len(known)
-    if unrevealed and known:
-        mean = sum(p.info.base_stat_total for p in known) / len(known)
-        total += unrevealed * mean
-    return total
 
 
 def _hpw_share(context: BattleContext, stat: str) -> float:
@@ -155,7 +136,3 @@ class HiddenTeamStrength(Feature[BattleContext]):
             score += math.log((pair + 1) / (member_count + 2))
             score -= math.log((count + 1) / (n + 2))
         return score
-
-
-def team_features(turn: int | None = None) -> list[Feature[BattleContext]]:
-    return [AtTurn("hpw_spd", hpw_spd, turn), HiddenTeamStrength(turn)]

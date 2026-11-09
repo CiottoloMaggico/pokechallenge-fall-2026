@@ -9,7 +9,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from domain.battle import BattleContext
-from features.core.turn import AtTurn
 
 MAX_BOOST_SUM = 30  # five stats, six stages each
 TRAPPING_EFFECTS = frozenset({"trapped", "wrap", "bind", "clamp", "firespin", "whirlpool"})
@@ -45,11 +44,3 @@ def trapped(context: BattleContext) -> float:
     last = context.last
     p1, p2 = (bool(TRAPPING_EFFECTS & set(s.effects)) for s in (last.p1, last.p2))
     return float(p2) - float(p1)
-
-
-def field_features(turn: int | None = None) -> list[AtTurn]:
-    return [
-        AtTurn("bst_sum", boost_sum, turn),
-        AtTurn("eff_substitute", substitute_up, turn),
-        AtTurn("eff_trapped", trapped, turn),
-    ]

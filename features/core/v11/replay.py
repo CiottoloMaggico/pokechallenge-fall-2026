@@ -247,11 +247,6 @@ def parse(raws: Iterable[Record], dex: Pokedex, cut: int | None = None) -> list[
     return [Battle(r, dex, cut) for r in raws]
 
 
-def safe_div(a: float, b: float) -> float:
-    """``a / b``, 0 when ``b`` is 0."""
-    return a / b if b else 0.0
-
-
 def log_ratio(a: float, b: float) -> float:
     """``log(a / b)``, NaN unless both are positive numbers."""
     if not (a > 0 and b > 0) or math.isnan(a) or math.isnan(b):

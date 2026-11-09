@@ -23,16 +23,6 @@ PARAMS: dict[str, Any] = {
 
 
 # depth-2 trees: only pairwise interactions, the best partner for logreg
-SHALLOW_PARAMS: dict[str, Any] = {
-    "max_depth": 2,
-    "max_leaf_nodes": None,
-    "learning_rate": 0.05,
-    "max_iter": 600,
-    "min_samples_leaf": 50,
-    "l2_regularization": 1.0,
-    "max_features": 0.8,
-    "random_state": 0,
-}
 
 
 def search_space(trial: Trial) -> dict[str, Any]:
@@ -49,8 +39,3 @@ def search_space(trial: Trial) -> dict[str, Any]:
 @model("hgb", space=search_space)
 def build(name: str = "hgb", **params: Any) -> Model:
     return tree_model(name, HistGradientBoostingClassifier(**{**PARAMS, **params}))
-
-
-def build_shallow(name: str = "hgb_shallow", **params: Any) -> Model:
-    """Shallow boosting (``SHALLOW_PARAMS``), meant to be blended with logreg."""
-    return build(name, **{**SHALLOW_PARAMS, **params})

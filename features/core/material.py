@@ -108,26 +108,6 @@ def hp_healed(context: BattleContext) -> float:
     return (healed["p1"] - healed["p2"]) / TEAM_SIZE
 
 
-def hp_dealt(context: BattleContext) -> float:
-    """HP taken from the opponent's active, P1's total vs P2's, in [-1, 1].
-
-    Sums the turn-to-turn HP drops of the opposing active Pokémon while it
-    stayed in (attacks, recoil, residual damage), plus the HP it had when
-    it fainted unseen (a hidden P2 knockout shows the replacement at once),
-    then ``(P1 - P2) / (P1 + P2)``: positive when P1 dealt more damage.
-    """
-    dealt = {"p1": 0.0, "p2": 0.0}
-    for before, after in zip(context.history, context.history[1:], strict=False):
-        for side, other in (("p1", "p2"), ("p2", "p1")):
-            now, was = after.side(other), before.side(other)
-            if not now.switched:
-                dealt[side] += max(0.0, was.hp_pct - now.hp_pct)
-            elif now.n_fainted > was.n_fainted:
-                dealt[side] += was.hp_pct
-    total = dealt["p1"] + dealt["p2"]
-    return (dealt["p1"] - dealt["p2"]) / total if total else 0.0
-
-
 def _healed(before: float, after: float, status: str, move: Move | None) -> float:
     if after <= 0:
         return 0.0
