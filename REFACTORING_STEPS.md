@@ -276,5 +276,47 @@ has its own detector inside the feature; `uses_labels` declared without reading 
 | 3a | done (33fefb6): `battle_features` equals the reference bitwise (NaN equal) on 813 columns × 10,000 train + 5,000 test rows (all reference columns except the 528 `bt_ bc_ bf_ bg_ u_`, `cut` and the 6 `q_*`), ~60 s with the detector; 3 tests. `simulation.py` (332 lines in the original, ~470 formatted) is split into `simulation.py` (first version, `MoveTable`, `used_move`) and `simulation2.py` (`simulation_features`); `_proxies` / `_attack` became public `proxies` / `is_attack`; `simulate` / `simulate2` return early when a side is empty (the original breaks out of the loop at once: same result) so the indices are never `None` for pyright |
 | 3b | done (e7c64e6): `build("v11")` (`fit_transform` on the 10,000 train contexts, `to_frame` on the 5,000 test contexts, `Dataset` with no repair) equals the reference `X_train` / `X_test` restricted to the output columns bitwise, same order: 10,000 + 5,000 rows × 819 columns (813 of `battle_features` + 6 `q_*`); fit ~9 min (533 s), test batch 20 s; golden check passes; 3 tests (the contract test covers `v11`). `faint.py` is unchanged: `build.py` imports its `_collect` / `_fit` for the full detector of new battles; the `q_*` columns are set by position instead of `join` (same result with unique battle ids); `features/v11.py` imports `V11Features` inside the builder so that listing the sets needs no LightGBM |
 | 4 | done (05cd4c8): each member fitted on the reference `X_train` (10,000 × 819 `v11` output columns) predicts on `X_test` exactly the probabilities of `members_test.csv`: max diff 0 for `v11_lr_spline` (fit + predict 16 s), `v11_xgb` (26 s), `v11_lgbm` (24 s), `v11_cat` (49 s); their blend equals `blend_test_proba.csv` (max diff 0); golden check passes; 6 tests (the contract test covers the five models). `TeamEffect` keeps only the options `blend_v11` uses (`joint`, `split`, `lam`, `lam_pair` dropped); `spline_lr` falls back to `SPLINE_KEYS` only for `keys=None` (the original also for an empty list) so that a table with none of the keys, like the contract test's, fits; `StackedLogit` / `TeamEffect` / `make` are otherwise copies; `SEED = 42` lives in `v11_stacking.py`, `N_JOBS = 4` in `v11_member.py` (models may not import the features' constants); the lr_spline base uses `BASE_C = 0.0007` and the model's keys (the configuration's `base_spline` is the same list) |
-| 5 | done (this commit): `diff results/submissions/submission_v11_blend.csv results/v11_reference/submission_blend_v11.csv` is empty; the probabilities equal `blend_test_proba.csv` on the 5,000 test battles, max diff 0 (round-trip parsing); `train` 12 min 45 s (wall), `predict` 1 min 22 s; `results/runs/v11/v11__v11_blend/` is 100 MB (`feature_state.pkl` 77 MB, `model.pkl` 27 MB, `run.json` 17 kB); a second `predict` from the saved run writes byte-identical files. The tree members log pandas `PerformanceWarning`s (fragmented frame in `StackedLogit._attach`, as in the original): harmless |
-| 6 | todo |
+| 5 | done (408e3e6): `diff results/submissions/submission_v11_blend.csv results/v11_reference/submission_blend_v11.csv` is empty; the probabilities equal `blend_test_proba.csv` on the 5,000 test battles, max diff 0 (round-trip parsing); `train` 12 min 45 s (wall), `predict` 1 min 22 s; `results/runs/v11/v11__v11_blend/` is 100 MB (`feature_state.pkl` 77 MB, `model.pkl` 27 MB, `run.json` 17 kB); a second `predict` from the saved run writes byte-identical files. The tree members log pandas `PerformanceWarning`s (fragmented frame in `StackedLogit._attach`, as in the original): harmless |
+| 6 | done (this commit): `pytest` 710 passed, 43 skipped (the feature contract's "no state" cases); `ruff check` / `ruff format --check` clean (144 files, `--extend-exclude tmp`); pyright (rule 8) 0 errors; golden check passes (tol 1e-9); "v11" section added below |
+
+## v11
+
+**Commands** (pokedex and repair at their defaults; `v11` ignores the repair, see below):
+
+    python main.py train --features v11 --models v11_blend --out results/runs/v11
+    python main.py predict --run results/runs/v11/v11__v11_blend --test input/test.jsonl \
+        --out results/submissions/submission_v11_blend.csv \
+        --proba results/submissions/submission_v11_blend_proba.csv
+
+The members can also be trained alone (`v11_lr_spline`, `v11_xgb`, `v11_lgbm`, `v11_cat`).
+
+**What is exact** (against the original trained on `input/train.jsonl` with this repository's
+`.env`, `results/v11_reference/`): the replayed `Battle`s (step 1), the detector's P2
+probabilities (step 2), the 819 `v11` columns on train (cross-fitted) and test (step 3b), each
+member's test probabilities (step 4) and the submission and its probabilities (step 5, max
+difference 0). With the original's own venv (other numpy / scipy / xgboost versions) the
+original itself moves by 50 labels out of 5,000 (step 0): the port is exact only for the library
+versions of `.env`.
+
+**Differences with the original's protocol**
+- The original's CV (`src.cv`, not ported) fits the features once on all of train and
+  cross-validates only the models, so its `cv_acc` (0.7207 for `blend_v11`) is not what
+  `main.py evaluate --features v11` measures: `evaluate` refits `V11Features` (Pokédex, detector,
+  helpers, forecast) inside every fold, on the fold's training battles only, then the members.
+  This is the leak-free protocol of the repository, but slow (the full fit on all of train takes
+  about 13 min, so a 5-fold × 3-seed evaluation takes hours; the plan estimates ~30 min per
+  fold; not run here).
+- The blend weights are the original's constants (fitted on its own out-of-fold predictions);
+  they are not refitted by the repository.
+
+**Deviations from `REFACTORING.md`**
+- Rule 4 (repair before any feature): `V11Features` reads `context.record`, the raw record, and
+  runs v11's own hidden-faint detector inside the feature, so `--repair` does not change the
+  `v11` columns (the run still records its repair, as every run).
+- `V11Features` declares `uses_labels = True` without reading the labels, only so that
+  `FeatureSet.fit` never passes it unlabeled (test) battles; `inner_oof = False` because its
+  training rows are already cross-fitted by v11 itself.
+- Layers: the models cannot import the features, so `SEED = 42` and `N_JOBS = 4` are repeated
+  in `models/core/v11_stacking.py` and `models/core/v11_member.py`.
+- `v11_blend` is a `@model`, not an `@ensemble`, so `build_tuned` cannot turn it into a
+  probability average.
