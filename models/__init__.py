@@ -18,6 +18,7 @@ from models import (  # noqa: F401  (imported for the registration)
     lightgbm,
     lightgbm_lr,
     logreg,
+    v11,
     xgboost,
     xgboost_lr,
 )
