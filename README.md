@@ -128,4 +128,92 @@ CI (`.github/workflows/ci.yml`) runs the three on every push.
 
 ## Evaluation
 
-(pending: the experiments are running)
+**Protocol.** Every number below is a cross-validation on the 10,000 training battles:
+stratified grouped 5-fold (duplicated battles in the same fold), repeated on three fold
+assignments (seeds 33, 66, 133), so 15 folds per row; all rows share the same folds. Features
+are refitted inside every training fold (label-aware ones out of fold). "± fold" is the
+fold-to-fold std, "± seed" the std of the mean across the three fold assignments. Δ columns
+compare each row with a reference on the same 15 folds; p is the corrected repeated k-fold
+t-test (Nadeau & Bengio), which does not treat overlapping folds as independent. The raw tables
+are in `results/evaluations/` (`summary.csv`, `folds.csv`, `predictions.csv`).
+
+### Models on `compact_v5` (18 columns)
+
+Reference for Δ: `logreg`. For log loss, a negative Δ is better.
+
+| model | accuracy | ± fold | ± seed | log loss | ROC AUC | Brier | Δ accuracy (p) | Δ log loss (p) |
+|---|---|---|---|---|---|---|---|---|
+| lightgbm_lr | 0.7208 | 0.0081 | 0.0004 | 0.5404 | 0.7986 | 0.1829 | +0.0017 (0.36) | −0.0022 (0.08) |
+| xgboost_lr | 0.7208 | 0.0077 | 0.0015 | 0.5404 | 0.7986 | 0.1829 | +0.0017 (0.35) | −0.0022 (0.07) |
+| ensemble_from_lr | 0.7207 | 0.0084 | 0.0009 | 0.5402 | 0.7987 | 0.1829 | +0.0016 (0.38) | −0.0024 (0.05) |
+| catboost_lr | 0.7205 | 0.0085 | 0.0008 | 0.5401 | 0.7987 | 0.1829 | +0.0014 (0.44) | −0.0025 (0.04) |
+| gb_lr | 0.7202 | 0.0091 | 0.0012 | 0.5402 | 0.7987 | 0.1829 | +0.0011 (0.52) | −0.0024 (0.06) |
+| ensemble_from_lr-tuned | 0.7199 | 0.0070 | 0.0013 | 0.5399 | 0.7987 | 0.1828 | +0.0008 (0.75) | −0.0026 (0.11) |
+| logreg | 0.7191 | 0.0084 | 0.0016 | 0.5426 | 0.7968 | 0.1837 | — | — |
+| ensemble | 0.7185 | 0.0093 | 0.0027 | 0.5419 | 0.7971 | 0.1836 | −0.0006 (0.79) | −0.0007 (0.54) |
+| xgboost | 0.7151 | 0.0088 | 0.0025 | 0.5446 | 0.7947 | 0.1847 | −0.0040 (0.35) | +0.0020 (0.42) |
+| ensemble_boost | 0.7148 | 0.0090 | 0.0012 | 0.5434 | 0.7955 | 0.1843 | −0.0043 (0.22) | +0.0009 (0.65) |
+| ensemble_all | 0.7147 | 0.0095 | 0.0019 | 0.5441 | 0.7949 | 0.1845 | −0.0044 (0.28) | +0.0015 (0.46) |
+| lightgbm | 0.7133 | 0.0078 | 0.0022 | 0.5476 | 0.7923 | 0.1859 | −0.0058 (0.18) | +0.0050 (0.09) |
+| hgb | 0.7117 | 0.0081 | 0.0023 | 0.5495 | 0.7906 | 0.1867 | −0.0074 (0.10) | +0.0070 (0.02) |
+| catboost | 0.7054 | 0.0090 | 0.0025 | 0.5611 | 0.7849 | 0.1905 | −0.0137 (0.02) | +0.0185 (<0.001) |
+
+- No model is significantly more accurate than the logistic regression: the 18 columns are
+  already close to linear in the log-odds, and the fold-to-fold std (≈0.008) is five times the
+  largest gain.
+- The boosters started from the logistic regression's log-odds (`*_lr`) and their average
+  (`ensemble_from_lr`, the submitted model with tuned members) improve the log loss by about
+  0.0024 (p ≈ 0.04–0.08): better-calibrated probabilities, the same decisions.
+- Plain gradient boosting from scratch is worse than the linear model on these few, smooth
+  columns; CatBoost with default settings is significantly worse (p = 0.02 on accuracy).
+- Tuning the members (`ensemble_from_lr-tuned`, Optuna on log loss) moves nothing beyond noise.
+
+### Feature sets with `logreg`
+
+Reference for Δ: `compact_v5`.
+
+| feature set | columns | accuracy | ± fold | log loss | ROC AUC | Δ accuracy (p) | Δ log loss (p) |
+|---|---|---|---|---|---|---|---|
+| compact_v5 | 18 | 0.7191 | 0.0084 | 0.5426 | 0.7968 | — | — |
+| compact_v5_orig | 26 | 0.7191 | 0.0075 | 0.5421 | 0.7973 | −0.0000 (1.00) | −0.0005 (0.20) |
+| compact_v4_orig | 20 | 0.7149 | 0.0077 | 0.5482 | 0.7922 | −0.0042 (0.22) | +0.0056 (<0.001) |
+| selection_pool | 37 | 0.7146 | 0.0084 | 0.5485 | 0.7918 | −0.0045 (0.23) | +0.0059 (<0.001) |
+| compact_v2_orig | 19 | 0.7146 | 0.0083 | 0.5496 | 0.7907 | −0.0045 (0.21) | +0.0070 (<0.001) |
+| compact_v3_orig | 19 | 0.7146 | 0.0086 | 0.5496 | 0.7907 | −0.0045 (0.25) | +0.0070 (<0.001) |
+| compact_plus | 17 | 0.7146 | 0.0072 | 0.5539 | 0.7873 | −0.0045 (0.19) | +0.0114 (<0.001) |
+| compact_v4 | 16 | 0.7142 | 0.0101 | 0.5485 | 0.7919 | −0.0049 (0.13) | +0.0059 (<0.001) |
+| compact_v2 | 15 | 0.7140 | 0.0083 | 0.5498 | 0.7906 | −0.0051 (0.05) | +0.0072 (<0.001) |
+| compact_v3 | 15 | 0.7140 | 0.0083 | 0.5498 | 0.7906 | −0.0051 (0.05) | +0.0072 (<0.001) |
+| compact_ko | 19 | 0.7137 | 0.0073 | 0.5508 | 0.7897 | −0.0054 (0.12) | +0.0082 (<0.001) |
+| compact | 11 | 0.7000 | 0.0102 | 0.5650 | 0.7756 | −0.0191 (0.002) | +0.0224 (<0.001) |
+| compact_orig | 14 | 0.6999 | 0.0100 | 0.5649 | 0.7756 | −0.0192 (0.002) | +0.0224 (<0.001) |
+| core | 14 | 0.6990 | 0.0071 | 0.5700 | 0.7702 | −0.0201 (<0.001) | +0.0274 (<0.001) |
+| material | 8 | 0.6842 | 0.0059 | 0.5812 | 0.7567 | −0.0349 (<0.001) | +0.0386 (<0.001) |
+| hp30 | 1 | 0.6765 | 0.0103 | 0.5925 | 0.7452 | −0.0426 (<0.001) | +0.0499 (<0.001) |
+| hazards | 4 | 0.5574 | 0.0082 | 0.6829 | 0.5805 | −0.1617 (<0.001) | +0.1403 (<0.001) |
+| switch | 2 | 0.5496 | 0.0101 | 0.6840 | 0.5730 | −0.1695 (<0.001) | +0.1414 (<0.001) |
+
+- The HP difference at the last turn alone (`hp30`) already reaches 67.7 %; material, hazards
+  and switching together (`core`) reach 69.9 %, and the knockout repair with the team / pool
+  features (`compact_ko` … `compact_v5`) 71.9 %.
+- `compact_v5` has a significantly lower log loss than every earlier set (p < 0.001); on
+  accuracy only the gap to `compact` and the smaller sets is significant. The revalidation that
+  removed 8 columns of `compact_v5_orig` lost nothing.
+
+### Knockout detector (rows = P1's switches, seeds 42, 1, 2)
+
+| features | model | accuracy | log loss | ROC AUC | Brier |
+|---|---|---|---|---|---|
+| ko_domain30 | hgb_ko | 0.9627 | 0.0992 | 0.9918 | 0.0281 |
+| ko_raw50 | hgb_ko | 0.9625 | 0.0993 | 0.9917 | 0.0280 |
+| ko_raw50 | lightgbm | 0.9619 | 0.1056 | 0.9911 | 0.0293 |
+| ko_domain30 | lightgbm | 0.9616 | 0.1067 | 0.9909 | 0.0296 |
+| ko_raw50 | logreg | 0.9218 | 0.2005 | 0.9677 | 0.0579 |
+| ko_domain30 | logreg | 0.9052 | 0.2289 | 0.9590 | 0.0685 |
+
+The 30 domain columns match the 50 raw ones with the default detector (`hgb_ko`, artifact
+`v3`: 10,109 repaired P2 knockouts on the training battles).
+
+### v11
+
+(pending: v11 is being re-ported to the submitted version)
