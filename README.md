@@ -68,7 +68,8 @@ python main.py predict --run results/runs/compact_v5__ensemble_from_lr \
 ```
 
 The v11 model (`v11` features, `v11_blend` model) trains in about 13 minutes and predicts the
-test set in about 1.5 minutes; its submission equals the one of the original repository:
+test set in about 1.5 minutes. It ports the `blend_v11` model of the original FDS repository
+(same feature and model logic; a few test labels can differ with other library versions):
 
 ```sh
 python main.py train --features v11 --models v11_blend --out results/runs/v11

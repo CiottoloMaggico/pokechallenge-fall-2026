@@ -15,8 +15,9 @@ code's behaviour wins: note the conflict and ask.
   every command (`--repair`, default `model=results/addons/knockouts/v3`). If `v3` is missing,
   rebuild it with `python main.py detector train --version v3 --seeds 42 1 2` (~2 min, same
   P2 repairs). Versions are never overwritten: a new detector gets a new version.
-- `tmp/` (untracked, not ours) holds the original FDS repository that the v11 port copies.
-  Never edit it.
+- The original FDS repository that the v11 port copies is outside this repository, in
+  `~/Downloads/FDS-Pokemon-Battle-Prediction/FDS-Pokemon-Battle-Prediction`. Never edit it.
+  `results/v11_ref/sub20_blend_v11.csv` is the submission it produced with `blend_v11`.
 
 ## Architecture
 Layers (enforced on the imports by `tests/test_architecture.py`):
@@ -49,9 +50,7 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
 ## Commands
 - Tests: `pytest` (no test reads `input/` or `results/`); lint:
   `ruff check . && ruff format --check .`; types: `pyright`. CI
-  (`.github/workflows/ci.yml`) runs the three. Locally `tmp/` exists, so use
-  `ruff check . --extend-exclude tmp && ruff format --check . --extend-exclude tmp` and
-  `pyright addons domain features models tests tuning tools *.py`.
+  (`.github/workflows/ci.yml`) runs the three.
 - Golden check (any change that must not move the results, ~10 min; needs the `v3`
   artifact, `export --repair` picks another):
   `python tools/golden.py export --out results/golden/candidate`
@@ -72,9 +71,9 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
 - v11 (native port of the FDS repository's `blend_v11`, ~13 min train, ~1.5 min predict):
   `python main.py train --features v11 --models v11_blend --out results/runs/v11`
   `python main.py predict --run results/runs/v11/v11__v11_blend --test input/test.jsonl --out results/submissions/submission_v11_blend.csv --proba results/submissions/submission_v11_blend_proba.csv`
-  Its submission equals the original's (`results/v11_reference/submission_blend_v11.csv`,
-  same probabilities). The scratch checks against the original are in
-  `results/v11_reference/checks/`.
+  The port must be identical in logic to the original's `blend_v11` (features and models)
+  with similar metrics; its submission may differ by a few labels from
+  `results/v11_ref/sub20_blend_v11.csv` (library versions, platform).
 - No feature depends on the hash seed (contract test in
   `tests/features/test_feature_contract.py`).
 
@@ -104,7 +103,7 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   not move, `pytest`, ruff, pyright). Messages: `feat(<scope>): …`, `fix(<scope>): …`,
   `docs: …`, `refactor(<scope>): …`. A fix that changes results goes in its own `fix`
   commit, only after the user agrees.
-- Add files by explicit path (deletions included); never commit `results/`, `tmp/` or
+- Add files by explicit path (deletions included); never commit `results/` or
   changes to `input/`.
 - Git: by default never push and never rewrite history (no amend, rebase, reset, filter of
   commits). Both are allowed only when the user explicitly asks for them; before rewriting,
