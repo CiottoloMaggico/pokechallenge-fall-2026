@@ -9,8 +9,8 @@ code's behaviour wins: note the conflict and ask.
   command.
 - Data: `input/train.jsonl`, `input/test.jsonl`, stored with Git LFS. Never modify or re-commit
   them.
-- Outputs only under `results/` (git-ignored, paths in `storage.ResultsLayout`). Older outputs
-  in `runs/` and the root `submission_*.csv` are cited by `SUBMISSIONS.md`: do not move them.
+- Outputs only under `results/` (git-ignored, paths in `storage.ResultsLayout`). The
+  evaluations behind the tables of `README.md` are in `results/evaluations/`.
 - Knockout detector: a versioned artifact in `results/addons/knockouts/<version>/`, loaded by
   every command (`--repair`, default `model=results/addons/knockouts/v3`). If `v3` is missing,
   rebuild it with `python main.py detector train --version v3 --seeds 42 1 2` (~2 min, same
@@ -64,18 +64,19 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   `python main.py select --method forward|backward --start <set> [--pool <set>]`
   (corrected t-test, report in `results/selections/`).
 - Full regression (~30 min):
-  `python main.py evaluate --features compact_v5 --models logreg ensemble_from_lr --seeds 33 66 133 --out results/reference_runs/<name>`
-  Reference run: `results/reference_runs/step9_final` (ensemble_from_lr 0.7207 / 0.5402,
-  logreg 0.7191 / 0.5426, accuracy / log loss); a change that must not move the results
-  matches it fold by fold.
+  `python main.py evaluate --features compact_v5 --models logreg ensemble_from_lr --seeds 33 66 133 --out results/evaluations/<name>`
+  Reference: the `compact_v5` / `logreg` and `ensemble_from_lr` rows of
+  `results/evaluations/models_compact_v5/folds.csv` (same seeds; ensemble_from_lr
+  0.7207 / 0.5402, logreg 0.7191 / 0.5426, accuracy / log loss); a change that must not
+  move the results matches them fold by fold.
 - v11 (native port of the FDS repository's `blend_v11`, ~13 min train, ~1.5 min predict):
   `python main.py train --features v11 --models v11_blend --out results/runs/v11`
   `python main.py predict --run results/runs/v11/v11__v11_blend --test input/test.jsonl --out results/submissions/submission_v11_blend.csv --proba results/submissions/submission_v11_blend_proba.csv`
   Its submission equals the original's (`results/v11_reference/submission_blend_v11.csv`,
   same probabilities). The scratch checks against the original are in
   `results/v11_reference/checks/`.
-- No feature depends on the hash seed (contract test). `export PYTHONHASHSEED=0` is needed only
-  for the old recipes of `SUBMISSIONS.md`.
+- No feature depends on the hash seed (contract test in
+  `tests/features/test_feature_contract.py`).
 
 ## Rules that must never be broken
 1. Only `train.jsonl` fits anything (Pokédex, detector, features, models);
