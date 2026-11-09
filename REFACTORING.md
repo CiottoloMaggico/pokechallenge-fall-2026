@@ -77,13 +77,15 @@ pokechallenge/
 │   │   ├── knockouts.py  simulation.py  encoding.py  pool.py  turn.py
 │   │   ├── bag.py  knowledge.py  matchup.py  trajectory.py  wincon.py
 │   │   ├── montecarlo.py       # Monte Carlo simulation (prototype, in no set)
-│   │   └── field.py            # the old root field_features.py
+│   │   ├── field.py            # the old root field_features.py
+│   │   └── v11/                # native port of v11 (REFACTORING_STEPS.md)
 │   ├── common.py               # make_set, type_chart: helpers of the set files
 │   ├── sets.py                 # imports every set file; FEATURE_SETS, build, parse_name
 │   ├── compact.py              # one file per feature set (builder + docstring)
 │   ├── compact_v2.py … compact_v5.py   # each with its *_orig set
 │   ├── compact_ko.py  compact_plus.py  core_set.py  hazards.py  hp30.py
 │   ├── material.py  switch.py
+│   ├── v11.py                  # the v11 port's set (one feature, V11Features)
 │   ├── selection_pool.py       # candidate pool of `main.py select`
 │   └── transitions/            # feature sets of the knockout detector task
 │       ├── __init__.py         # TRANSITION_SETS registry, build(name)
@@ -558,10 +560,10 @@ class RuleKnockoutRepair:                            # addons/knockouts_rule.py
   settings rebuilds an artifact with identical P2 probabilities (checked in step 7:
   `v3` and `v3-repro` agree on all 39,204 candidates).
 
-v11 (the FDS repository) is out of scope: it will be ported natively later,
-as features in `features/core/` and models in `models/`, not as a bridge to an
-external codebase. The refactoring only keeps the extension points it will
-need (§10). The old bridge (`features/v11_bridge.py`, `compact_v5_v11`, the model
+v11 (the FDS repository) was out of scope of the refactoring; it is being ported natively
+after it (`REFACTORING_STEPS.md`), as features in `features/core/v11/` (feature set `v11`) and
+models in `models/`, not as a bridge to an external codebase. The refactoring only kept the
+extension points it needs (§10). The old bridge (`features/v11_bridge.py`, `compact_v5_v11`, the model
 `blend_v11`, `tools/v11_*`) was deleted in step 8; it is at the tag `submission-final`,
 which `SUBMISSIONS.md` uses to reproduce the blend submission. `LogitBlend` stays.
 
@@ -942,7 +944,8 @@ change that must not move the results.
 
 ## 10. Extension points kept for a native v11 (and other external models)
 
-Not implemented as v11 code now, but the interfaces must allow it:
+Kept by the refactoring for the native port of v11 (`REFACTORING_STEPS.md`), which uses the
+first two:
 
 - `Feature.prepare(battles)`: batch hook, for features that compute a whole
   pipeline at once (simulations, forecasts on truncated timelines).
@@ -951,9 +954,11 @@ Not implemented as v11 code now, but the interfaces must allow it:
 - `LogitBlend(base, column, w)`: blends any registered model with any
   probability column, not v11 specifically; its weight is chosen by a generic
   `blend-weight` command (nested CV, corrected t-test) to add when needed.
-- v11's LightGBM detector becomes another model / feature set on the
+- v11's LightGBM detector could become another model / feature set on the
   detector table, compared with `detector evaluate` and exported as a new
-  artifact version; no new addon code is needed.
+  artifact version, with no new addon code. The port does not do it: to reproduce
+  `blend_v11` exactly, the detector stays inside `V11Features`, which reads the raw
+  record, so `--repair` does not change the `v11` columns.
 - Feature sets with hundreds of columns must stay cheap: `FeatureSet.transform`
   must not assume one Python call per battle per column (batch `prepare`), and
   fold tables are cached by `Gym.fold_tables`.
