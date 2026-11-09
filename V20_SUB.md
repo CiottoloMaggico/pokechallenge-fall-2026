@@ -101,7 +101,15 @@ standard folds instead of the original's `KFold` over battles (decision 2). Henc
     `tests/features/test_feature_contract.py`; `AGENTS.md`, `README.md`.
 - Never edit the original repository in `~/Downloads/...`; never re-export the golden reference;
   never delete `results/v11_alignment/`.
-- At most two heavy processes at a time; poll long jobs with sleeps ≤ 5 min and report.
+- At most two heavy processes at a time; poll long jobs with sleeps ≤ 5 min and log progress.
+- **Run all steps without stopping** (no pauses to show intermediate results: they go in the
+  final report). Stop and ask only for a **blocker** that needs the user: a bitwise stage of
+  `tools/v11_check.py` or the golden check fails and cannot be fixed without changing v11's
+  logic or a file outside "Allowed changes"; a decision of this file turns out impossible; a
+  test, lint or type error that can only be fixed outside "Allowed changes"; missing data,
+  dumps or artifacts that cannot be regenerated with the documented commands; an environment
+  failure (library, disk, memory) you cannot resolve. Anything else (bugs in the new code,
+  failing new tests, lint, typing, a slow step): fix it and continue.
 - One change per commit, after golden check, `pytest`, `ruff check . && ruff format --check .`,
   `pyright`. Messages `feat(domain): …`, `feat(addons): …`, `refactor(v11): …`, `docs: …`.
   No push, no history rewrite.
@@ -195,11 +203,15 @@ paths, same values):
   - task: `LabelledBattles` of P1's rows with `final & x_hp.notna()` (label = recorded faint,
     id = row, **group = the battle's duplicate group** (`fingerprint`), as `v3`), battles in file
     order, rows in order;
-  - cross-fitted tables: `Gym([lgbm_ko_v11], [ko_v11], plan=settings.plan, probes={"p2":
-    probe})` with the standard `FoldPlan` and the seeds of `--seeds`; the probe receives each
-    fold's fitted model and returns `(battle, i, p)` for the P2 candidates of the battles whose
-    P1 rows are in that fold's validation part (recorded P2 rows 1.0, other P2 rows 0.0); a
-    battle's value is the mean over the seeds; battles in no validation fold (no P1 row) get
+  - cross-fitted tables: for each seed of `--seeds`, `Gym([lgbm_ko_v11], [ko_v11],
+    plan=FoldPlan(5, (seed,)), probes={"p2": probe})` (the standard plan, one seed per gym run,
+    so the probe knows the seed); the probe receives each fold's fitted model and returns
+    `(battle, i, p)` for the P2 candidates of the battles whose P1 rows are in that fold's
+    validation part (recorded P2 rows 1.0, other P2 rows 0.0). The validation rows are
+    `FitContext.x_valid.index` (row positions of the task: the `ko_v11` set is stateless, so the
+    gym slices one shared table built with a `RangeIndex`); assert it in a test, or recompute
+    the splits with `folds.make_splits` on the same plan. A battle's value is the mean over the
+    seeds; battles in no validation fold (no P1 row) get
     the full model's value. The gym's out-of-fold AUC on P1 rows goes to `info.json`
     (`detector_auc`);
   - the same for each `cut` on the training battles truncated to `cut` entries;
@@ -311,7 +323,7 @@ paths, same values):
 3. **Detector addon + artifact** (`ko_v11` set, `lgbm_ko_v11`, `knockouts_v11.py`,
    `addons/__init__.py`, `train_v11`, `main.py`); `python main.py detector train-v11 --version
    v1 --seeds 42 1 2`; check: full detector bitwise, tables within noise. Commit
-   `feat(addons): v11 hidden-faint detector as a repair addon`. **Stop and show the check.**
+   `feat(addons): v11 hidden-faint detector as a repair addon`.
 4. **Features on `BattleContext`** (the 14 features, `battle.py`, `features/v11.py`, delete the
    monolith); check: features stage bitwise (0 differing cells on 10,000 × 819 and 5,000 × 819)
    with the injected repair. Commit `refactor(v11): one feature per group on BattleContext and
@@ -323,7 +335,7 @@ paths, same values):
    the dump, within noise) and the original's protocol (`cv_step3.py` on the new `X_train`)
    next to the original's numbers (expected within the seed-to-seed spread). Also run `train` +
    `predict` once with `--repair model=results/addons/knockouts/v3`, to show v11 works with
-   another repair. **Stop and show.**
+   another repair.
 7. **Tests and docs.** Tests on `tests/fixtures/` only (tiny v11 artifact built in `tmp_path`):
    domain modules, addon (table hit, truncated hit, fallback, no-P1-row battles, recorded →
    1.0, keys), v11 features (columns and order, forecast out of fold, works with `none` / `rule`
@@ -332,7 +344,7 @@ paths, same values):
    `AGENTS.md` and `README.md` already describe the target: check them against what you built,
    fix mismatches, remove the "In progress" note and the README's "pending" line. Commit
    `docs: v11 on the repository's architecture`.
-8. **Evaluation** (stop before starting it):
+8. **Evaluation** (run it, then the report):
    `python main.py evaluate --features v11 --models v11_lr_spline v11_xgb v11_lgbm v11_cat v11_blend logreg hgb lightgbm xgboost catboost --seeds 33 66 133 --reference v11/v11_blend --repair v11=results/addons/knockouts_v11/v1 --out results/evaluations/models_v11`
    (several hours), then the learning curve / plots and the README rows as in `V11_SUB20.md`
    step 5 (merged with `results/logs/compare.py`, corrected t-test); commit `docs(readme): …`.

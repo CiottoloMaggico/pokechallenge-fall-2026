@@ -97,13 +97,15 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   `python main.py predict --run results/runs/v11/v11__v11_blend --test input/test.jsonl --repair v11=results/addons/knockouts_v11/v1 --out results/submissions/submission_v11_blend.csv --proba results/submissions/submission_v11_blend_proba.csv`
   Its probabilities are within noise of `results/v11_alignment/dump/original/blend_v11.npy`
   (the detector's training values use the repository's folds); the original run in this
-  `.env` differs by 97 labels from `results/v11_ref/sub20_blend_v11.csv` (library versions). `train` / `evaluate` refuse `--test` with v11 (its
-  label-free features fit on the training battles only).
+  `.env` differs by 97 labels from `results/v11_ref/sub20_blend_v11.csv` (library versions).
+  `train` / `evaluate` refuse `--test` with v11 (its label-free features fit on the training
+  battles only).
 - v11 regression check (~15 min; needs the v11 artifact and `results/v11_alignment/dump/`):
-  `python tools/v11_check.py check` must report max |diff| 0 at every stage. Run it on every
-  change to the domain modules v11 uses (`timeline.py`, `expected_damage.py`, `switches.py`),
-  to `folds.py`, or to v11's addon, features or models; if it fails, stop and report as for the
-  golden check.
+  `python tools/v11_check.py check` must pass: max |diff| 0 at every bitwise stage (domain,
+  full detector, features and models fed the original's detector probabilities); the noise
+  stages (detector training values, end to end) are reported, not failed. Run it on every
+  change to the domain modules v11 uses (`timeline.py`, `expected_damage.py`, `switches.py`)
+  or to v11's addon, features or models; if it fails, stop and report as for the golden check.
 - No feature depends on the hash seed (contract test in
   `tests/features/test_feature_contract.py`).
 
