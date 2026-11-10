@@ -27,6 +27,9 @@ code's behaviour wins: note the conflict and ask.
   own protocol). v11's code must match them bit for bit when fed the original's detector
   probabilities (`tools/v11_check.py`); with v11's own repair (standard folds for the detector)
   the numbers are within noise of them. Never delete it.
+- Next planned task: "Next task" at the top of `V20_SUB.md` (v11's bag logit and team effect as
+  label-aware features in a new set `v11_fs`, measured against the faithful `v11`). Its proposed
+  decisions are confirmed with the user before starting.
 
 ## Architecture
 Layers (enforced on the imports by `tests/test_architecture.py`):
