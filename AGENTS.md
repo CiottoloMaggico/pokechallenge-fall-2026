@@ -64,16 +64,26 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
 - `features/`: one file per feature set (`features/<set>.py`, registered with `@feature_set`
   and imported by `features/sets.py`), feature families in `features/core/`, the detector's
   sets in `features/transitions/`. v11: one `Feature` per group in `features/core/v11/`
-  (frozen) and in `features/core/v11_fs/` (the living copy, plus the label-aware bag logit and
-  team effect and the splines), computed from `BattleContext` (record, the repository's
-  Pokédex, the repair's probabilities); they work with any repair. Never import `models`,
-  `addons` or the application.
+  (frozen) and in `features/core/v11_fs/` (the living copy), computed from `BattleContext`
+  (record, the repository's Pokédex, the repair's probabilities); they work with any repair.
+  Never import `models`, `addons` or the application.
+- `staged_feature_set.py` (features layer): `StagedFeatureSet`, a set in two stages: a
+  `FeatureSet` of battle features, then `TableFeature`s that read its table (and may consume
+  some of its columns). Use it for transformations that learn on columns already computed (a
+  regression of a block of columns, splines, a team effect against a base logit): the first
+  stage runs once and only the cheap learned part is refitted in the inner folds (same grouped
+  inner folds and leakage rules as `FeatureSet`). `v11_fs` is one: the v11 groups, then
+  `V11Splines`, `V11BagLogit` (label-aware) and `V11TeamEffect` (label-aware).
+- Groups without fitted state that several features compute on the same battle are remembered
+  on the context (`context.cached((<set>, <group>), ...)`, e.g. `features/core/v11_fs/
+  stateless.py`); never remember anything that depends on fitted state.
 - `models/`: one file per model (`@model` / `@ensemble` in `registry.py`), shared pieces in
   `models/core/`; a model sees a `DataFrame` and labels only (no `domain`, no `features`).
   A model is never tied to one feature set: steps that need particular columns (the v11
   members' team effect and bag logit) take the column roles as parameters and are skipped when
   the table has no such columns.
-- `interfaces.py` (`Feature`, `Model`, …), `feature_set.py` (`FeatureSet`), `registry.py`.
+- `interfaces.py` (`Feature`, `Model`, …), `feature_set.py` (`FeatureSet`),
+  `staged_feature_set.py` (`StagedFeatureSet`, `TableFeature`), `registry.py`.
 - `main.py` only parses arguments, builds `Settings` and calls one function of `usecases.py`.
 
 ## Commands
@@ -107,6 +117,13 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   `.env` differs by 97 labels from `results/v11_ref/sub20_blend_v11.csv` (library versions).
   `train` / `evaluate` refuse `--test` with v11 (its label-free features fit on the training
   battles only).
+- v11_fs, the living line (~11 min per fold of features on 8,000 battles, about 75 min per seed
+  of `evaluate` with the five generic models):
+  `python main.py evaluate --features v11_fs --models logreg_l2 stack_xgboost stack_lightgbm stack_catboost stack_blend --seeds <seed> --repair v11=results/addons/knockouts_v11/v1 --out results/evaluations/models_v11_fs_s<seed>`
+  `python main.py train --features v11_fs --models stack_blend --repair v11=results/addons/knockouts_v11/v1 --out results/runs/v11_fs`
+  Long evaluations: one process per seed (at most two at a time; `--jobs` is ignored with the
+  boosters, rule 6), each with its own `--out`, then merged with `GymResult.load` +
+  `GymResult.combine` (and `export`) before the comparisons.
 - v11 regression check (~50 min, of which ~35 for the `cv` stage; `--stages` runs a subset;
   needs the v11 artifact, `results/v11_alignment/dump/` and, once,
   `python tools/v11_check.py export`): `python tools/v11_check.py check` must pass: max |diff| 0 at every bitwise stage (domain,

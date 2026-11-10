@@ -132,9 +132,12 @@ Never touch the original repository in `~/Downloads`; never delete `results/v11_
    stack_blend --seeds 33 --repair v11=results/addons/knockouts_v11/v1 --out
    results/evaluations/v11_fs_quick` (the mixed combinations ignored); if |Δ log loss| of
    `v11_fs / stack_blend` against `v11 / v11_blend` exceeds 0.01, look for a bug first.
-4. Measurement: `python main.py evaluate --features v11_fs --models logreg_l2 stack_xgboost
-   stack_lightgbm stack_catboost stack_blend --seeds 33 66 133 --repair
-   v11=results/addons/knockouts_v11/v1 --out results/evaluations/models_v11_fs`; merged with
+4. Measurement, with the two-stage code of "Part A" below: one process per seed (at most two at
+   a time, no `--jobs`), `python main.py evaluate --features v11_fs --models logreg_l2
+   stack_xgboost stack_lightgbm stack_catboost stack_blend --seeds <seed> --repair
+   v11=results/addons/knockouts_v11/v1 --out results/evaluations/models_v11_fs_s<seed>` for 33,
+   66, 133 (the quick check's seed 33 does not count), merged into
+   `results/evaluations/models_v11_fs` (`GymResult.load` + `GymResult.combine`); merged with
    `models_v11` (`results/logs/compare.py`, same validation battles), every model against its twin
    with the corrected t-test (same 15 folds).
 5. Decomposition (only if step 4 moves beyond noise): `grouped_inner` (default True) on
@@ -145,6 +148,29 @@ Never touch the original repository in `~/Downloads`; never delete `results/v11_
 7. Docs: `README.md` rows (v11 section), `AGENTS.md` (commands, the exception to rule 2 only for
    the faithful v11). Commit `docs(readme): …`.
 8. Report.
+
+### Part A (done): v11_fs as a two-stage feature set (same values)
+
+Done before step 4, to cut the evaluation time without changing a value.
+
+- `staged_feature_set.py` (features layer): `StagedFeatureSet(name, base, stage)`, a
+  `FeatureSet` of battle features then `TableFeature`s on its table (`reads`, `consumes`,
+  `fit(table, labels)`, `transform(table)`); same leakage rules and inner folds as `FeatureSet`;
+  satisfies `FittableFeatureSource`, so the gym, folds, `TrainedRun`, `train` and `predict` are
+  unchanged. Commit `44f2b17`.
+- `v11_fs` = first stage: the 14 groups of `features/core/v11_fs` in v11's exact matrix order
+  (bags and team keys included); second stage: `V11Splines`, `V11BagLogit` (consumes `bs_ bh_
+  bm_`), `V11TeamEffect` (consumes `k_`). The cache of label-free inputs is gone. Commit
+  `14db11a`. The stateless groups are remembered on the context (`stateless.py`, commit
+  `c241b35`).
+- Values: identical bit for bit to the previous `v11_fs` on the fixtures and on fold 0 of seed 33
+  (8,000 + 2,000 battles), every column, except `stack_logit_0` on the training rows (at most
+  3.3e-15: the inner-fold copies now score their rows in one batch instead of one battle at a
+  time, so BLAS sums in another order; accepted by the user). The evaluation of `stack_blend` on
+  seed 33 equals `results/evaluations/v11_fs_quick/v11_fs` (metrics within 2.2e-16,
+  probabilities within 1.7e-15, 0 labels apart).
+- Time: features of one fold 1,626 s → 666 s (same load); `evaluate` of `stack_blend` on one
+  seed 8,479 s → 4,007 s.
 
 ### Hard constraints
 

@@ -99,11 +99,15 @@ Other commands:
 
 Feature sets: `hp30` (HP difference only), `material`, `hazards`, `switch`, `core` (the three
 together), `compact` … `compact_v5` (successive selections, each with an `_orig` variant),
-`compact_ko`, `compact_plus`, `selection_pool` (every candidate column) and `v11`. Models:
+`compact_ko`, `compact_plus`, `selection_pool` (every candidate column), `v11` (frozen) and
+`v11_fs` (the living line of v11, a two-stage set: v11's groups, then splines, bag logit and
+team effect as features; about 11 min of features per fold of 8,000 battles). Models:
 `logreg`, `hgb`, `lightgbm`, `xgboost`, `catboost`, the `*_lr` boosters (`gb_lr`, `lightgbm_lr`,
 `xgboost_lr`, `catboost_lr`), the averages `ensemble` (logreg + hgb), `ensemble_boost`,
 `ensemble_all`, `ensemble_from_lr` (the four `*_lr`), the v11 members `v11_lr_spline`,
-`v11_xgb`, `v11_lgbm`, `v11_cat` and their blend `v11_blend`.
+`v11_xgb`, `v11_lgbm`, `v11_cat` and their blend `v11_blend` (frozen), the generic models of
+`v11_fs` `logreg_l2`, `stack_xgboost`, `stack_lightgbm`, `stack_catboost` and their blend
+`stack_blend`.
 
 ## Repository layout
 
@@ -115,6 +119,8 @@ domain/            records, Pokédex, type chart, damage, replay, transitions, o
                    expected-damage estimate, switch descriptions (stdlib + numpy)
 addons/            knockout repairs: none, rule, trained detector artifact, v11's detector
 features/          one file per feature set; families in features/core/, v11 in features/core/v11/
+                   (frozen) and v11_fs in features/core/v11_fs/ (the living line)
+staged_feature_set.py   two-stage feature sets: battle features, then features on their table
 models/            one file per model; shared pieces in models/core/
 tuning/ selection.py stats_tables.py   Optuna search, column selection, corrected t-test
 tests/             unit, contract and end-to-end tests on tests/fixtures/ (200 battles)
