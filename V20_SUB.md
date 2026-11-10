@@ -2,7 +2,7 @@
 
 Read `AGENTS.md` first, then this file in full. The file has two parts:
 
-1. **Next task** (below, to do): `v11_fs`, the living line of v11: the label-aware steps of
+1. **Next task** (below, done): `v11_fs`, the living line of v11: the label-aware steps of
    v11's members (bag logit, team effect) as features, generic models, the faithful v11 frozen;
    measure how much the numbers move against it.
 2. **Done: the rebuild of v11** (the rest of the file, from "Task: rebuild v11"): kept as the
@@ -26,6 +26,14 @@ Read `AGENTS.md` first, then this file in full. The file has two parts:
   `ec1b8f6`); history is not rewritten without the user's request.
 
 ## Next task: `v11_fs`, the living line of v11 (label-aware features, generic models)
+
+**Status: done** (commits `a057863` … this file's last commit). Step 3: `v11_fs / stack_blend`
+0.7167 / 0.5427 vs `v11 / v11_blend` 0.7175 / 0.5417 on seed 33 (Δ log loss +0.0011, p 0.59).
+Step 4 (`results/evaluations/models_v11_fs`, two-stage code of Part A): every generic model within
+noise of its twin (`stack_blend` 0.7175 / 0.5416 / 0.7980 / 0.1833 vs `v11_blend` 0.7192 /
+0.5409 / 0.7985 / 0.1830, Δ accuracy −0.0016 p 0.42, Δ log loss +0.0006 p 0.56; all p ≥ 0.26),
+so step 5 was not run. Step 6: 217 test labels apart from `submission_v11_blend.csv`, 227 from
+the dump. README, "v11".
 
 These decisions of the user supersede the earlier proposal of this section and the amendments of
 commit `240499c` (the `learners.py` approach, the `v11fs_*` names): do not reopen them.

@@ -247,6 +247,25 @@ same 819 columns.
 | logreg | 0.7072 | 0.0058 | 0.0017 | 0.5553 | 0.7851 | 0.1889 | −0.0119 (0.002) | +0.0143 (<0.001) |
 | hgb | 0.7071 | 0.0057 | 0.0017 | 0.5542 | 0.7860 | 0.1886 | −0.0121 (0.01) | +0.0133 (<0.001) |
 
+`v11_fs`, the living line of v11 (`results/evaluations/models_v11_fs`, same seeds, folds and
+repair): the bag logit and the team effect are label-aware features of a two-stage set (out of
+fold on grouped inner folds; one base logit for the team effect, the regression of every non-key
+column), the spline expansion is a feature, and the generic models name no column. Δ against each
+model's frozen twin on the same 15 folds (corrected t-test):
+
+| model (twin) | accuracy | ± fold | ± seed | log loss | ROC AUC | Brier | Δ accuracy (p) | Δ log loss (p) |
+|---|---|---|---|---|---|---|---|---|
+| stack_catboost (v11_cat) | 0.7180 | 0.0050 | 0.0015 | 0.5429 | 0.7974 | 0.1837 | −0.0005 (0.87) | +0.0008 (0.54) |
+| stack_xgboost (v11_xgb) | 0.7179 | 0.0054 | 0.0019 | 0.5437 | 0.7966 | 0.1840 | −0.0000 (1.00) | +0.0005 (0.74) |
+| stack_blend (v11_blend) | 0.7175 | 0.0044 | 0.0008 | 0.5416 | 0.7980 | 0.1833 | −0.0016 (0.42) | +0.0006 (0.56) |
+| stack_lightgbm (v11_lgbm) | 0.7169 | 0.0057 | 0.0025 | 0.5430 | 0.7968 | 0.1838 | −0.0024 (0.26) | +0.0007 (0.61) |
+| logreg_l2 (v11_lr_spline) | 0.7146 | 0.0070 | 0.0009 | 0.5469 | 0.7926 | 0.1856 | −0.0009 (0.77) | +0.0002 (0.88) |
+
+- Every generic model is within noise of its twin (all p ≥ 0.26): moving the label-aware steps
+  into the features (other inner folds, one shared base logit, every model on the same table)
+  does not change the results. On the test file `stack_blend` and `v11_blend` give 217 different
+  labels (mean |Δp| 0.025).
+
 - Against the best `compact_v5` models on the same 15 folds (merged comparison): `v11_blend`
   ties `compact_v5` / `logreg` (Δ accuracy +0.0001, p 0.99; Δ log loss −0.0017, p 0.50) and
   `ensemble_from_lr` (−0.0015, p 0.73; +0.0007, p 0.74). Its fold-to-fold std is the lowest

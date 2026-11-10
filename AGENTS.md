@@ -34,8 +34,7 @@ code's behaviour wins: note the conflict and ask.
   (`features/v11_fs.py`, its own package `features/core/v11_fs/`, which never imports
   `features/core/v11/`) and the generic models (`models/stacked.py`: `logreg_l2`,
   `stack_xgboost`, `stack_lightgbm`, `stack_catboost`, `stack_blend`).
-- Current task: "Next task" at the top of `V20_SUB.md` (`v11_fs` and the generic models,
-  measured against the faithful `v11`); its decisions are confirmed by the user.
+- `V20_SUB.md` records the rebuild of v11 and the `v11_fs` task (both done); no task is pending.
 
 ## Architecture
 Layers (enforced on the imports by `tests/test_architecture.py`):
@@ -121,6 +120,9 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   of `evaluate` with the five generic models):
   `python main.py evaluate --features v11_fs --models logreg_l2 stack_xgboost stack_lightgbm stack_catboost stack_blend --seeds <seed> --repair v11=results/addons/knockouts_v11/v1 --out results/evaluations/models_v11_fs_s<seed>`
   `python main.py train --features v11_fs --models stack_blend --repair v11=results/addons/knockouts_v11/v1 --out results/runs/v11_fs`
+  `python main.py predict --run results/runs/v11_fs/v11_fs__stack_blend --test input/test.jsonl --repair v11=results/addons/knockouts_v11/v1 --out results/submissions/submission_v11_fs_stack_blend.csv`
+  (~18 min train + predict.) Results: `results/evaluations/models_v11_fs` (README, "v11"),
+  every generic model within noise of its frozen twin. `train` / `evaluate` refuse `--test`.
   Long evaluations: one process per seed (at most two at a time; `--jobs` is ignored with the
   boosters, rule 6), each with its own `--out`, then merged with `GymResult.load` +
   `GymResult.combine` (and `export`) before the comparisons.
@@ -140,9 +142,13 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
    test battles are only predicted. The Pokédex comes only from records in the
    competition format, never from external data.
 2. Duplicated battles (same fingerprint) stay in the same fold; every split is
-   checked for leakage. Declared exception, for fidelity to the original: v11's own inner
-   cross-validations (`StackedLogit`, `TeamEffect`, forecast) are not grouped by duplicates,
-   as in the original. (v11's detector artifact uses the standard grouped `FoldPlan`.)
+   checked for leakage. Declared exception, for fidelity to the original: the faithful v11's
+   own inner cross-validations (`StackedLogit`, `TeamEffect`, forecast) are not grouped by
+   duplicates, as in the original. (v11's detector artifact uses the standard grouped
+   `FoldPlan`.) In `v11_fs` the training rows of the label-aware features (bag logit, team
+   effect) are out of fold on the grouped inner folds, so the rule holds for them; the
+   cross-fits kept from v11 by decision stay ungrouped: the base logit inside `V11TeamEffect`,
+   the forecast's `KFold` and the inner folds of the generic `StackedLogit` (`stack_*`).
 3. Label-aware features give out-of-fold values on their training rows
    (grouped inner folds) or NaN (`inner_oof = False`). Never in-sample values.
 4. The knockout repair is applied to every battle before any feature. Addons
