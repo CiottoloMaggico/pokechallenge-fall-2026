@@ -54,7 +54,34 @@ base logit for the team effect instead of each member's own, and, inside `evalua
 aware features refitted on each outer training fold (unchanged in spirit: the members already
 refit them per fold).
 
-### Proposed decisions (confirm with the user before step 1; then do not reopen)
+### Amendments of the user (override the decisions below where they differ)
+
+- **Shared module `learners.py`** (top level, outside the layers like `stats_tables.py`): the
+  logic of `TeamEffect` (fitting and encoding, `TeamScores`) and the logistic pipeline of
+  `StackedLogit` (`SimpleImputer(median) → StandardScaler → LogisticRegression`,
+  `logit_pipeline`) moved there unchanged; it imports only numpy, pandas, scipy and scikit-learn,
+  never a repository module (rule in `tests/test_architecture.py`). `models/core/v11_team.py`
+  and `v11_stacking.py` import them without changing logic (`v11_check --stages models cv`
+  bitwise and the golden check before the commit); `features/core/v11/label_aware.py` uses them.
+- **Decision 2 corrected**: the base logit of `V11TeamEffect` is the regression (C=0.003) of
+  **every non-key column of `v11`, bags included** (computed inside the feature), as the
+  boosters' original `stack_full`, which excludes only `k_`.
+- **The `v11fs_*` members name no column or prefix**:
+  - the spline expansion of the 25 keys of `LR_SPLINE` becomes a label-free feature of `v11_fs`,
+    `V11Splines` (`SimpleImputer(median)` + `SplineTransformer(n_knots=4, degree=3)` fitted on
+    the training battles, columns `spl_<key>_<k>`); `v11fs_lr_spline` is
+    `imputer → scaler → LogisticRegression(C=0.0007)` on any table;
+  - `v11fs_xgb` / `lgbm` / `cat`: `StackedLogit()` without selectors (every column, kept, C=0.003)
+    → booster; no `PrefixScale`, no `exclude`;
+  - every member sees the same `v11_fs` table (part of what is measured; reported).
+- **Timing**: the label-free inputs of the two label-aware features (groups and forecast) are
+  fitted once and reused by the inner-fold copies, only if the requested battles are a subset of
+  those the cache was built on (the set of battle keys is stored); otherwise they are refitted.
+  Test: a feature cloned from a fitted one and refitted on other battles does not reuse the cache.
+- Allowed in addition: `learners.py`, the moves in `models/core/v11_team.py` /
+  `v11_stacking.py`, its rule in `tests/test_architecture.py`, the layer diagram of `AGENTS.md`.
+
+### Proposed decisions (confirmed; amended above)
 
 1. **New names, nothing renamed.** Feature set `v11_fs` (`features/v11_fs.py`); members
    `v11fs_lr_spline`, `v11fs_xgb`, `v11fs_lgbm`, `v11fs_cat` and blend `v11fs_blend`, same
