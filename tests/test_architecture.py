@@ -3,7 +3,8 @@
 * ``domain`` imports only the standard library and numpy (so never an addon, a feature,
   a model or the application);
 * ``addons`` never import the application or the CLI;
-* ``features`` (and ``feature_set.py``) never import models, addons or the application;
+* ``features`` (and ``feature_set.py``, ``staged_feature_set.py``) never import models, addons
+  or the application;
 * ``models`` never import the domain, features, addons or the application;
 * the CLI (``main.py``) only parses arguments and calls a use case: it never runs the gym,
   the tuner, the selection or loads the data itself.
@@ -33,7 +34,10 @@ def modules(*parts: str) -> list[Path]:
 
 FORBIDDEN: dict[str, tuple[list[Path], set[str]]] = {
     "addons": (modules("addons"), APPLICATION),
-    "features": (modules("features", "feature_set.py"), {"models", "addons", *APPLICATION}),
+    "features": (
+        modules("features", "feature_set.py", "staged_feature_set.py"),
+        {"models", "addons", *APPLICATION},
+    ),
     "models": (modules("models"), {"domain", "features", "feature_set", "addons", *APPLICATION}),
     "cli": (modules("main.py"), {"gym", "tuning", "selection", "data", "stats_tables"}),
 }
