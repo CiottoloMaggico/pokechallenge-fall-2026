@@ -65,7 +65,13 @@ def new_features() -> dict[str, Feature[BattleContext]]:
     for name in sorted(feature_sets.FEATURE_SETS):
         features = feature_sets.build(name)
         found.extend(features._entries[fid].feature for fid in features.feature_ids)
-    return {f"{f.feature_id}:{'+'.join(f.output_names or ())}": f for f in found}
+    keyed: dict[str, Feature[BattleContext]] = {}
+    for f in found:
+        key = f"{f.feature_id}:{'+'.join(f.output_names or ())}"
+        if key in keyed and type(keyed[key]) is not type(f):
+            key = f"{type(f).__module__}.{key}"  # v11_fs's own copy of a v11 feature
+        keyed[key] = f
+    return keyed
 
 
 KEYS = sorted(new_features())
@@ -241,6 +247,8 @@ def test_every_family_of_features_is_checked() -> None:
     ids = {key.partition(":")[0] for key in KEYS}
     assert {"pool_bulk_spd", "team_rating", "team_encoding"} <= ids
     assert {"V11Static", "V11Bags", "V11Forecast"} <= ids
+    assert {"V11Splines", "V11BagLogit", "V11TeamEffect"} <= ids
+    assert "features.core.v11_fs.forecast.V11Forecast" in ids
 
 
 if __name__ == "__main__":

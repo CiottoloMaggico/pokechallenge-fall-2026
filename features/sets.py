@@ -25,6 +25,7 @@ from features import (  # noqa: F401  (imported for the registration)
     selection_pool,
     switch,
     v11,
+    v11_fs,
 )
 from features.common import type_chart
 from registry import FEATURE_SETS, parse_name

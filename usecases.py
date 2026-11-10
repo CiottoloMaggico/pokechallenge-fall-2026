@@ -96,7 +96,10 @@ def evaluate(
 
 def _refuse_test_with_v11(settings: Settings, features: Sequence[str]) -> None:
     """v11's label-free features fit on the training battles only, never on ``--test``."""
-    if settings.test is not None and any(feature_sets.parse_name(f)[0] == "v11" for f in features):
+    v11_sets = ("v11", "v11_fs")
+    if settings.test is not None and any(
+        feature_sets.parse_name(f)[0] in v11_sets for f in features
+    ):
         raise SystemExit("v11 fits its features on the training battles only: drop --test")
 
 
