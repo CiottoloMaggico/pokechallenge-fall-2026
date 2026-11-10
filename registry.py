@@ -16,8 +16,10 @@ if TYPE_CHECKING:
     from feature_set import FeatureSet
     from interfaces import Model
     from models.space import Trial
+    from staged_feature_set import StagedFeatureSet
 
-    FeatureSetBuilder = Callable[[int | None], FeatureSet[BattleContext]]
+    AnyFeatureSet = FeatureSet[BattleContext] | StagedFeatureSet[BattleContext]
+    FeatureSetBuilder = Callable[[int | None], AnyFeatureSet]
     ModelBuilder = Callable[..., Model]
     SearchSpace = Callable[[Trial], dict[str, Any]]
 
@@ -159,10 +161,12 @@ def parse_name(name: str) -> tuple[str, int | None]:
     return base, int(turn)
 
 
-def build_feature_set(name: str, turn: int | None = None) -> FeatureSet[BattleContext]:
+def build_feature_set(name: str, turn: int | None = None) -> Any:
     """Build a feature set from its name (``"core"``, ``"core@t10"``).
 
-    ``turn`` can be given separately instead of the ``@t`` suffix.
+    ``turn`` can be given separately instead of the ``@t`` suffix. The result is a
+    ``FeatureSet`` or a ``StagedFeatureSet`` (``AnyFeatureSet``, both fittable feature
+    sources); typed ``Any`` so that a caller can use the API of the kind it asked for.
     """
     base, parsed = parse_name(name)
     if parsed is not None and turn is not None and parsed != turn:

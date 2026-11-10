@@ -20,6 +20,7 @@ import sys
 from functools import cache
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from addons.knockouts_model import ModelKnockoutRepair
@@ -40,6 +41,7 @@ from features.transitions import ko_v11
 from gym import Gym
 from interfaces import Feature
 from models import build
+from staged_feature_set import StagedFeatureSet
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "fixtures" / "battles.jsonl"
@@ -64,7 +66,8 @@ def new_features() -> dict[str, Feature[BattleContext]]:
     found = list(unregistered_features())
     for name in sorted(feature_sets.FEATURE_SETS):
         features = feature_sets.build(name)
-        found.extend(features._entries[fid].feature for fid in features.feature_ids)
+        first = features.base if isinstance(features, StagedFeatureSet) else features
+        found.extend(first._entries[fid].feature for fid in first.feature_ids)
     keyed: dict[str, Feature[BattleContext]] = {}
     for f in found:
         key = f"{f.feature_id}:{'+'.join(f.output_names or ())}"
@@ -75,6 +78,9 @@ def new_features() -> dict[str, Feature[BattleContext]]:
 
 
 KEYS = sorted(new_features())
+STAGED = sorted(
+    n for n in feature_sets.FEATURE_SETS if isinstance(feature_sets.build(n), StagedFeatureSet)
+)
 TRANSITION_KEYS = sorted(transitions.TRANSITION_SETS)
 
 
@@ -148,6 +154,25 @@ def outputs(
     """Every row in order, with exact values: ``float.hex`` also makes NaN equal to itself."""
     rows = battles().contexts if contexts is None else contexts
     return [[(k, float(v).hex()) for k, v in feature.compute(c).items()] for c in rows]
+
+
+@cache
+def staged_outputs(name: str) -> dict[str, list[Row]]:
+    """Every table feature of a two-stage set, fitted on the fixtures, on its first-stage table."""
+    features = feature_sets.build(name)
+    data = battles()
+    features.fit_transform(
+        data.contexts, data.labels.tolist(), (), data.duplicate_groups().tolist()
+    )
+    table = features.base.to_frame(data.contexts)
+    found: dict[str, list[Row]] = {}
+    for f in features.stage:
+        out = f.transform(table)
+        assert out.dtype == np.float64 and out.shape == (len(table), len(f.output_names))
+        found[f.feature_id] = [
+            [(n, float(v).hex()) for n, v in zip(f.output_names, row, strict=True)] for row in out
+        ]
+    return found
 
 
 @pytest.fixture(scope="module")
@@ -239,6 +264,16 @@ def test_v11_detector_features_under_two_hash_seeds(
     assert first == second and first
 
 
+@pytest.mark.parametrize("name", STAGED)
+def test_table_features_give_their_columns_as_floats_under_two_hash_seeds(
+    name: str, outputs_by_hash_seed: list[dict[str, list[Row]]]
+) -> None:
+    found = staged_outputs(name)
+    assert found and all(rows for rows in found.values())
+    first, second = (result[f"staged:{name}"] for result in outputs_by_hash_seed)
+    assert first == second == json.loads(json.dumps(found))
+
+
 def test_contexts_never_carry_the_label() -> None:
     assert all("player_won" not in c.record for c in battles().contexts)
 
@@ -247,7 +282,7 @@ def test_every_family_of_features_is_checked() -> None:
     ids = {key.partition(":")[0] for key in KEYS}
     assert {"pool_bulk_spd", "team_rating", "team_encoding"} <= ids
     assert {"V11Static", "V11Bags", "V11Forecast"} <= ids
-    assert {"V11Splines", "V11BagLogit", "V11TeamEffect"} <= ids
+    assert STAGED == ["v11_fs"]
     assert "features.core.v11_fs.forecast.V11Forecast" in ids
 
 
@@ -255,4 +290,5 @@ if __name__ == "__main__":
     all_outputs = {key: outputs(fitted(key)) for key in KEYS}
     all_outputs |= {f"transitions:{name}": transition_outputs(name) for name in TRANSITION_KEYS}
     all_outputs["transitions:ko_v11"] = v11_switch_outputs()
+    all_outputs |= {f"staged:{name}": staged_outputs(name) for name in STAGED}
     Path(sys.argv[1]).write_text(json.dumps(all_outputs))

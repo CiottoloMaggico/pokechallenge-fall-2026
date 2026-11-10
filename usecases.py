@@ -32,6 +32,7 @@ from models import ENSEMBLES, MODELS, build_tuned
 from registry import fork_unsafe_libraries
 from selection import Selector
 from settings import DEFAULT_TEST, Settings
+from staged_feature_set import StagedFeatureSet
 from tuning.params import load_params
 from tuning.tuner import Tuner, save_best
 
@@ -361,7 +362,7 @@ def predict(
 
 def _feature_sets(
     names: Sequence[str], turns: Sequence[int] | None
-) -> list[FeatureSet[BattleContext]]:
+) -> list[FeatureSet[BattleContext] | StagedFeatureSet[BattleContext]]:
     """Every named set, once per requested turn (or at the last turn)."""
     sampled: Sequence[int | None] = turns or [None]
     return [feature_sets.build(name, turn) for name in names for turn in sampled]

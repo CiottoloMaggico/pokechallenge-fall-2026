@@ -1,12 +1,13 @@
 """The ``v11_fs`` feature set on the fixtures: the initial copy of v11's groups, the port of the
-team effect and bag logit, label-aware features out of fold, the cache of their label-free
-inputs, splines, state, repairs, the ``--test`` guard."""
+team effect and bag logit, label-aware table features out of fold, splines, state, repairs, the
+``--test`` guard."""
 
 from __future__ import annotations
 
 import copy
 import pickle
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -35,16 +36,17 @@ from interfaces import Feature
 from models.core.v11_stacking import StackedLogit
 from models.core.v11_team import TeamEffect
 from settings import Settings
+from staged_feature_set import StagedFeatureSet, TableFeature
 from tests.features.test_v11_feature import FIXTURES, same, split
 
 GROUPS = ["s", "f", "t", "a", "e", "m", "w", "x", "d", "v", "z", "c", "q", "spl", "stack", "tm"]
 LABEL_AWARE = ("V11BagLogit", "V11TeamEffect")
 BAGS = ("bs_", "bh_", "bm_")
 
-Run = tuple[Dataset, Dataset, FeatureSet[BattleContext], pd.DataFrame]
+Run = tuple[Dataset, Dataset, Any, pd.DataFrame]
 
 
-def fitted(train: Dataset, name: str = "v11_fs") -> tuple[FeatureSet[BattleContext], pd.DataFrame]:
+def fitted(train: Dataset, name: str = "v11_fs") -> tuple[Any, pd.DataFrame]:
     features = feature_sets.build(name)
     x = features.fit_transform(
         train.contexts, train.labels.tolist(), (), train.duplicate_groups().tolist()
@@ -65,30 +67,29 @@ def frozen() -> tuple[FeatureSet[BattleContext], pd.DataFrame]:
     return fitted(train, "v11")
 
 
-def feature(features: FeatureSet[BattleContext], fid: str) -> Feature[BattleContext]:
-    return features._entries[fid].feature
+def table_feature(features: StagedFeatureSet[BattleContext], fid: str) -> TableFeature:
+    (found,) = [f for f in features.stage if f.feature_id == fid]
+    return found
 
 
 def inner_folds(train: Dataset) -> list[int]:
-    """The inner folds of ``FeatureSet.fit_transform`` (5 folds, seed 0, duplicate groups)."""
+    """The inner folds of the set (5 folds, seed 0, duplicate groups)."""
     return _inner_fold_ids(len(train), train.duplicate_groups().tolist(), 5, 0)
-
-
-def values(f: Feature[BattleContext], battles: Sequence[BattleContext]) -> np.ndarray:
-    f.prepare(battles)
-    return np.array([list(f(c).values()) for c in battles])
 
 
 def test_the_columns_and_no_raw_bags_or_keys(run: Run) -> None:
     _, new, features, x = run
+    assert isinstance(features, StagedFeatureSet)
     assert list(dict.fromkeys(c.split("_")[0] for c in x.columns)) == GROUPS
     assert not [c for c in x.columns if c.startswith((*BAGS, "k_"))]
     assert x.columns[-10:].tolist() == ["stack_logit_0", *TEAM_COLUMNS]
     assert len(x.filter(like="spl_").columns) == 6 * len(SPLINE_KEYS)
     assert list(features.to_frame(new.contexts).columns) == list(x.columns)
-    aware = [f for f in features.feature_ids if feature(features, f).uses_labels]
+    assert features.declared_columns is None  # the groups do not declare their columns
+    aware = [f.feature_id for f in features.stage if f.uses_labels]
     assert tuple(aware) == LABEL_AWARE
-    assert all(feature(features, f).inner_oof for f in aware)
+    assert all(table_feature(features, f).inner_oof for f in aware)
+    assert features.base.feature_ids[7:9] == ["V11Bags", "V11TeamKeys"]
 
 
 def test_the_label_free_groups_are_a_bitwise_copy_of_v11(
@@ -135,8 +136,8 @@ def test_the_team_scores_are_the_frozen_team_effect_on_a_synthetic_table() -> No
 def test_the_bag_logit_and_team_effect_are_the_frozen_steps_on_v11s_table(
     frozen: tuple[FeatureSet[BattleContext], pd.DataFrame],
 ) -> None:
-    """Fitted on the same battles, the features score new battles as the frozen members' steps
-    (bag ``StackedLogit``; full ``StackedLogit`` then ``TeamEffect``) on v11's table."""
+    """Fitted on v11's table, the features score new battles as the frozen members' steps
+    (bag ``StackedLogit``; full ``StackedLogit`` then ``TeamEffect``)."""
     train, new = split("rule")
     v11, x_v11 = frozen
     y = train.labels
@@ -145,12 +146,11 @@ def test_the_bag_logit_and_team_effect_are_the_frozen_steps_on_v11s_table(
     full = StackedLogit(exclude=("k_",), C=0.003, name="stack_logit_full", keep=True)
     effect = TeamEffect(**TEAM).fit(full.fit_transform(x_v11, y), y)
     expected = effect.transform(full.transform(x_new))[list(TEAM_COLUMNS)].to_numpy()
-    bag_logit, team = V11BagLogit(), V11TeamEffect()
-    bag_logit.fit(train.contexts, y.tolist())
-    team.fit(train.contexts, y.tolist())
-    found = values(bag_logit, new.contexts)[:, 0]
-    assert np.allclose(found, bags.transform(x_new)["stack_logit_0"], rtol=0, atol=1e-12)
-    assert np.allclose(values(team, new.contexts), expected, rtol=0, atol=1e-12)
+    bag_logit = V11BagLogit().fit(x_v11, y.tolist())
+    team = V11TeamEffect().fit(x_v11, y.tolist())
+    found = bag_logit.transform(x_new)[:, 0]
+    assert np.array_equal(found, bags.transform(x_new)["stack_logit_0"].to_numpy())
+    assert np.array_equal(team.transform(x_new), expected)
 
 
 def test_a_training_row_comes_from_a_copy_fitted_without_its_inner_fold(run: Run) -> None:
@@ -159,29 +159,42 @@ def test_a_training_row_comes_from_a_copy_fitted_without_its_inner_fold(run: Run
     inside = [i for i, f in enumerate(folds) if f == 0]
     outside = [i for i, f in enumerate(folds) if f != 0]
     labels = train.labels.tolist()
+    table = features.base.to_frame(train.contexts)
     for fid in LABEL_AWARE:
-        twin = copy.deepcopy(feature(features, fid))
+        feature = table_feature(features, fid)
+        twin = copy.deepcopy(feature)
         twin.reset()
-        twin.fit([train.contexts[i] for i in outside], [labels[i] for i in outside])
-        names = list(twin.output_names or ())
-        found = np.array([list(twin(train.contexts[i]).values()) for i in inside])
-        assert np.array_equal(x.loc[inside, names].to_numpy(), found)
-        full = values(feature(features, fid), [train.contexts[i] for i in inside])
+        twin.fit(table.iloc[outside].reset_index(drop=True), [labels[i] for i in outside])
+        found = twin.transform(table.iloc[inside].reset_index(drop=True))
+        assert np.array_equal(x.loc[inside, list(twin.output_names)].to_numpy(), found)
+        full = feature.transform(table.iloc[inside])
         assert not np.array_equal(found, full)  # not the in-sample values
 
 
-def label_aware_rows(
-    features: FeatureSet[BattleContext], train: Dataset, labels: list[int]
-) -> pd.DataFrame:
-    """The label-aware columns of ``fit_transform`` with copies of the fitted features (their
-    label-free inputs, fitted on these battles, are reused)."""
-    twins: list[Feature[BattleContext]] = []
-    for fid in LABEL_AWARE:
-        twin = copy.deepcopy(feature(features, fid))
-        twin.reset()
-        twins.append(twin)
-    subset = make_set("label_aware", None, twins)
-    return subset.fit_transform(train.contexts, labels, (), train.duplicate_groups().tolist())
+class Lookup(Feature[BattleContext]):
+    """A precomputed first-stage row by battle key (a cheap first stage for the label tests)."""
+
+    def __init__(self, table: pd.DataFrame, battles: Sequence[BattleContext]) -> None:
+        super().__init__()
+        self.columns = tuple(table.columns)
+        self.rows = {battle_key(c): r for c, r in zip(battles, table.to_numpy(), strict=True)}
+
+    @property
+    def output_names(self) -> tuple[str, ...]:
+        return self.columns
+
+    def compute(self, battle: BattleContext) -> Mapping[str, float]:
+        return dict(zip(self.columns, self.rows[battle_key(battle)].tolist(), strict=True))
+
+
+def label_aware_rows(features: Any, train: Dataset, labels: list[int]) -> pd.DataFrame:
+    """The label-aware columns of the set's ``fit_transform`` on the same first-stage table."""
+    lookup = make_set(
+        "lookup", None, [Lookup(features.base.to_frame(train.contexts), train.contexts)]
+    )
+    staged = StagedFeatureSet("label_aware", lookup, [V11BagLogit(), V11TeamEffect()])
+    x = staged.fit_transform(train.contexts, labels, (), train.duplicate_groups().tolist())
+    return x.loc[:, ["stack_logit_0", *TEAM_COLUMNS]]
 
 
 def test_a_row_ignores_its_own_label_but_not_the_others(run: Run) -> None:
@@ -189,6 +202,9 @@ def test_a_row_ignores_its_own_label_but_not_the_others(run: Run) -> None:
     labels = train.labels.tolist()
     folds = inner_folds(train)
     inside = [i for i, f in enumerate(folds) if f == 0]
+    assert same(
+        label_aware_rows(features, train, labels), x.loc[:, ["stack_logit_0", *TEAM_COLUMNS]]
+    )
     own = [1 - y if folds[i] == 0 else y for i, y in enumerate(labels)]
     flipped_own = label_aware_rows(features, train, own)
     assert np.array_equal(
@@ -196,35 +212,10 @@ def test_a_row_ignores_its_own_label_but_not_the_others(run: Run) -> None:
     )
     others = [1 - y if folds[i] != 0 else y for i, y in enumerate(labels)]
     flipped_others = label_aware_rows(features, train, others)
-    for fid in LABEL_AWARE:
-        names = list(feature(features, fid).output_names or ())
+    for names in (["stack_logit_0"], list(TEAM_COLUMNS)):
         assert not np.array_equal(
             flipped_others.loc[inside, names].to_numpy(), x.loc[inside, names].to_numpy()
         )
-
-
-@pytest.mark.parametrize("kind", [V11BagLogit, V11TeamEffect])
-def test_a_clone_refitted_on_other_battles_does_not_reuse_the_inputs(
-    run: Run, kind: type[V11BagLogit] | type[V11TeamEffect]
-) -> None:
-    train, _, _, _ = run
-    battles, labels = list(train.contexts), train.labels.tolist()
-    first = kind()
-    first.fit(battles[:100], labels[:100])
-    reused = make_set("one", None, [first]).clone()._entries[first.feature_id].feature
-    assert isinstance(reused, kind)
-    reused.fit(battles[:60], labels[:60])
-    assert reused.inputs.keys == first.inputs.keys  # a subset: reused
-    other = make_set("one", None, [first]).clone()._entries[first.feature_id].feature
-    assert isinstance(other, kind)
-    other.fit(battles[50:], labels[50:])
-    wanted = {battle_key(c) for c in battles[50:]}
-    assert other.inputs.keys == wanted
-    fresh = kind()
-    fresh.fit(battles[50:], labels[50:])
-    assert np.array_equal(values(other, battles[:50]), values(fresh, battles[:50]))
-    if kind is V11TeamEffect:
-        assert set(other.inputs.features[-1]._train_rows) == wanted  # type: ignore[attr-defined]
 
 
 def test_the_splines_expand_the_keys_of_the_table(run: Run) -> None:
