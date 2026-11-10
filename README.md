@@ -223,7 +223,34 @@ Reference for Δ: `compact_v5`.
 The 30 domain columns match the 50 raw ones with the default detector (`hgb_ko`, artifact
 `v3`: 10,109 repaired P2 knockouts on the training battles).
 
-### v11
+### v11 (`--repair v11=results/addons/knockouts_v11/v1`)
+
+Reference for Δ: `v11` / `v11_blend`. The plain models (`logreg`, `hgb`, …) are fitted on the
+same 819 columns.
+
+| model | accuracy | ± fold | ± seed | log loss | ROC AUC | Brier | Δ accuracy (p) | Δ log loss (p) |
+|---|---|---|---|---|---|---|---|---|
+| v11_lgbm | 0.7192 | 0.0069 | 0.0022 | 0.5424 | 0.7973 | 0.1836 | +0.0001 (0.98) | +0.0015 (0.04) |
+| v11_blend | 0.7192 | 0.0048 | 0.0016 | 0.5409 | 0.7985 | 0.1830 | — | — |
+| v11_cat | 0.7185 | 0.0070 | 0.0019 | 0.5421 | 0.7980 | 0.1834 | −0.0007 (0.75) | +0.0012 (0.09) |
+| v11_xgb | 0.7179 | 0.0063 | 0.0013 | 0.5432 | 0.7968 | 0.1839 | −0.0013 (0.64) | +0.0022 (0.003) |
+| v11_lr_spline | 0.7155 | 0.0061 | 0.0012 | 0.5467 | 0.7928 | 0.1855 | −0.0036 (0.22) | +0.0058 (0.004) |
+| xgboost | 0.7105 | 0.0043 | 0.0019 | 0.5518 | 0.7879 | 0.1876 | −0.0087 (0.01) | +0.0109 (<0.001) |
+| lightgbm | 0.7088 | 0.0058 | 0.0020 | 0.5535 | 0.7870 | 0.1882 | −0.0104 (0.01) | +0.0126 (<0.001) |
+| catboost | 0.7083 | 0.0082 | 0.0039 | 0.5581 | 0.7863 | 0.1897 | −0.0108 (0.05) | +0.0172 (<0.001) |
+| logreg | 0.7072 | 0.0058 | 0.0017 | 0.5553 | 0.7851 | 0.1889 | −0.0119 (0.002) | +0.0143 (<0.001) |
+| hgb | 0.7071 | 0.0057 | 0.0017 | 0.5542 | 0.7860 | 0.1886 | −0.0121 (0.01) | +0.0133 (<0.001) |
+
+- Against the best `compact_v5` models on the same 15 folds (merged comparison): `v11_blend`
+  ties `compact_v5` / `logreg` (Δ accuracy +0.0001, p 0.99; Δ log loss −0.0017, p 0.50) and
+  `ensemble_from_lr` (−0.0015, p 0.73; +0.0007, p 0.74). Its fold-to-fold std is the lowest
+  (0.0048).
+- The four members are within noise of each other in accuracy; the blend has the lowest log
+  loss, significantly lower than the XGBoost and spline members'. The 819 columns need the
+  members' stacked logits and team effect: plain models on them lose about 1 point (p ≤ 0.05).
+- In the original's own protocol (below) the rebuilt v11 gives 0.7197 / 0.5406 / 0.7988 for the
+  blend (original 0.7203 / 0.5410 / 0.7983), within the seed-to-seed spread; this repository's
+  protocol (features refitted inside each fold) is slightly lower in accuracy, as expected.
 
 Protocol notes. v11's detector is a repair addon fitted once on the training file, like `v3`, so
 in these cross-validations it is not refitted inside each fold; it never reads the outcome. Its
@@ -243,3 +270,8 @@ repeats, seeds 42–44), gives:
 | lgbm_v11 | 0.7201 | 0.5429 | 0.7967 | 0.1838 |
 | cat_v11 | 0.7204 | 0.5417 | 0.7982 | 0.1832 |
 | blend_v11 | 0.7203 (nested 0.7204) | 0.5410 | 0.7983 | 0.1831 |
+
+The same protocol on the rebuilt v11's training matrix (`--repair v11=…`, same folds): lr_spline
+0.7173 / 0.5467 / 0.7929 / 0.1854, xgb 0.7197 / 0.5424 / 0.7975 / 0.1835, lgbm 0.7186 /
+0.5423 / 0.7975 / 0.1835, cat 0.7209 / 0.5417 / 0.7984 / 0.1832, blend 0.7197 (nested 0.7203) /
+0.5406 / 0.7988 / 0.1829 (accuracy / log loss / ROC AUC / Brier).
