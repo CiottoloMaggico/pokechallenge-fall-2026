@@ -5,9 +5,10 @@ A two-stage set (``staged_feature_set``). First stage: the groups of ``v11`` (fr
 in the exact order of v11's matrix, bags and team keys included (the base logit of the team
 effect reads the columns in this order). Second stage, on that table: the splines of the spline
 member's keys (``V11Splines``), the logit of the bags (``V11BagLogit``, ``stack_logit_0``, which
-consumes the bags) and the team effect against a base logit of every non-key column
-(``V11TeamEffect``, ``tm*``, which consumes the keys), the last two label-aware (out of fold on
-their training rows). The generic models (``models/stacked.py``) read it with no column name.
+consumes the bags), the logit of every non-key column and the team effect against it
+(``V11TeamEffect``, ``stack_logit_full`` and ``tm*``, which consumes the keys), the last two
+label-aware (out of fold on their training rows). The generic models (``models/boosted.py``)
+read it with no column name.
 Fixed at the last turn; ``train`` / ``evaluate`` refuse ``--test`` (the label-free features fit
 on the training battles only).
 """

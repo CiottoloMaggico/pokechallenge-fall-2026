@@ -41,6 +41,7 @@ from tests.features.test_v11_feature import FIXTURES, same, split
 
 GROUPS = ["s", "f", "t", "a", "e", "m", "w", "x", "d", "v", "z", "c", "q", "spl", "stack", "tm"]
 LABEL_AWARE = ("V11BagLogit", "V11TeamEffect")
+LABEL_COLUMNS = ["stack_logit_0", "stack_logit_full", *TEAM_COLUMNS]
 BAGS = ("bs_", "bh_", "bm_")
 
 Run = tuple[Dataset, Dataset, Any, pd.DataFrame]
@@ -82,7 +83,7 @@ def test_the_columns_and_no_raw_bags_or_keys(run: Run) -> None:
     assert isinstance(features, StagedFeatureSet)
     assert list(dict.fromkeys(c.split("_")[0] for c in x.columns)) == GROUPS
     assert not [c for c in x.columns if c.startswith((*BAGS, "k_"))]
-    assert x.columns[-10:].tolist() == ["stack_logit_0", *TEAM_COLUMNS]
+    assert x.columns[-11:].tolist() == LABEL_COLUMNS
     assert len(x.filter(like="spl_").columns) == 6 * len(SPLINE_KEYS)
     assert list(features.to_frame(new.contexts).columns) == list(x.columns)
     assert features.declared_columns is None  # the groups do not declare their columns
@@ -137,7 +138,7 @@ def test_the_bag_logit_and_team_effect_are_the_frozen_steps_on_v11s_table(
     frozen: tuple[FeatureSet[BattleContext], pd.DataFrame],
 ) -> None:
     """Fitted on v11's table, the features score new battles as the frozen members' steps
-    (bag ``StackedLogit``; full ``StackedLogit`` then ``TeamEffect``)."""
+    (bag ``StackedLogit``; full ``StackedLogit``, whose logit is output, then ``TeamEffect``)."""
     train, new = split("rule")
     v11, x_v11 = frozen
     y = train.labels
@@ -145,7 +146,7 @@ def test_the_bag_logit_and_team_effect_are_the_frozen_steps_on_v11s_table(
     bags = StackedLogit(prefixes=BAGS, C=0.01, name="stack_logit_0").fit(x_v11, y)
     full = StackedLogit(exclude=("k_",), C=0.003, name="stack_logit_full", keep=True)
     effect = TeamEffect(**TEAM).fit(full.fit_transform(x_v11, y), y)
-    expected = effect.transform(full.transform(x_new))[list(TEAM_COLUMNS)].to_numpy()
+    expected = effect.transform(full.transform(x_new))[LABEL_COLUMNS[1:]].to_numpy()
     bag_logit = V11BagLogit().fit(x_v11, y.tolist())
     team = V11TeamEffect().fit(x_v11, y.tolist())
     found = bag_logit.transform(x_new)[:, 0]
@@ -194,7 +195,7 @@ def label_aware_rows(features: Any, train: Dataset, labels: list[int]) -> pd.Dat
     )
     staged = StagedFeatureSet("label_aware", lookup, [V11BagLogit(), V11TeamEffect()])
     x = staged.fit_transform(train.contexts, labels, (), train.duplicate_groups().tolist())
-    return x.loc[:, ["stack_logit_0", *TEAM_COLUMNS]]
+    return x.loc[:, LABEL_COLUMNS]
 
 
 def test_a_row_ignores_its_own_label_but_not_the_others(run: Run) -> None:
@@ -202,9 +203,7 @@ def test_a_row_ignores_its_own_label_but_not_the_others(run: Run) -> None:
     labels = train.labels.tolist()
     folds = inner_folds(train)
     inside = [i for i, f in enumerate(folds) if f == 0]
-    assert same(
-        label_aware_rows(features, train, labels), x.loc[:, ["stack_logit_0", *TEAM_COLUMNS]]
-    )
+    assert same(label_aware_rows(features, train, labels), x.loc[:, LABEL_COLUMNS])
     own = [1 - y if folds[i] == 0 else y for i, y in enumerate(labels)]
     flipped_own = label_aware_rows(features, train, own)
     assert np.array_equal(
@@ -212,7 +211,7 @@ def test_a_row_ignores_its_own_label_but_not_the_others(run: Run) -> None:
     )
     others = [1 - y if folds[i] != 0 else y for i, y in enumerate(labels)]
     flipped_others = label_aware_rows(features, train, others)
-    for names in (["stack_logit_0"], list(TEAM_COLUMNS)):
+    for names in (["stack_logit_0"], ["stack_logit_full"], list(TEAM_COLUMNS)):
         assert not np.array_equal(
             flipped_others.loc[inside, names].to_numpy(), x.loc[inside, names].to_numpy()
         )

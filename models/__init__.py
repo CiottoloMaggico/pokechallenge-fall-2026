@@ -10,6 +10,7 @@ installed (``lightgbm``, ``xgboost``, ``catboost``) raises ``MissingDependencyEr
 """
 
 from models import (  # noqa: F401  (imported for the registration)
+    boosted,
     catboost,
     catboost_lr,
     gb_lr,
@@ -18,7 +19,6 @@ from models import (  # noqa: F401  (imported for the registration)
     lightgbm,
     lightgbm_lr,
     logreg,
-    stacked,
     v11,
     xgboost,
     xgboost_lr,

@@ -10,11 +10,11 @@ set), any other battle gets the state fitted on all the training rows.
   (median-imputed), fitted on the training rows.
 * ``V11BagLogit`` (``stack_logit_0``): the logistic regression (C=0.01) of the bag columns, which
   it consumes.
-* ``V11TeamEffect`` (``tm*``): ``team_effect.TeamScores`` (the members' parameters) on the team
-  keys, which it consumes, against one base logit: the logistic regression (C=0.003) of every
-  non-key column (bags included, as the boosters' ``stack_full``), cross-fitted on the feature's
-  training rows (``StratifiedKFold(5, shuffle, 42)``, as the original), so a training row's
-  residual never uses its own label.
+* ``V11TeamEffect`` (``stack_logit_full``, ``tm*``): ``team_effect.TeamScores`` (the members'
+  parameters) on the team keys, which it consumes, against one base logit, output before the
+  team columns: the logistic regression (C=0.003) of every non-key column (bags included, the
+  boosters' ``stack_full``), cross-fitted on the feature's training rows (``StratifiedKFold(5,
+  shuffle, 42)``, as the original), so a training row's residual never uses its own label.
 """
 
 from __future__ import annotations
@@ -128,7 +128,8 @@ def key_frame(x: pd.DataFrame, base: np.ndarray) -> pd.DataFrame:
 
 
 class V11TeamEffect(TableFeature):
-    """``tm*``: the team effect against a base logit of v11's non-key columns."""
+    """``stack_logit_full``, the logit of v11's non-key columns, and ``tm*``, the team effect
+    against it."""
 
     requires_fit = True
     uses_labels = True
@@ -142,7 +143,7 @@ class V11TeamEffect(TableFeature):
 
     @property
     def output_names(self) -> tuple[str, ...]:
-        return TEAM_COLUMNS
+        return (BASE, *TEAM_COLUMNS)
 
     def reads(self, columns: Sequence[str]) -> list[str]:
         return list(columns)
@@ -165,4 +166,4 @@ class V11TeamEffect(TableFeature):
         assert self.base is not None and self.state is not None
         base = self.base.decision_function(self._non_keys(x))
         out = self.scores.encode(key_frame(x, base), self.state)
-        return np.column_stack([out[name] for name in TEAM_COLUMNS])
+        return np.column_stack([base, *(out[name] for name in TEAM_COLUMNS)])

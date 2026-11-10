@@ -1,5 +1,5 @@
-"""The generic stacked members and their logit blend: out-of-fold stacked logit (the frozen v11
-step's logic), any table, fit / predict / clone / save-load, no column name in the parameters."""
+"""The generic boosted members and their logit blend: any table, fit / predict / clone /
+save-load, no column name in the parameters, the frozen twins' parameters and weights."""
 
 from __future__ import annotations
 
@@ -8,19 +8,17 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.model_selection import StratifiedKFold
+from sklearn.pipeline import Pipeline
 
 import models
 from interfaces import Model
-from models.core import v11_stacking
+from models.boosted import WEIGHTS
 from models.core.estimator import EstimatorModel
 from models.core.logit_blend import LogitBlend
-from models.core.stacking import StackedLogit
-from models.stacked import WEIGHTS
 
-MEMBERS = ["logreg_l2", "stack_xgboost", "stack_lightgbm", "stack_catboost"]
-SMALL = {"stack_xgboost": {"n_estimators": 20}, "stack_lightgbm": {"n_estimators": 20}}
-SMALL["stack_catboost"] = {"iterations": 20}
+MEMBERS = ["logreg_l2", "boost_xgboost", "boost_lightgbm", "boost_catboost"]
+SMALL = {"boost_xgboost": {"n_estimators": 20}, "boost_lightgbm": {"n_estimators": 20}}
+SMALL["boost_catboost"] = {"iterations": 20}
 
 
 def random_table(n: int = 120) -> tuple[pd.DataFrame, np.ndarray]:
@@ -31,32 +29,11 @@ def random_table(n: int = 120) -> tuple[pd.DataFrame, np.ndarray]:
     return x, y
 
 
-def test_the_stacked_logit_is_out_of_fold_and_keeps_the_columns() -> None:
-    x, y = random_table()
-    stack = StackedLogit(C=0.05, name="s")
-    out = stack.fit_transform(x, y)
-    assert list(out.columns) == [*x.columns, "s"]
-    for tr, va in StratifiedKFold(5, shuffle=True, random_state=42).split(x, y):
-        fold = StackedLogit(C=0.05).fit(x.iloc[tr], y[tr])
-        assert np.array_equal(out["s"].to_numpy()[va], fold.model_.decision_function(x.iloc[va]))
-    full = stack.model_.decision_function(x)
-    assert np.array_equal(stack.transform(x)["s"].to_numpy(), full)
-    assert list(StackedLogit(keep=False).fit_transform(x, y).columns) == ["stack_logit"]
-
-
-def test_the_stacked_logit_is_the_frozen_step_without_selectors() -> None:
-    x, y = random_table()
-    frozen = v11_stacking.StackedLogit(C=0.003, name="s", keep=True)
-    ours = StackedLogit(C=0.003, name="s")
-    assert np.array_equal(ours.fit_transform(x, y), frozen.fit_transform(x, y), equal_nan=True)
-    assert np.array_equal(ours.transform(x), frozen.transform(x), equal_nan=True)
-
-
-@pytest.mark.parametrize("name", [*MEMBERS, "stack_blend"])
+@pytest.mark.parametrize("name", [*MEMBERS, "boost_blend"])
 def test_a_model_fits_any_table_and_survives_clone_and_save(name: str, tmp_path: Path) -> None:
     x, y = random_table()
     model = models.build(name, **SMALL.get(name, {}))
-    if name == "stack_blend":
+    if name == "boost_blend":
         model = LogitBlend(name, [models.build(m, **SMALL.get(m, {})) for m in MEMBERS],
                            [WEIGHTS[m] for m in MEMBERS])  # fmt: skip
     fitted = model.clone().fit(x, y)
@@ -82,16 +59,18 @@ def test_no_column_name_in_the_parameters(name: str) -> None:
     assert isinstance(model, EstimatorModel)
     params = model.estimator.get_params(deep=True)
     assert not [k for k, v in params.items() if names_in(v)]
-    steps = [step for step, _ in model.estimator.steps]
-    assert steps == (["imp", "sc", "lr"] if name == "logreg_l2" else ["stack", "model"])
+    if name == "logreg_l2":
+        assert [step for step, _ in model.estimator.steps] == ["imp", "sc", "lr"]
+    else:
+        assert not isinstance(model.estimator, Pipeline)  # the booster alone
 
 
 def test_the_parameters_and_weights_are_those_of_the_frozen_twins() -> None:
     from models import v11
-    from models.stacked import CATBOOST, LIGHTGBM, XGBOOST
+    from models.boosted import CATBOOST, LIGHTGBM, XGBOOST
 
     assert (XGBOOST, LIGHTGBM, CATBOOST) == (v11.XGB, v11.LGBM, v11.CAT)
-    assert models.build("stack_blend").get_params() == WEIGHTS
+    assert models.build("boost_blend").get_params() == WEIGHTS
     FROZEN = v11.WEIGHTS
 
     twins = ["v11_lr_spline", "v11_xgb", "v11_lgbm", "v11_cat"]
