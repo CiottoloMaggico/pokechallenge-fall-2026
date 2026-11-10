@@ -47,15 +47,17 @@ XGBoost or CatBoost.
 ``core@t5``, ``core@t10``, ...); ``evaluate`` then also prints and
 exports ``accuracy_by_turn.csv``, ready for an accuracy-vs-turn plot.
 
-``--repair none | rule | model=<artifact folder>`` picks the repair of the hidden P2
-knockouts (default: the detector artifact ``results/addons/knockouts/v3``); a run saves its
-repair and ``predict`` refuses another one. The detector is trained, compared and tuned on
-its own task (rows = P1's switches) and saved as a new artifact version::
+``--repair none | rule | model=<artifact folder> | v11=<artifact folder>`` picks the repair of
+the hidden P2 knockouts (default: the detector artifact ``results/addons/knockouts/v3``); a run
+saves its repair and ``predict`` refuses another one. The detector is trained, compared and
+tuned on its own task (rows = P1's switches) and saved as a new artifact version; v11's
+detector has its own artifact (``detector train-v11``)::
 
     python main.py detector evaluate --features ko_domain30 ko_raw50 --models hgb_ko \\
         --seeds 42 1 2 --reference ko_raw50/hgb_ko
     python main.py detector train --features ko_domain30 --models hgb_ko --version v3
     python main.py detector tune --features ko_domain30 --model hgb_ko --trials 50
+    python main.py detector train-v11 --version v1 --seeds 42 1 2
     python main.py replay --battle 42 --repair rule
 """
 
@@ -193,6 +195,12 @@ def _detector_train(args: argparse.Namespace) -> int:
     )
 
 
+def _detector_train_v11(args: argparse.Namespace) -> int:
+    plan = FoldPlan(args.folds, _seeds(args))
+    settings = Settings(args.train, pokedex=args.pokedex, plan=plan)
+    return detector.train_v11(settings, args.version)
+
+
 def _detector_tune(args: argparse.Namespace) -> int:
     settings = Settings(args.train, pokedex=args.pokedex, plan=FoldPlan(args.folds, (args.seed,)))
     return detector.tune(
@@ -213,7 +221,8 @@ def _add_repair(sub: argparse.ArgumentParser) -> None:
         "--repair",
         type=_repair,
         default=DEFAULT_REPAIR,
-        help=f"none, rule or model=<artifact folder> (default {DEFAULT_REPAIR})",
+        help=f"none, rule, model=<artifact folder> or v11=<artifact folder> "
+        f"(default {DEFAULT_REPAIR})",
     )
 
 
@@ -326,6 +335,11 @@ def _add_detector(commands: argparse._SubParsersAction) -> None:
         sub.add_argument("--threshold", type=float, default=0.5, help="P(faint) of a repair")
         sub.add_argument("--agreement", type=Path, help="artifact folder to compare decisions with")
         _add_seeds(sub, DETECTOR_SEEDS)
+    p_v11 = detector_commands.add_parser("train-v11", help="save a new artifact of v11's detector")
+    p_v11.add_argument("--version", required=True, help="results/addons/knockouts_v11/<version>")
+    p_v11.add_argument("--train", type=Path, default=DEFAULT_TRAIN)
+    _add_seeds(p_v11, DETECTOR_SEEDS)
+    p_v11.set_defaults(handler=_detector_train_v11)
     _add_tune(detector_commands, "tune", sets)
     detector_commands.choices["tune"].set_defaults(handler=_detector_tune)
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from interfaces import Model
+from models import ko_v11  # noqa: F401  (registers v11's detector model with the members)
 from models.core.v11_member import V11Blend, V11Member
 from registry import model
 
