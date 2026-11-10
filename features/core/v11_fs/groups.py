@@ -15,19 +15,23 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from domain.battle import BattleContext
-from features.core.v11_fs.active import active_features
 from features.core.v11_fs.bags import Vocab, bag_features
 from features.core.v11_fs.battle import battle_of
 from features.core.v11_fs.condition import condition_features
-from features.core.v11_fs.events import event_features
-from features.core.v11_fs.matchup import matchup_features, wincon_features
 from features.core.v11_fs.simulation import MoveTable, duel_features
 from features.core.v11_fs.simulation2 import simulation_features
-from features.core.v11_fs.sleep import sleep_features
-from features.core.v11_fs.state import state_features, tracks_of
-from features.core.v11_fs.static import static_features
+from features.core.v11_fs.state import tracks_of
+from features.core.v11_fs.stateless import (
+    active_of,
+    events_of,
+    matchup_of,
+    sleep_of,
+    state_of,
+    static_of,
+    team_keys_of,
+    wincon_of,
+)
 from features.core.v11_fs.switching import SwitchRates, behaviour_features
-from features.core.v11_fs.team import team_keys
 from features.core.v11_fs.team_model import TeamModel
 from interfaces import Feature
 
@@ -41,49 +45,49 @@ class V11Static(Feature[BattleContext]):
     """``s_``: P1's team stats, levels, items and weaknesses, P2's lead, the lead matchup."""
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        return floats(static_features(battle_of(battle)))
+        return floats(static_of(battle))
 
 
 class V11State(Feature[BattleContext]):
     """``f_``, ``t_``: faints (hidden P2 ones from the repair), HP, status and their trajectory."""
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        return floats(state_features(battle_of(battle), *tracks_of(battle)))
+        return floats(state_of(battle))
 
 
 class V11Active(Feature[BattleContext]):
     """``a_``: the two actives, speed order, damage and turns-to-KO both ways."""
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        return floats(active_features(battle_of(battle)))
+        return floats(active_of(battle))
 
 
 class V11Events(Feature[BattleContext]):
     """``e_``: each player's move classes, effectiveness, switches, damage, hazards, weather."""
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        return floats(event_features(battle_of(battle)))
+        return floats(events_of(battle))
 
 
 class V11Matchup(Feature[BattleContext]):
     """``m_``: the matchup matrix of the remaining Pokémon of both players."""
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        return floats(matchup_features(battle_of(battle), *tracks_of(battle)))
+        return floats(matchup_of(battle))
 
 
 class V11WinConditions(Feature[BattleContext]):
     """``w_``: spinners, set-up, phazers, healers, boomers, sleepers, Spikes, trapping."""
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        return floats(wincon_features(battle_of(battle), *tracks_of(battle)))
+        return floats(wincon_of(battle))
 
 
 class V11Sleep(Feature[BattleContext]):
     """``x_``: longest current sleep, Rest and induced sleepers of each player."""
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        return floats(sleep_features(battle_of(battle), *tracks_of(battle)))
+        return floats(sleep_of(battle))
 
 
 class V11Bags(Feature[BattleContext]):
@@ -107,7 +111,7 @@ class V11TeamKeys(Feature[BattleContext]):
     """``k_``: ids of the teams, sub-teams and species of both players (read by the team effect)."""
 
     def compute(self, battle: BattleContext) -> Mapping[str, float]:
-        return floats(team_keys(battle_of(battle)))
+        return floats(team_keys_of(battle))
 
 
 class V11Duel(Feature[BattleContext]):

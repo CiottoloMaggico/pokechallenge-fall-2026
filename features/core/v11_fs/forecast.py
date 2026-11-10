@@ -27,16 +27,20 @@ from sklearn.model_selection import KFold
 
 from domain.battle import BattleContext
 from domain.records import fingerprint
-from features.core.v11_fs.active import active_features
 from features.core.v11_fs.battle import battle_of
 from features.core.v11_fs.condition import condition_features
-from features.core.v11_fs.events import event_features
-from features.core.v11_fs.matchup import matchup_features, wincon_features
 from features.core.v11_fs.simulation import MoveTable, duel_features
 from features.core.v11_fs.simulation2 import simulation_features
-from features.core.v11_fs.sleep import sleep_features
-from features.core.v11_fs.state import Track, state_features, tracks_of
-from features.core.v11_fs.static import static_features
+from features.core.v11_fs.state import Track, tracks_of
+from features.core.v11_fs.stateless import (
+    active_of,
+    events_of,
+    matchup_of,
+    sleep_of,
+    state_of,
+    static_of,
+    wincon_of,
+)
 from features.core.v11_fs.switching import SwitchRates, behaviour_features
 from features.core.v11_fs.team_model import TeamModel
 from interfaces import Feature
@@ -83,13 +87,13 @@ def inputs(context: BattleContext, helpers: Helpers, cut: float) -> dict[str, fl
     b, (t1, t2) = battle_of(context), tracks_of(context)
     row: dict[str, float] = {}
     for values in (
-        static_features(b),
-        state_features(b, t1, t2),
-        active_features(b),
-        event_features(b),
-        matchup_features(b, t1, t2),
-        wincon_features(b, t1, t2),
-        sleep_features(b, t1, t2),
+        static_of(context),
+        state_of(context),
+        active_of(context),
+        events_of(context),
+        matchup_of(context),
+        wincon_of(context),
+        sleep_of(context),
         duel_features(b, t1, t2, helpers.moves),
         behaviour_features(b, helpers.rates),
         simulation_features(b, t1, t2, helpers.moves, helpers.teams),
