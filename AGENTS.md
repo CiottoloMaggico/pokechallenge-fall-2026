@@ -16,7 +16,7 @@ code's behaviour wins: note the conflict and ask.
   rebuild it with `python main.py detector train --version v3 --seeds 42 1 2` (~2 min, same
   P2 repairs). Versions are never overwritten: a new detector gets a new version.
 - v11 hidden-faint detector: a versioned artifact in `results/addons/knockouts_v11/<version>/`,
-  built with `python main.py detector train-v11 --version v1 --seeds 42 1 2` (~10 min; the
+  built with `python main.py detector train-v11 --version v1 --seeds 42 1 2` (~6 min; the
   repository's standard `FoldPlan`, as `v3`) and loaded with
   `--repair v11=results/addons/knockouts_v11/v1` by every v11 command. Never overwritten.
 - The original FDS repository of v11 is outside this repository, in
@@ -27,10 +27,6 @@ code's behaviour wins: note the conflict and ask.
   own protocol). v11's code must match them bit for bit when fed the original's detector
   probabilities (`tools/v11_check.py`); with v11's own repair (standard folds for the detector)
   the numbers are within noise of them. Never delete it.
-- **In progress: `V20_SUB.md`** (v11 rebuilt on the repository's architecture). This file
-  already describes the target; until that task is done the code still holds the old port
-  (`V11Features`, v11's own detector inside the feature). Where the two disagree on v11, follow
-  `V20_SUB.md`; do not ask.
 
 ## Architecture
 Layers (enforced on the imports by `tests/test_architecture.py`):
@@ -90,8 +86,8 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   `results/evaluations/models_compact_v5/folds.csv` (same seeds; ensemble_from_lr
   0.7207 / 0.5402, logreg 0.7191 / 0.5426, accuracy / log loss); a change that must not
   move the results matches them fold by fold.
-- v11 (the FDS repository's `blend_v11` on this repository's constructs, ~13 min train,
-  ~1.5 min predict; build the detector artifact first):
+- v11 (the FDS repository's `blend_v11` on this repository's constructs, ~15 min train,
+  ~1 min predict; build the detector artifact first):
   `python main.py detector train-v11 --version v1 --seeds 42 1 2`
   `python main.py train --features v11 --models v11_blend --repair v11=results/addons/knockouts_v11/v1 --out results/runs/v11`
   `python main.py predict --run results/runs/v11/v11__v11_blend --test input/test.jsonl --repair v11=results/addons/knockouts_v11/v1 --out results/submissions/submission_v11_blend.csv --proba results/submissions/submission_v11_blend_proba.csv`
@@ -100,9 +96,11 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   `.env` differs by 97 labels from `results/v11_ref/sub20_blend_v11.csv` (library versions).
   `train` / `evaluate` refuse `--test` with v11 (its label-free features fit on the training
   battles only).
-- v11 regression check (~15 min; needs the v11 artifact and `results/v11_alignment/dump/`):
-  `python tools/v11_check.py check` must pass: max |diff| 0 at every bitwise stage (domain,
-  full detector, features and models fed the original's detector probabilities); the noise
+- v11 regression check (~50 min, of which ~35 for the `cv` stage; `--stages` runs a subset;
+  needs the v11 artifact, `results/v11_alignment/dump/` and, once,
+  `python tools/v11_check.py export`): `python tools/v11_check.py check` must pass: max |diff| 0 at every bitwise stage (domain,
+  full detector, features, models and the original's CV protocol, fed the original's detector
+  probabilities); the noise
   stages (detector training values, end to end) are reported, not failed. Run it on every
   change to the domain modules v11 uses (`timeline.py`, `expected_damage.py`, `switches.py`)
   or to v11's addon, features or models; if it fails, stop and report as for the golden check.

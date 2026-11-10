@@ -71,8 +71,8 @@ python main.py predict --run results/runs/compact_v5__ensemble_from_lr \
 The v11 model (`v11` features, `v11_blend` model) reproduces the `blend_v11` model of the
 original FDS repository (same feature and model logic; its detector is cross-fitted with this
 repository's folds, which moves the numbers only within noise). It needs its detector artifact
-(about 10 minutes, once), then trains in about 13 minutes and predicts the test set in about
-1.5 minutes:
+(about 6 minutes, once), then trains in about 15 minutes and predicts the test set in about
+a minute:
 
 ```sh
 python main.py detector train-v11 --version v1 --seeds 42 1 2
@@ -119,6 +119,7 @@ models/            one file per model; shared pieces in models/core/
 tuning/ selection.py stats_tables.py   Optuna search, column selection, corrected t-test
 tests/             unit, contract and end-to-end tests on tests/fixtures/ (200 battles)
 tools/golden.py    regression check: frozen outputs of the pipeline
+tools/v11_check.py v11 regression check against the original's outputs (bit for bit)
 ```
 
 The layers and the rules every change must respect (only training data fits anything,
@@ -223,8 +224,6 @@ The 30 domain columns match the 50 raw ones with the default detector (`hgb_ko`,
 `v3`: 10,109 repaired P2 knockouts on the training battles).
 
 ### v11
-
-(pending: v11 is being rebuilt on the repository's architecture, see `V20_SUB.md`)
 
 Protocol notes. v11's detector is a repair addon fitted once on the training file, like `v3`, so
 in these cross-validations it is not refitted inside each fold; it never reads the outcome. Its

@@ -27,14 +27,16 @@ from data import Dataset
 from detector import DetectorTask, load_task
 from domain.battle import BattleContext
 from domain.damage import DamageCalculator
-from domain.pokedex import Pokedex, PokedexBuilder
+from domain.pokedex import Missing, Pokedex, PokedexBuilder
 from domain.records import read_records
+from domain.switches import SwitchExtractor
 from domain.transitions import Transition
 from features import sets as feature_sets
 from features import transitions
 from features.core.encoding import TeamEffect
 from features.core.matchup import ttk_advantage
 from features.core.turn import AtTurn
+from features.transitions import ko_v11
 from gym import Gym
 from interfaces import Feature
 from models import build
@@ -107,6 +109,17 @@ def transition_outputs(name: str, rows: list[Transition] | None = None) -> list[
         [(k, float(v).hex()) for k, v in feature.compute(t).items()]
         for t in (p1 + p2 if rows is None else rows)
     ]
+
+
+def v11_switch_outputs() -> list[Row]:
+    """v11's detector set (``ko_v11``, not in ``TRANSITION_SETS``) on every switch it scores."""
+    feature = ko_v11.SwitchColumns()
+    rows = []
+    for record in read_records(FIXTURES):
+        extractor = SwitchExtractor(pokedex().lookup(record, Missing()), CHART)
+        for switch in [*extractor.examples(record), *extractor.candidates(record)]:
+            rows.append([(k, float(v).hex()) for k, v in feature.compute(switch).items()])
+    return rows
 
 
 @cache
@@ -213,6 +226,13 @@ def test_transition_features_give_their_columns_and_ignore_the_faint(name: str) 
     assert transition_outputs(name, flipped) == transition_outputs(name, p1)
 
 
+def test_v11_detector_features_under_two_hash_seeds(
+    outputs_by_hash_seed: list[dict[str, list[Row]]],
+) -> None:
+    first, second = (result["transitions:ko_v11"] for result in outputs_by_hash_seed)
+    assert first == second and first
+
+
 def test_contexts_never_carry_the_label() -> None:
     assert all("player_won" not in c.record for c in battles().contexts)
 
@@ -220,9 +240,11 @@ def test_contexts_never_carry_the_label() -> None:
 def test_every_family_of_features_is_checked() -> None:
     ids = {key.partition(":")[0] for key in KEYS}
     assert {"pool_bulk_spd", "team_rating", "team_encoding"} <= ids
+    assert {"V11Static", "V11Bags", "V11Forecast"} <= ids
 
 
 if __name__ == "__main__":
     all_outputs = {key: outputs(fitted(key)) for key in KEYS}
     all_outputs |= {f"transitions:{name}": transition_outputs(name) for name in TRANSITION_KEYS}
+    all_outputs["transitions:ko_v11"] = v11_switch_outputs()
     Path(sys.argv[1]).write_text(json.dumps(all_outputs))
