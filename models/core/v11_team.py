@@ -2,6 +2,9 @@
 
 A copy of ``TeamEffect`` of the original's ``models.py`` restricted to what ``blend_v11`` runs
 (``joint``, ``split``, ``lam`` and ``lam_pair`` dropped); same constants and operation order.
+Generic by contract: the team-key columns are named by a prefix (``keys``, default ``k_``) and
+the step is the identity on a table without them (with ``drop_base`` too: it drops nothing it
+did not add).
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ State = tuple[Any, ...]
 
 class TeamEffect(BaseEstimator, TransformerMixin):
     """Shrunk mean residual (w.r.t. the cross-fitted logit ``base``) of the training battles
-    played with the same team.
+    played with the same team; the identity when the table has no ``<keys>p1team`` column.
 
     A battle counts for its P1 team and, with opposite sign, for its P2 team when known; with
     ``link``, a P2 team with five revealed species is matched to the only training team
@@ -32,7 +35,7 @@ class TeamEffect(BaseEstimator, TransformerMixin):
     these candidates and get their weighted effect (``tm_soft``, also added to ``tm`` when the P2
     team is not known otherwise). With ``raw``, the same matching also gives the raw rating of
     both teams, the shrunk win rate minus one half (``tm_raw1``, ``tm_raw2``, shrinkage
-    ``raw_a``). The ``k_*`` columns are replaced by the ``tm*`` ones. ``fit_transform`` is
+    ``raw_a``). The key columns are replaced by the ``tm*`` ones. ``fit_transform`` is
     cross-fitted, ``transform`` uses all training rows.
     """
 
@@ -50,26 +53,31 @@ class TeamEffect(BaseEstimator, TransformerMixin):
         soft_min: int = 3,
         raw: bool = False,
         raw_a: float = 2.0,
+        keys: str = "k_",
     ) -> None:
         self.base, self.a, self.p2, self.link, self.pair = base, a, p2, link, pair
         self.n_splits, self.seed, self.drop_base = n_splits, seed, drop_base
         self.soft, self.soft_min, self.raw, self.raw_a = soft, soft_min, raw, raw_a
+        self.keys = keys
+
+    def _active(self, X: pd.DataFrame) -> bool:
+        return f"{self.keys}p1team" in X.columns
 
     def _links(self, X: pd.DataFrame) -> defaultdict[Any, set[Any]]:
         links: defaultdict[Any, set[Any]] = defaultdict(set)
         if self.link:
             for side in ("1", "2"):
-                subs = X[[f"k_p{side}sub{k}" for k in range(6)]].to_numpy()
-                for team, row in zip(X[f"k_p{side}team"].to_numpy(), subs, strict=True):
+                subs = X[[f"{self.keys}p{side}sub{k}" for k in range(6)]].to_numpy()
+                for team, row in zip(X[f"{self.keys}p{side}team"].to_numpy(), subs, strict=True):
                     if not np.isnan(team):
                         for sub in row:
                             links[sub].add(team)
         return links
 
     def _keys(self, X: pd.DataFrame, links: dict[Any, set[Any]]) -> tuple[np.ndarray, np.ndarray]:
-        k1, k2 = X["k_p1team"].to_numpy(), X["k_p2team"].to_numpy().copy()
+        k1, k2 = X[f"{self.keys}p1team"].to_numpy(), X[f"{self.keys}p2team"].to_numpy().copy()
         if self.link:
-            part = X["k_p2part"].to_numpy()
+            part = X[f"{self.keys}p2part"].to_numpy()
             for i in np.flatnonzero(~np.isnan(part)):
                 cands = links.get(part[i], set()) - {k1[i]}
                 if len(cands) == 1:
@@ -98,10 +106,9 @@ class TeamEffect(BaseEstimator, TransformerMixin):
         soft = self._soft_fit(X, r) if self.soft else None
         return s, c, links, soft, self._soft_fit(X, y - 0.5) if self.raw else None
 
-    @staticmethod
-    def _species(X: pd.DataFrame) -> tuple[list[frozenset[Any]], list[frozenset[Any]]]:
-        p1 = X[[f"k_p1sp{k}" for k in range(6)]].to_numpy()
-        p2 = X[[f"k_p2sp{k}" for k in range(6)]].to_numpy()
+    def _species(self, X: pd.DataFrame) -> tuple[list[frozenset[Any]], list[frozenset[Any]]]:
+        p1 = X[[f"{self.keys}p1sp{k}" for k in range(6)]].to_numpy()
+        p2 = X[[f"{self.keys}p2sp{k}" for k in range(6)]].to_numpy()
         return [frozenset(row) for row in p1], [
             frozenset(v for v in row if not np.isnan(v)) for row in p2
         ]
@@ -208,12 +215,17 @@ class TeamEffect(BaseEstimator, TransformerMixin):
         return out
 
     def fit(self, X: pd.DataFrame, y: Any) -> TeamEffect:
-        """Fit on all rows."""
-        self.state_ = self._fit(X, np.asarray(y))
+        """Fit on all rows (nothing without key columns)."""
+        self.active_ = self._active(X)
+        if self.active_:
+            self.state_ = self._fit(X, np.asarray(y))
         return self
 
     def fit_transform(self, X: pd.DataFrame, y: Any = None, **kw: Any) -> pd.DataFrame:
         """Attach the cross-fitted team columns, then fit on all rows."""
+        self.active_ = self._active(X)
+        if not self.active_:
+            return X
         y = np.asarray(y)
         cols: dict[str, np.ndarray] = {}
         if X.index.is_unique:
@@ -232,10 +244,12 @@ class TeamEffect(BaseEstimator, TransformerMixin):
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """Attach the team columns of the model fitted on all rows."""
+        if not self.active_:
+            return X
         return self._attach(X, self._encode(X, self.state_))
 
     def _attach(self, X: pd.DataFrame, cols: dict[str, np.ndarray]) -> pd.DataFrame:
-        keys = [c for c in X.columns if c.startswith("k_")]
+        keys = [c for c in X.columns if c.startswith(self.keys)]
         drop = keys + ([self.base] if self.drop_base else [])
         out = pd.concat([X.drop(columns=drop), pd.DataFrame(cols, index=X.index)], axis=1)
         return out.copy()  # one block for the estimator (drop and concat fragment the frame)

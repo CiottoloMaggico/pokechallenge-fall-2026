@@ -1,4 +1,5 @@
-"""v11 models: the team effect on hand-made tables, the stacked logit is out of fold, the blend."""
+"""v11 models: the team effect on hand-made tables, the stacked logit is out of fold, generic
+members on tables without v11's columns, the logit blend."""
 
 from __future__ import annotations
 
@@ -7,8 +8,11 @@ import pandas as pd
 import pytest
 from sklearn.model_selection import StratifiedKFold
 
-from models.core.v11_member import V11Blend, V11Member, pipeline
-from models.core.v11_stacking import StackedLogit
+import models
+from interfaces import Model
+from models.core.estimator import EstimatorModel
+from models.core.v11_blend import LogitBlend
+from models.core.v11_stacking import SplineLogit, StackedLogit
 from models.core.v11_team import TeamEffect
 
 NAN = np.nan
@@ -78,11 +82,11 @@ def random_table(n: int = 120) -> tuple[pd.DataFrame, np.ndarray]:
 
 def test_stacked_logit_fit_transform_is_out_of_fold() -> None:
     x, y = random_table()
-    stack = StackedLogit(["f_a", "bs_b"], C=0.05, name="s")
+    stack = StackedLogit(exclude=("bh_",), C=0.05, name="s")
     out = stack.fit_transform(x, y)
-    assert list(out.columns) == ["bh_c", "s"]
+    assert list(out.columns) == ["bh_c", "s"] and stack.columns_ == ["f_a", "bs_b"]
     for tr, va in StratifiedKFold(5, shuffle=True, random_state=42).split(x, y):
-        fold = StackedLogit(["f_a", "bs_b"], C=0.05).fit(x.iloc[tr], y[tr])
+        fold = StackedLogit(prefixes=("f_", "bs_"), C=0.05).fit(x.iloc[tr], y[tr])
         expected = fold.model_.decision_function(x.iloc[va][["f_a", "bs_b"]])
         assert np.array_equal(out["s"].to_numpy()[va], expected)
     full = stack.model_.decision_function(x[["f_a", "bs_b"]])
@@ -90,19 +94,45 @@ def test_stacked_logit_fit_transform_is_out_of_fold() -> None:
     assert not np.array_equal(out["s"].to_numpy(), full)
 
 
-def test_pipeline_steps_follow_the_columns() -> None:
-    columns = ["f_a", "bs_b", "k_p1team", "k_p2team"]
-    steps = [name for name, _ in pipeline("xgb", {}, columns).steps]
+def test_steps_without_their_columns_are_the_identity() -> None:
+    x, y = random_table()
+    assert StackedLogit(prefixes=("k_",)).fit_transform(x, y) is x
+    effect = TeamEffect(drop_base=True, base="f_a")
+    assert effect.fit_transform(x, y) is x and effect.transform(x) is x
+    spline = SplineLogit(C=0.1, keys=["f_a", "f_missing"]).fit(x, y)
+    assert [name for name, _ in spline.pipeline_.steps][0] == "ct"
+    plain = SplineLogit(C=0.1, keys=["f_missing"]).fit(x, y)
+    assert [name for name, _ in plain.pipeline_.steps][0] == "imp"
+
+
+@pytest.mark.parametrize("name", ["v11_lr_spline", "v11_lgbm"])
+def test_members_fit_a_table_without_v11_columns(name: str, tmp_path) -> None:
+    x, y = random_table()
+    member = models.build(name, **({"n_estimators": 20} if name == "v11_lgbm" else {}))
+    fitted = member.clone().fit(x, y)
+    p = fitted.predict_proba(x)
+    assert p.shape == (len(x),) and ((0 <= p) & (p <= 1)).all()
+    fitted.save(tmp_path / "m.pkl")
+    assert np.array_equal(Model.load(tmp_path / "m.pkl").predict_proba(x), p)
+    assert not member.clone().is_fitted
+
+
+def test_the_member_pipelines_follow_the_original() -> None:
+    booster, spline_member = models.build("v11_xgb"), models.build("v11_lr_spline")
+    assert isinstance(booster, EstimatorModel) and isinstance(spline_member, EstimatorModel)
+    steps = [name for name, _ in booster.estimator.steps]
     assert steps == ["stack_full", "stack0", "team", "model"]
-    spline = pipeline("lr_spline", {"C": 0.1, "keys": ["f_a", "f_missing"]}, columns)
+    spline = spline_member.estimator
     assert [name for name, _ in spline.steps] == ["team_base", "team", "model"]
-    assert spline.steps[0][1].spline_keys == ["f_a"]
+    assert spline.steps[1][1].drop_base and spline.steps[0][1].spline_keys[0] == "f_d_fainted"
 
 
 def test_blend_is_the_weighted_logit_average_of_its_members() -> None:
     x, y = random_table()
-    params = {"C": 0.1, "keys": ["f_a"]}
-    members = [V11Member("m1", "lr_spline", params), V11Member("m2", "lr_spline", {**params})]
-    blend = V11Blend("b", members, [0.3, 0.7]).fit(x, y)
-    p = members[0].predict_proba(x)
+    members = [models.build("v11_lr_spline", C=0.1), models.build("v11_lr_spline", C=0.1)]
+    blend = LogitBlend("b", members, [0.3, 0.7]).fit(x, y)
+    p = np.clip(members[0].predict_proba(x), 1e-6, 1 - 1e-6)
     assert np.allclose(blend.predict_proba(x), p)
+    doubled = LogitBlend("b", members, [1.0, 1.0]).fit(x, y).predict_proba(x)
+    assert np.allclose(doubled, 1 / (1 + ((1 - p) / p) ** 2))
+    assert not blend.clone().is_fitted

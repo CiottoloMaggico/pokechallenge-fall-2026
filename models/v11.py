@@ -1,19 +1,39 @@
 """The four pipelines of v11 (``blend_v11`` of the FDS repository) and their blend.
 
-Parameters copied from the original's ``configs/pipelines.json`` (merged with the defaults of
-its ``models.make``), weights from ``configs/blends.json``. Meant for the ``v11`` feature set;
-``v11_blend`` is a ``@model``, not an ``@ensemble``: ``build_tuned`` would turn an ensemble into
-a probability average.
+Each member is an ``EstimatorModel`` of a static scikit-learn pipeline, the original's
+``pipelines.estimator``: for a booster, the stacked logit of every column but the team keys
+(kept), the stacked logit of the bag columns (replacing them), the team effect, the booster; for
+the spline regression, its own cross-fitted spline base, the team effect (which drops the base),
+the spline regression. The members are generic: the column roles are parameters (key prefix
+``k_``, bag prefixes ``bs_ bh_ bm_``) and a step whose columns are missing is the identity, so on
+any table a member is at least "stacked logit + booster"; on the ``v11`` table every step runs.
+Parameters from the original's ``configs/pipelines.json`` (merged with the defaults of its
+``models.make``), weights from ``configs/blends.json``. ``v11_blend`` is a ``@model``, not an
+``@ensemble``: ``build_tuned`` would turn an ensemble into a probability average.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from sklearn.pipeline import Pipeline
+
 from interfaces import Model
 from models import ko_v11  # noqa: F401  (registers v11's detector model with the members)
-from models.core.v11_member import V11Blend, V11Member
+from models.core.estimator import EstimatorModel
+from models.core.preprocessing import require
+from models.core.v11_blend import LogitBlend
+from models.core.v11_stacking import SEED, SplineLogit, StackedLogit
+from models.core.v11_team import TeamEffect
 from registry import model
+
+N_JOBS = 4
+KEYS = "k_"
+BAGS = ("bs_", "bh_", "bm_")
+TEAM: dict[str, Any] = {"a": 1.0, "p2": True, "link": True, "pair": True, "soft": True, "raw": True}
+FULL_C = 0.003
+BAG_C = 0.01
+BASE_C = 0.0007
 
 LR_SPLINE: dict[str, Any] = {
     "C": 0.0007,
@@ -88,37 +108,72 @@ WEIGHTS = {
 }
 
 
+def booster_member(name: str, booster: Any) -> Model:
+    """Stacked logits (all but the keys, kept; the bags, replaced), team effect, ``booster``."""
+    return EstimatorModel(
+        name,
+        Pipeline(
+            [
+                ("stack_full", full_stack(FULL_C)),
+                ("stack0", StackedLogit(prefixes=BAGS, C=BAG_C, seed=SEED, name="stack_logit_0")),
+                ("team", TeamEffect(**TEAM, seed=SEED, keys=KEYS)),
+                ("model", booster),
+            ]
+        ),
+    )
+
+
+def full_stack(c: float, spline_keys: list[str] | None = None) -> StackedLogit:
+    """The stacked logit of every column but the team keys, kept next to them."""
+    return StackedLogit(
+        exclude=(KEYS,), C=c, seed=SEED, name="stack_logit_full", keep=True, spline_keys=spline_keys
+    )
+
+
 @model("v11_lr_spline")
 def v11_lr_spline(name: str = "v11_lr_spline", **params: Any) -> Model:
     """``lr_spline_v11``: spline logistic regression with its own base and the team effect."""
-    return V11Member(name, "lr_spline", {**LR_SPLINE, **params})
+    params = {**LR_SPLINE, **params}
+    steps = [
+        ("team_base", full_stack(BASE_C, list(params["keys"]))),
+        ("team", TeamEffect(**TEAM, seed=SEED, drop_base=True, keys=KEYS)),
+        ("model", SplineLogit(**params)),
+    ]
+    return EstimatorModel(name, Pipeline(steps))
 
 
 @model("v11_xgb", requires=("xgboost",))
 def v11_xgb(name: str = "v11_xgb", **params: Any) -> Model:
     """``xgb_v11``: stacked logits, team effect, XGBoost."""
-    return V11Member(name, "xgb", {**XGB, **params})
+    booster = require("xgboost").XGBClassifier(
+        random_state=SEED, n_jobs=N_JOBS, tree_method="hist", eval_metric="logloss",
+        **{**XGB, **params},
+    )  # fmt: skip
+    return booster_member(name, booster)
 
 
 @model("v11_lgbm", requires=("lightgbm",))
 def v11_lgbm(name: str = "v11_lgbm", **params: Any) -> Model:
     """``lgbm_v11``: stacked logits, team effect, LightGBM."""
-    return V11Member(name, "lgbm", {**LGBM, **params})
+    booster = require("lightgbm").LGBMClassifier(
+        random_state=SEED, n_jobs=N_JOBS, deterministic=True, force_row_wise=True, verbose=-1,
+        **{**LGBM, **params},
+    )  # fmt: skip
+    return booster_member(name, booster)
 
 
 @model("v11_cat", requires=("catboost",))
 def v11_cat(name: str = "v11_cat", **params: Any) -> Model:
     """``cat_v11``: stacked logits, team effect, CatBoost."""
-    return V11Member(name, "cat", {**CAT, **params})
+    booster = require("catboost").CatBoostClassifier(
+        random_seed=SEED, thread_count=N_JOBS, verbose=0, allow_writing_files=False,
+        **{**CAT, **params},
+    )  # fmt: skip
+    return booster_member(name, booster)
 
 
 @model("v11_blend", requires=("xgboost", "lightgbm", "catboost"))
 def v11_blend(name: str = "v11_blend") -> Model:
     """``blend_v11``: the four members, logit-averaged with the weights of ``blends.json``."""
-    members = [
-        V11Member("v11_lr_spline", "lr_spline", LR_SPLINE),
-        V11Member("v11_xgb", "xgb", XGB),
-        V11Member("v11_lgbm", "lgbm", LGBM),
-        V11Member("v11_cat", "cat", CAT),
-    ]
-    return V11Blend(name, members, [WEIGHTS[m.name] for m in members])
+    members = [v11_lr_spline(), v11_xgb(), v11_lgbm(), v11_cat()]
+    return LogitBlend(name, members, [WEIGHTS[m.name] for m in members])
