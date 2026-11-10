@@ -1,13 +1,11 @@
-"""The label-aware steps of v11's members as table features of ``v11_fs``, and the splines.
+"""The label-aware steps of v11's members as table features of ``v11_fs``.
 
 The faithful v11 members learn two things from the labels inside the model: the logit of the bag
 columns (``stack0``) and the team effect (``team``). Here they are ``TableFeature``s of the
 second stage of ``v11_fs`` (``staged_feature_set``), reading v11's columns from the first stage's
-table: label-aware ones give their training rows out of fold (the grouped inner folds of the
-set), any other battle gets the state fitted on all the training rows.
+table: their training rows are out of fold (the grouped inner folds of the set), any other
+battle gets the state fitted on all the training rows.
 
-* ``V11Splines`` (``spl_<key>_<k>``, label-free): the cubic splines of the spline member's keys
-  (median-imputed), fitted on the training rows.
 * ``V11BagLogit`` (``stack_logit_0``): the logistic regression (C=0.01) of the bag columns, which
   it consumes.
 * ``V11TeamEffect`` (``stack_logit_full``, ``tm*``): ``team_effect.TeamScores`` (the members'
@@ -28,7 +26,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import SplineTransformer, StandardScaler
+from sklearn.preprocessing import StandardScaler
 
 from features.core.v11_fs.team_effect import TeamScores
 from staged_feature_set import TableFeature
@@ -43,14 +41,6 @@ BASE = "stack_logit_full"
 TEAM: dict[str, Any] = {"a": 1.0, "p2": True, "link": True, "pair": True, "soft": True, "raw": True}
 TEAM_COLUMNS = ("tm", "tm_n1", "tm_n2", "tm_pair", "tm_npair", "tm_soft", "tm_nsoft")
 TEAM_COLUMNS += ("tm_raw1", "tm_raw2")
-# the spline keys of the frozen spline member (LR_SPLINE["keys"] of models/v11.py)
-SPLINE_KEYS = (
-    "f_d_fainted", "f_d_hp_sum", "f_p1_fainted", "f_p2_fainted", "f_p1_hp_sum", "f_p2_hp_sum",
-    "f_d_strength", "t_hd_mean", "t_fd_mean", "a_ttk_adv", "m_win_mean", "f_d_alive", "a_a1_hp",
-    "a_a2_hp", "f_d_hp_hard", "f_d_fainted_hard", "f_p2_unrevealed", "m_p1_cover", "m_p2_cover",
-    "a_dmg12", "a_dmg21", "a_speed_logratio", "t_hd_delta10", "f_d_disabled", "e_d_dealt",
-)  # fmt: skip
-N_KNOTS, DEGREE = 4, 3
 
 
 def logit_pipeline(C: float) -> Pipeline:
@@ -63,36 +53,6 @@ def logit_pipeline(C: float) -> Pipeline:
             ("lr", LogisticRegression(C=C, max_iter=5000)),
         ]
     )
-
-
-class V11Splines(TableFeature):
-    """``spl_<key>_<k>``: cubic splines (4 knots) of the spline member's keys, median-imputed."""
-
-    requires_fit = True
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.splines: Pipeline | None = None
-
-    @property
-    def output_names(self) -> tuple[str, ...]:
-        n = N_KNOTS + DEGREE - 1
-        return tuple(f"spl_{key}_{k}" for key in SPLINE_KEYS for k in range(n))
-
-    def reads(self, columns: Sequence[str]) -> list[str]:
-        return list(SPLINE_KEYS)
-
-    def _fit(self, x: pd.DataFrame, y: np.ndarray | None) -> None:
-        self.splines = Pipeline(
-            [
-                ("imp", SimpleImputer(strategy="median")),
-                ("s", SplineTransformer(n_knots=N_KNOTS, degree=DEGREE)),
-            ]
-        ).fit(x)
-
-    def _transform(self, x: pd.DataFrame) -> np.ndarray:
-        assert self.splines is not None
-        return np.asarray(self.splines.transform(x))
 
 
 class V11BagLogit(TableFeature):

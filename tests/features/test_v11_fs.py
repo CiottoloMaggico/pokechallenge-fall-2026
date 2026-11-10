@@ -1,5 +1,5 @@
 """The ``v11_fs`` feature set on the fixtures: the initial copy of v11's groups, the port of the
-team effect and bag logit, label-aware table features out of fold, splines, state, repairs, the
+team effect and bag logit, label-aware table features out of fold, state, repairs, the
 ``--test`` guard."""
 
 from __future__ import annotations
@@ -12,10 +12,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.impute import SimpleImputer
 from sklearn.model_selection import StratifiedKFold
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import SplineTransformer
 
 import usecases
 from data import Dataset
@@ -25,7 +22,6 @@ from features import sets as feature_sets
 from features.common import make_set
 from features.core.v11_fs.forecast import battle_key
 from features.core.v11_fs.label_aware import (
-    SPLINE_KEYS,
     TEAM,
     TEAM_COLUMNS,
     V11BagLogit,
@@ -39,7 +35,7 @@ from settings import Settings
 from staged_feature_set import StagedFeatureSet, TableFeature
 from tests.features.test_v11_feature import FIXTURES, same, split
 
-GROUPS = ["s", "f", "t", "a", "e", "m", "w", "x", "d", "v", "z", "c", "q", "spl", "stack", "tm"]
+GROUPS = ["s", "f", "t", "a", "e", "m", "w", "x", "d", "v", "z", "c", "q", "stack", "tm"]
 LABEL_AWARE = ("V11BagLogit", "V11TeamEffect")
 LABEL_COLUMNS = ["stack_logit_0", "stack_logit_full", *TEAM_COLUMNS]
 BAGS = ("bs_", "bh_", "bm_")
@@ -84,7 +80,7 @@ def test_the_columns_and_no_raw_bags_or_keys(run: Run) -> None:
     assert list(dict.fromkeys(c.split("_")[0] for c in x.columns)) == GROUPS
     assert not [c for c in x.columns if c.startswith((*BAGS, "k_"))]
     assert x.columns[-11:].tolist() == LABEL_COLUMNS
-    assert len(x.filter(like="spl_").columns) == 6 * len(SPLINE_KEYS)
+    assert not x.filter(like="spl_").columns.size
     assert list(features.to_frame(new.contexts).columns) == list(x.columns)
     assert features.declared_columns is None  # the groups do not declare their columns
     aware = [f.feature_id for f in features.stage if f.uses_labels]
@@ -215,15 +211,6 @@ def test_a_row_ignores_its_own_label_but_not_the_others(run: Run) -> None:
         assert not np.array_equal(
             flipped_others.loc[inside, names].to_numpy(), x.loc[inside, names].to_numpy()
         )
-
-
-def test_the_splines_expand_the_keys_of_the_table(run: Run) -> None:
-    _, _, _, x = run
-    pipe = Pipeline(
-        [("imp", SimpleImputer(strategy="median")), ("s", SplineTransformer(n_knots=4, degree=3))]
-    )
-    found = x.filter(like="spl_").to_numpy()
-    assert np.array_equal(pipe.fit_transform(x[list(SPLINE_KEYS)]), found)
 
 
 def test_a_saved_state_scores_new_battles_like_the_fitted_set(run: Run) -> None:
