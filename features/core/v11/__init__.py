@@ -1,5 +1,7 @@
-"""Native port of the v11 model of the FDS repository (features side).
+"""v11, the ``blend_v11`` model of the FDS repository, on this repository's constructs (features).
 
-Each module copies one module of the original's ``src/`` byte for byte in behaviour (same
-constants, operation order and seeds) of the FDS repository (``FDS-Pokemon-Battle-Prediction``).
+The group functions keep the original's logic (constants, operation and iteration order, seeds);
+they read a per-battle view built from ``BattleContext`` (``battle.py``), the repository's
+species and the generic domain modules (observed timeline, expected damage). ``groups.py`` and
+``forecast.py`` wrap them as one ``Feature`` per group.
 """

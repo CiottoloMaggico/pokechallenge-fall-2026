@@ -11,7 +11,8 @@ from typing import Any
 
 import numpy as np
 
-from features.core.v11.replay import STATUSES, Battle
+from domain.battle import BattleContext
+from features.core.v11.battle import STATUSES, Battle, battle_of
 
 SNAPSHOTS = (26, 21, 16, 11, 6)
 
@@ -65,6 +66,12 @@ def p2_track(b: Battle) -> Track:
         "hp_tot": hp_tot,
         "revealed": revealed,
     }
+
+
+def tracks_of(context: BattleContext) -> tuple[Track, Track]:
+    """P1's and P2's tracks of ``context``, built once per replay (they only read the view)."""
+    b = battle_of(context)
+    return context.cached(("v11", "tracks"), lambda: (p1_track(b), p2_track(b)))
 
 
 def _side_summary(prefix: str, tr: Track, b: Battle, side_key: str) -> dict[str, Any]:

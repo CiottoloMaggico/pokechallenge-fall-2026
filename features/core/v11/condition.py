@@ -10,7 +10,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from domain import expected_damage as ed
-from features.core.v11.replay import OPP, STATUSES, Battle
+from features.core.v11.battle import OPP, STATUSES, Battle
 from features.core.v11.state import Track
 from features.core.v11.team_model import TeamModel
 

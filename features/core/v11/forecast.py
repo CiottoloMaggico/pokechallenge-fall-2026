@@ -1,33 +1,51 @@
-"""v11's learned forecast of the next turns.
+"""v11's learned forecast of the next turns (``q_`` columns), as one fitted ``Feature``.
 
-LightGBM regressors, fitted on the training timelines, map the state after c entries (the usual
-non-bag features recomputed on the truncated timeline) to the change of the faint difference, the
-HP difference and each player's faints over the next h entries; applied to the last decision
-point, they forecast how the battle goes on after it. Label-free: cross-fitted over the training
-battles, while new battles only get predictions.
+LightGBM regressors map the state after ``c`` entries (the non-bag groups recomputed on the
+timeline truncated at ``c``, then ``cut``) to the change of the faint difference, of the HP
+difference and of each player's faints over the next ``h`` entries; applied to the last entry
+of a battle, they forecast how it goes on. Label-free.
 
-A copy of the original's ``features/forecast.py``, whose ``forecast_features`` is split into
-``fit_forecast`` (out-of-fold training values and the regressors fitted on all truncated rows)
-and ``predict_forecast``, so that new battles can be scored later with identical values.
+``fit`` follows the original's ``truncated_features`` and ``forecast_features``: on the training
+battles, in their order, the inputs of the full battles and of ``battle.at_turn(c)`` for each
+cut (replayed with the same repair: with the v11 repair, the detector of that cut), with its
+own typical moves, team model and switch rates fitted on the full battles; the targets from the
+tracks of the full battles; the out-of-fold ``q_*`` of the fitted battles (``KFold`` over them,
+not grouped, as the original) are kept by battle id and ``fingerprint``, and the regressors are
+fitted on all truncated rows. ``prepare`` predicts the other battles in one batch per regressor;
+``compute`` gives a fitted battle its out-of-fold row, any other battle its predicted row.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMRegressor
 from sklearn.model_selection import KFold
 
-from features.core.v11.faint import N_JOBS, SEED
-from features.core.v11.replay import Battle
-from features.core.v11.state import p1_track, p2_track
+from domain.battle import BattleContext
+from domain.records import fingerprint
+from features.core.v11.active import active_features
+from features.core.v11.battle import battle_of
+from features.core.v11.condition import condition_features
+from features.core.v11.events import event_features
+from features.core.v11.matchup import matchup_features, wincon_features
+from features.core.v11.simulation import MoveTable, duel_features
+from features.core.v11.simulation2 import simulation_features
+from features.core.v11.sleep import sleep_features
+from features.core.v11.state import Track, state_features, tracks_of
+from features.core.v11.static import static_features
+from features.core.v11.switching import SwitchRates, behaviour_features
+from features.core.v11.team_model import TeamModel
+from interfaces import Feature
 
+SEED = 42
+N_JOBS = 4
 CUTS = (12, 14, 16, 18, 20, 22, 24)
 TARGETS = {10: ("fd", "hd", "f1", "f2"), 5: ("fd", "hd")}
-INPUTS = ("s_", "f_", "t_", "a_", "e_", "m_", "w_", "x_", "d_", "v_", "z_", "c_")
+OUTPUTS = tuple(f"q_{t}_h{h}" for h, targets in TARGETS.items() for t in targets)
 PARAMS: dict[str, Any] = dict(
     n_estimators=400,
     learning_rate=0.05,
@@ -43,21 +61,50 @@ PARAMS: dict[str, Any] = dict(
     verbose=-1,
 )
 
-Regressors = dict[str, Any]
+Key = tuple[Any, str]
 
 
-def inputs(columns: Iterable[str]) -> list[str]:
-    """The regressors' input columns: the non-bag groups, then ``cut``."""
-    return [c for c in columns if c.startswith(INPUTS)] + ["cut"]
+class Helpers(NamedTuple):
+    """The forecast's own fitted state of the input groups (fitted on the full battles)."""
+
+    moves: MoveTable
+    teams: TeamModel
+    rates: SwitchRates
 
 
-def paths(battles: Sequence[Battle]) -> dict[str, np.ndarray]:
+def battle_key(context: BattleContext) -> Key:
+    """(battle id, content hash): training duplicates have distinct ids, and no test battle of
+    the competition files shares both with a training one."""
+    return context.record["battle_id"], fingerprint(context.record)
+
+
+def inputs(context: BattleContext, helpers: Helpers, cut: float) -> dict[str, float]:
+    """The regressors' inputs: the non-bag groups in matrix order (``s_`` … ``c_``), ``cut``."""
+    b, (t1, t2) = battle_of(context), tracks_of(context)
+    row: dict[str, float] = {}
+    for values in (
+        static_features(b),
+        state_features(b, t1, t2),
+        active_features(b),
+        event_features(b),
+        matchup_features(b, t1, t2),
+        wincon_features(b, t1, t2),
+        sleep_features(b, t1, t2),
+        duel_features(b, t1, t2, helpers.moves),
+        behaviour_features(b, helpers.rates),
+        simulation_features(b, t1, t2, helpers.moves, helpers.teams),
+        condition_features(b, t1, t2, helpers.teams),
+    ):
+        row.update((name, float(value)) for name, value in values.items())
+    row["cut"] = cut
+    return row
+
+
+def paths(tracks: Sequence[tuple[Track, Track]], n: int) -> dict[str, np.ndarray]:
     """Per-entry trajectories: P1 and P2 faints (estimated hidden P2 faints included), their
     difference and the HP difference."""
-    n = battles[0].n
-    out = {k: np.zeros((len(battles), n)) for k in ("f1", "f2", "hd")}
-    for k, b in enumerate(battles):
-        t1, t2 = p1_track(b), p2_track(b)
+    out = {k: np.zeros((len(tracks), n)) for k in ("f1", "f2", "hd")}
+    for k, (t1, t2) in enumerate(tracks):
         out["f1"][k], out["f2"][k] = t1["faint_cum"], t2["faint_cum"]
         out["hd"][k] = t1["hp_tot"] - t2["hp_tot"]
     out["fd"] = out["f2"] - out["f1"]
@@ -68,40 +115,87 @@ def _regressor() -> Any:
     return LGBMRegressor(**PARAMS)
 
 
-def fit_forecast(
-    train: Sequence[Battle], X_train: pd.DataFrame, truncated: pd.DataFrame
-) -> tuple[pd.DataFrame, Regressors]:
-    """Out-of-fold ``q_*`` columns of the training rows and the regressors fitted on all rows.
+class V11Forecast(Feature[BattleContext]):
+    """``q_*``: the forecast of the faint and HP differences over the next 5 and 10 entries."""
 
-    ``train``: the full training battles (their detector already run); ``X_train``: their
-    features indexed by battle id, with ``cut``; ``truncated``: their features at each cut.
-    """
-    cols = inputs(X_train.columns)
-    traj = paths(train)
-    ids = X_train.index.to_numpy()
-    row_of = {bid: k for k, bid in enumerate(ids)}
-    folds = list(KFold(5, shuffle=True, random_state=SEED).split(ids))
-    out_train: dict[str, np.ndarray] = {}
-    regressors: Regressors = {}
-    for h, targets in TARGETS.items():
-        Z: Any = truncated[truncated["cut"] + h <= traj["fd"].shape[1]]
-        bid = Z.index.to_numpy()
-        rows = np.array([row_of[b] for b in bid])
-        start = Z["cut"].to_numpy().astype(int) - 1
-        Z = Z[cols]
-        for t in targets:
-            y = traj[t][rows, start + h] - traj[t][rows, start]
-            oof = np.zeros(len(ids))
-            for tr, va in folds:
-                m = np.isin(bid, ids[tr])
-                oof[va] = _regressor().fit(Z[m], y[m]).predict(X_train.iloc[va][cols])
-            out_train[f"q_{t}_h{h}"] = oof
-            regressors[f"q_{t}_h{h}"] = _regressor().fit(Z, y)
-    return pd.DataFrame(out_train, index=X_train.index), regressors
+    requires_fit = True
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._helpers: Helpers | None = None
+        self._cut = float("nan")
+        self._regressors: dict[str, Any] = {}
+        self._train_rows: dict[Key, list[float]] = {}
+        self._predicted: dict[Key, list[float]] = {}
 
-def predict_forecast(regressors: Regressors, X_new: pd.DataFrame) -> pd.DataFrame:
-    """The ``q_*`` columns of new battles (``X_new`` with ``cut``, as the training matrix)."""
-    cols = inputs(X_new.columns)
-    out = {name: model.predict(X_new[cols]) for name, model in regressors.items()}
-    return pd.DataFrame(out, index=X_new.index)
+    @property
+    def output_names(self) -> tuple[str, ...]:
+        return OUTPUTS
+
+    def _fit(self, battles: Sequence[BattleContext], labels: Sequence[int] | None) -> None:
+        views = [battle_of(c) for c in battles]
+        helpers = Helpers(MoveTable(views), TeamModel(views), SwitchRates(views))
+        self._helpers, self._cut = helpers, float(len(battles[0].record["battle_timeline"]))
+        ids = np.array([c.battle_id for c in battles])
+        x = pd.DataFrame([inputs(c, helpers, self._cut) for c in battles], index=ids)
+        truncated = pd.concat(
+            [
+                pd.DataFrame(
+                    [inputs(c.at_turn(cut), helpers, float(cut)) for c in battles], index=ids
+                )
+                for cut in CUTS
+            ]
+        )
+        traj = paths([tracks_of(c) for c in battles], views[0].n)
+        oof = self._fit_regressors(x, truncated, traj)
+        self._train_rows = {battle_key(c): oof[k].tolist() for k, c in enumerate(battles)}
+        self._predicted = {}
+
+    def _fit_regressors(
+        self, x: pd.DataFrame, truncated: pd.DataFrame, traj: Mapping[str, np.ndarray]
+    ) -> np.ndarray:
+        """The out-of-fold ``q_*`` of the fitted battles (rows) and the regressors on all rows."""
+        cols = list(x.columns)
+        ids = x.index.to_numpy()
+        row_of = {bid: k for k, bid in enumerate(ids)}
+        folds = list(KFold(5, shuffle=True, random_state=SEED).split(ids))
+        oof = np.zeros((len(ids), len(OUTPUTS)))
+        for h, targets in TARGETS.items():
+            z: Any = truncated[truncated["cut"] + h <= traj["fd"].shape[1]]
+            bid = z.index.to_numpy()
+            rows = np.array([row_of[b] for b in bid])
+            start = z["cut"].to_numpy().astype(int) - 1
+            z = z[cols]
+            for t in targets:
+                name = f"q_{t}_h{h}"
+                y = traj[t][rows, start + h] - traj[t][rows, start]
+                for tr, va in folds:
+                    m = np.isin(bid, ids[tr])
+                    oof[va, OUTPUTS.index(name)] = (
+                        _regressor().fit(z[m], y[m]).predict(x.iloc[va][cols])
+                    )
+                self._regressors[name] = _regressor().fit(z, y)
+        return oof
+
+    def prepare(self, battles: Sequence[BattleContext]) -> None:
+        """Predict in one batch the battles that are neither fitted nor already predicted."""
+        new: dict[Key, BattleContext] = {}
+        for context in battles:
+            key = battle_key(context)
+            if key not in self._train_rows and key not in self._predicted:
+                new.setdefault(key, context)
+        if not new:
+            return
+        assert self._helpers is not None
+        x = pd.DataFrame([inputs(c, self._helpers, self._cut) for c in new.values()])
+        predicted = np.column_stack([self._regressors[name].predict(x) for name in OUTPUTS])
+        self._predicted.update(zip(new, predicted.tolist(), strict=True))
+
+    def compute(self, battle: BattleContext) -> Mapping[str, float]:
+        key = battle_key(battle)
+        row = self._train_rows.get(key)
+        if row is None:
+            if key not in self._predicted:
+                self.prepare([battle])
+            row = self._predicted[key]
+        return dict(zip(OUTPUTS, row, strict=True))

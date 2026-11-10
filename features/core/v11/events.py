@@ -8,8 +8,8 @@ from typing import Any
 
 from domain import expected_damage as ed
 from features.core.v11 import moves as mx
+from features.core.v11.battle import OPP, STATUSES, Battle
 from features.core.v11.moves import CHART
-from features.core.v11.replay import OPP, STATUSES, Battle
 
 CLASSES: dict[str, Any] = {
     "heal": mx.HEAL,

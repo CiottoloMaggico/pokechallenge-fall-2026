@@ -7,7 +7,7 @@ from collections import Counter
 from collections.abc import Sequence
 from typing import Any
 
-from features.core.v11.replay import Battle
+from features.core.v11.battle import Battle
 from features.core.v11.state import Track
 
 

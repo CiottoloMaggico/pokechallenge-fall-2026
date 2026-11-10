@@ -8,8 +8,8 @@ from typing import Any
 import numpy as np
 
 from domain import expected_damage as ed
+from features.core.v11.battle import Battle
 from features.core.v11.moves import ALL_TYPES, CHART, STATS
-from features.core.v11.replay import Battle
 
 ITEMS = ("leftovers", "thickclub", "miracleberry", "mintberry", "lightball")
 

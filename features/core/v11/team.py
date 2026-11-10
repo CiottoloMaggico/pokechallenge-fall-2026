@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from itertools import combinations
 from typing import Any
 
-from features.core.v11.replay import Battle
+from features.core.v11.battle import Battle
 
 NAN = float("nan")
 

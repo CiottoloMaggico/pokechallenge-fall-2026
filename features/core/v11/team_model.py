@@ -8,7 +8,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from features.core.v11.replay import Battle
+from features.core.v11.battle import Battle
 
 
 class TeamModel:

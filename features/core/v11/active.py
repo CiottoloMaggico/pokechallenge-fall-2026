@@ -9,8 +9,9 @@ from typing import Any
 
 from domain import expected_damage as ed
 from domain.pokedex import PokemonGen2
+from domain.timeline import SideTimeline as Side
+from features.core.v11.battle import NAN, STATUSES, VOLATILE, Battle, log_ratio
 from features.core.v11.moves import BOOSTS, CHART, PARTIAL_TRAP
-from features.core.v11.replay import NAN, STATUSES, VOLATILE, Battle, Side, log_ratio
 
 BASE = ("hp", "atk", "def", "spa", "spd", "spe", "bst")
 TTK_CAP = 20.0

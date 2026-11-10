@@ -13,8 +13,8 @@ from scipy.special import expit
 
 from domain import expected_damage as ed
 from features.core.v11 import moves as mx
+from features.core.v11.battle import Battle
 from features.core.v11.moves import CHART
-from features.core.v11.replay import Battle
 from features.core.v11.state import Track
 
 PHYSICAL_TYPES = {

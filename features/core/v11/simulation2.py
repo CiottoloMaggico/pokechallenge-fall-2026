@@ -15,9 +15,9 @@ from domain import expected_damage as ed
 from domain.pokedex import PokemonGen2
 from domain.timeline import Move
 from features.core.v11 import moves as mx
+from features.core.v11.battle import Battle
 from features.core.v11.matchup import Fighter, proxies
 from features.core.v11.moves import CHART
-from features.core.v11.replay import Battle
 from features.core.v11.simulation import MAX_DUELS, MAX_HITS, MIN_HP, Cache, MoveTable, is_attack
 from features.core.v11.state import Track
 from features.core.v11.team_model import TeamModel

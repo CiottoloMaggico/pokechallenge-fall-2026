@@ -13,8 +13,8 @@ from typing import Any
 
 from domain import expected_damage as ed
 from features.core.v11 import moves as mx
+from features.core.v11.battle import OPP, Battle
 from features.core.v11.moves import CHART
-from features.core.v11.replay import OPP, Battle
 
 SMOOTHING = 5.0
 TYPELESS = {"hiddenpower", "struggle"}

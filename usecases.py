@@ -79,6 +79,7 @@ def evaluate(
     With several seeds the table reports, besides the fold std, the std across seeds of
     accuracy and log loss. Without ``out`` the tables go to a dated evaluation folder.
     """
+    _refuse_test_with_v11(settings, features)
     jobs = fork_safe_jobs(settings.jobs, features, models)
     pokedex = Pokedex.from_json(settings.pokedex)
     train = Dataset.from_jsonl(settings.train, pokedex, repair=_repair(settings))
@@ -91,6 +92,12 @@ def evaluate(
     target = out or settings.results.evaluation(time.strftime("evaluate_%Y-%m-%d_%H%M%S"))
     report(result, reference, bool(turns), target)
     return 0
+
+
+def _refuse_test_with_v11(settings: Settings, features: Sequence[str]) -> None:
+    """v11's label-free features fit on the training battles only, never on ``--test``."""
+    if settings.test is not None and any(feature_sets.parse_name(f)[0] == "v11" for f in features):
+        raise SystemExit("v11 fits its features on the training battles only: drop --test")
 
 
 def fork_safe_jobs(jobs: int, features: Sequence[str], models: Sequence[str]) -> int:
@@ -172,6 +179,7 @@ def train(
     out: Path | None = None,
 ) -> int:
     """Fit every combination on all training data and save the runs (``out/<set>__<model>``)."""
+    _refuse_test_with_v11(settings, features)
     pokedex = Pokedex.from_json(settings.pokedex)
     repair = _repair(settings)
     dataset = Dataset.from_jsonl(settings.train, pokedex, repair=repair)

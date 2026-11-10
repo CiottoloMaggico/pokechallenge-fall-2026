@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from features.core.v11.replay import Battle
+from features.core.v11.battle import Battle
 from features.core.v11.state import Track
 
 
