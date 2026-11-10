@@ -6,8 +6,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from features.core.v11 import mechanics as mx
-from features.core.v11.mechanics import effectiveness
+from domain import expected_damage as ed
+from features.core.v11 import moves as mx
+from features.core.v11.moves import CHART
 from features.core.v11.replay import OPP, STATUSES, Battle
 
 CLASSES: dict[str, Any] = {
@@ -55,9 +56,9 @@ def _moves(b: Battle, s: str) -> dict[str, Any]:
             continue
         n_damaging += 1
         bp_sum += m["base_power"]
-        dd = b.dex.get(opp.names[i])
+        dd = b.species(opp.names[i])
         if dd is not None:
-            e = effectiveness(m["type"], dd["types"])
+            e = ed.effectiveness(CHART, m["type"], dd.types)
             eff_sum += e
             se += e > 1
             resisted += 0 < e < 1

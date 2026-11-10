@@ -11,19 +11,14 @@ import math
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from features.core.v11 import mechanics as mx
+from domain import expected_damage as ed
+from domain.pokedex import PokemonGen2
+from domain.timeline import Move
+from features.core.v11 import moves as mx
 from features.core.v11.matchup import Fighter, proxies
-from features.core.v11.mechanics import Entry, Move
+from features.core.v11.moves import CHART
 from features.core.v11.replay import Battle
-from features.core.v11.simulation import (
-    MAX_DUELS,
-    MAX_HITS,
-    MIN_HP,
-    Cache,
-    MoveTable,
-    is_attack,
-    used_move,
-)
+from features.core.v11.simulation import MAX_DUELS, MAX_HITS, MIN_HP, Cache, MoveTable, is_attack
 from features.core.v11.state import Track
 from features.core.v11.team_model import TeamModel
 
@@ -43,7 +38,7 @@ def _field(b: Battle) -> Field:
     screens: dict[str, dict[str, int]] = {"p1": {}, "p2": {}}
     for i in range(b.n):
         for s in ("p1", "p2"):
-            m = used_move(b, s, i)
+            m = b.timeline.used_move(s, i)
             if m is not None and m["name"] in mx.WEATHER:
                 weather = (m["name"], i)
             elif m is not None and m["name"] in mx.SCREENS:
@@ -79,7 +74,7 @@ def _fighter(
     n: str,
     side_key: str,
     hp: float,
-    d: Entry,
+    d: PokemonGen2,
     level: int,
     item: str | None,
     status: str,
@@ -89,7 +84,7 @@ def _fighter(
     delay: int,
 ) -> Fighter:
     moves = {m["name"]: m for m in revealed.values() if is_attack(m)}
-    for m in table.typical.get(n, []) + proxies(d["types"]):
+    for m in table.typical.get(n, []) + proxies(d.types):
         moves.setdefault(m["name"], m)
     return {
         "name": n,
@@ -102,7 +97,7 @@ def _fighter(
         "boosts": boosts,
         "moves": list(moves.values()),
         "delay": delay,
-        "spe": mx.effective_speed(d, boosts, status, level),
+        "spe": ed.effective_speed(d, boosts, status, level),
     }
 
 
@@ -118,7 +113,7 @@ def _fighters2(
     spent, kind = _spent(b, side_key)
     out: list[Fighter] = []
     for n, hp in track["hp"].items():
-        d = b.dex.get(n)
+        d = b.species(n)
         if d is None or hp <= 0 or not alive(n):
             continue
         revealed, st = side.revealed.get(n, {}), track["status"][n]
@@ -140,16 +135,16 @@ def _hidden(b: Battle, table: MoveTable, team_model: TeamModel) -> list[Fighter]
     if n_hidden <= 0:
         return []
     e = team_model.expected_unrevealed(revealed, n_hidden)
-    names = [n for n, _ in sorted(e.items(), key=lambda kv: -kv[1]) if n in b.dex][:n_hidden]
-    return [
-        _fighter(n, "p2", 1.0, b.dex[n], 100, None, "nostatus", {}, {}, table, 0) for n in names
-    ]
+    likely = ((n, b.species(n)) for n, _ in sorted(e.items(), key=lambda kv: -kv[1]))
+    found = [(n, d) for n, d in likely if d is not None][:n_hidden]
+    return [_fighter(n, "p2", 1.0, d, 100, None, "nostatus", {}, {}, table, 0) for n, d in found]
 
 
 def _damage2(u: Fighter, v: Fighter, field: Field | None) -> float:
     best = 0.0
     for m in u["moves"]:
-        x = mx.damage_fraction(
+        x = ed.expected_damage(
+            CHART,
             m,
             u["d"],
             v["d"],

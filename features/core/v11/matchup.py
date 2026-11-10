@@ -11,7 +11,9 @@ from typing import Any
 import numpy as np
 from scipy.special import expit
 
-from features.core.v11 import mechanics as mx
+from domain import expected_damage as ed
+from features.core.v11 import moves as mx
+from features.core.v11.moves import CHART
 from features.core.v11.replay import Battle
 from features.core.v11.state import Track
 
@@ -53,7 +55,7 @@ def _roster(
     out: list[Fighter] = []
     for n, hp in track["hp"].items():
         w = weight_fn(n)
-        d = b.dex.get(n)
+        d = b.species(n)
         if w <= 0.5 or d is None or hp <= 0:
             continue
         revealed = [m for m in side.revealed.get(n, {}).values() if m["category"] != "status"]
@@ -61,14 +63,14 @@ def _roster(
         mult = 1.0
         if st in DISABLE and not (st == "slp" and "sleeptalk" in side.revealed.get(n, {})):
             mult = DISABLE[st]
-        spe = mx.stat_value(d["spe"], b.level(side_key, n)) * (0.25 if st == "par" else 1.0)
+        spe = ed.stat_value(d.base_spe, b.level(side_key, n)) * (0.25 if st == "par" else 1.0)
         out.append(
             {
                 "name": n,
                 "hp": hp,
                 "w": w,
                 "d": d,
-                "moves": revealed + proxies(d["types"]),
+                "moves": revealed + proxies(d.types),
                 "mult": mult,
                 "spe": spe,
                 "level": b.level(side_key, n),
@@ -80,7 +82,8 @@ def _roster(
 
 
 def _dmg(u: Fighter, v: Fighter) -> float:
-    return u["mult"] * mx.best_damage(
+    return u["mult"] * ed.best_damage(
+        CHART,
         u["moves"],
         u["d"],
         v["d"],

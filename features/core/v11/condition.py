@@ -9,9 +9,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from features.core.v11 import mechanics as mx
+from domain import expected_damage as ed
 from features.core.v11.replay import OPP, STATUSES, Battle
-from features.core.v11.simulation import used_move
 from features.core.v11.state import Track
 from features.core.v11.team_model import TeamModel
 
@@ -22,14 +21,14 @@ def _spikes(b: Battle) -> dict[str, bool]:
     on = {"p1": False, "p2": False}
     for i in range(b.n):
         for s in ("p1", "p2"):
-            m = used_move(b, s, i)
+            m = b.timeline.used_move(s, i)
             if m is None:
                 continue
             if m["name"] == "spikes":
                 on[OPP[s]] = True
             elif m["name"] == "rapidspin":
-                foe = b.dex.get(b.sides[OPP[s]].names[i])
-                if foe is None or "ghost" not in foe["types"]:
+                foe = b.species(b.sides[OPP[s]].names[i])
+                if foe is None or "ghost" not in foe.types:
                     on[s] = False
     return on
 
@@ -44,11 +43,11 @@ def _bulk(
 ) -> float:
     total, full = 0.0, []
     for n, hp in track["hp"].items():
-        d = b.dex.get(n)
+        d = b.species(n)
         if d is None:
             continue
         level = b.level(side_key, n)
-        size = mx.stat_value(d["hp"], level, hp=True) * mx.stat_value(d[stat], level)
+        size = ed.stat_value(d.base_hp, level, hp=True) * ed.stat_value(d.base(stat), level)
         full.append(size)
         total += weight(n) * hp * size
     if side_key == "p2" and full:

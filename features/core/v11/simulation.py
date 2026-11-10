@@ -13,9 +13,11 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from features.core.v11 import mechanics as mx
+from domain import expected_damage as ed
+from domain.timeline import Move
+from features.core.v11 import moves as mx
 from features.core.v11.matchup import DISABLE, Fighter, proxies
-from features.core.v11.mechanics import Move
+from features.core.v11.moves import CHART
 from features.core.v11.replay import Battle
 from features.core.v11.state import Track
 
@@ -95,7 +97,7 @@ def _fighters(
     side, i = b.sides[side_key], b.n - 1
     out: list[Fighter] = []
     for n, hp in track["hp"].items():
-        d = b.dex.get(n)
+        d = b.species(n)
         if d is None or hp <= 0 or not alive(n):
             continue
         moves = {m["name"]: m for m in side.revealed.get(n, {}).values() if is_attack(m)}
@@ -117,8 +119,8 @@ def _fighters(
                 "status": st,
                 "boosts": boosts,
                 "mult": mult,
-                "moves": list(moves.values()) or proxies(d["types"]),
-                "spe": mx.effective_speed(d, boosts, st, level),
+                "moves": list(moves.values()) or proxies(d.types),
+                "spe": ed.effective_speed(d, boosts, st, level),
             }
         )
     return out
@@ -127,7 +129,8 @@ def _fighters(
 def _damage(u: Fighter, v: Fighter, cache: Cache) -> float:
     key = (u["name"], v["name"])
     if key not in cache:
-        cache[key] = u["mult"] * mx.best_damage(
+        cache[key] = u["mult"] * ed.best_damage(
+            CHART,
             u["moves"],
             u["d"],
             v["d"],
@@ -218,19 +221,3 @@ def _outcomes(
 def duel_features(b: Battle, t1: Track, t2: Track, table: MoveTable) -> dict[str, Any]:
     """The ``d_`` columns: with the typical moves, then with the revealed moves only (``_seen``)."""
     return {**_outcomes(b, t1, t2, table, ""), **_outcomes(b, t1, t2, None, "_seen")}
-
-
-def used_move(b: Battle, s: str, i: int) -> Move | None:
-    """Move used at entry i by the active Pokémon of side s.
-
-    The move field also counts when the same move is used again, but not on a switch-in, while it
-    cannot act, or right after a Player 1 faint.
-    """
-    side = b.sides[s]
-    if i == 0:
-        return side.moves[0]
-    if b.sides["p1"].status[i - 1] == "fnt" or side.names[i] != side.names[i - 1]:
-        return None
-    if side.status[i - 1] in ("slp", "frz") and side.status[i] in ("slp", "frz"):
-        return None
-    return side.moves[i]

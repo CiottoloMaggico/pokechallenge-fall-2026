@@ -11,8 +11,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from features.core.v11 import mechanics as mx
-from features.core.v11.mechanics import effectiveness
+from domain import expected_damage as ed
+from features.core.v11 import moves as mx
+from features.core.v11.moves import CHART
 from features.core.v11.replay import OPP, Battle
 
 SMOOTHING = 5.0
@@ -82,11 +83,11 @@ def _resisted_share(b: Battle, s: str) -> float:
             or own.status[i] in ("slp", "frz")
         ):
             continue
-        d = b.dex.get(opp.names[i])
+        d = b.species(opp.names[i])
         if d is None:
             continue
         attacks += 1
-        resisted += m["name"] not in TYPELESS and effectiveness(m["type"], d["types"]) < 1
+        resisted += m["name"] not in TYPELESS and ed.effectiveness(CHART, m["type"], d.types) < 1
     return resisted / attacks if attacks else 0.0
 
 

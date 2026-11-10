@@ -68,8 +68,9 @@ def p2_track(b: Battle) -> Track:
 
 
 def _side_summary(prefix: str, tr: Track, b: Battle, side_key: str) -> dict[str, Any]:
-    dex, side = b.dex, b.sides[side_key]
+    side = b.sides[side_key]
     hp, status, pf = tr["hp"], tr["status"], tr["pf"]
+    dex = {n: d for n in hp if (d := b.species(n)) is not None}
     alive_w = {n: 1 - pf[n] for n in hp}
     f: dict[str, Any] = {
         f"{prefix}_fainted": tr["faint_cum"][-1],
@@ -77,10 +78,10 @@ def _side_summary(prefix: str, tr: Track, b: Battle, side_key: str) -> dict[str,
         f"{prefix}_hp_low": sum(w for n, w in alive_w.items() if hp[n] < 0.3),
         f"{prefix}_hp_mid": sum(w for n, w in alive_w.items() if hp[n] < 0.6),
         f"{prefix}_strength": sum(
-            w * hp[n] * dex[n]["bst"] / 100 for n, w in alive_w.items() if n in dex
+            w * hp[n] * dex[n].base_stat_total / 100 for n, w in alive_w.items() if n in dex
         ),
         f"{prefix}_speed_alive": max(
-            (dex[n]["spe"] for n, w in alive_w.items() if w > 0.5 and n in dex), default=0
+            (dex[n].base_spe for n, w in alive_w.items() if w > 0.5 and n in dex), default=0
         ),
     }
     for st in STATUSES:
