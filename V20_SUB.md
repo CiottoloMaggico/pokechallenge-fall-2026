@@ -1,10 +1,10 @@
-# v11 on the repository's architecture: done, and the next task (v11's model steps as features)
+# v11 on the repository's architecture: done, and the next task (`v11_fs`, the living line)
 
 Read `AGENTS.md` first, then this file in full. The file has two parts:
 
-1. **Next task** (below, to do): move the label-aware steps that v11's members run inside the
-   model (the bag logit and the team effect) into the feature layer, as a **new** feature set and
-   **new** members next to the faithful v11, and measure how much the numbers move against it.
+1. **Next task** (below, to do): `v11_fs`, the living line of v11: the label-aware steps of
+   v11's members (bag logit, team effect) as features, generic models, the faithful v11 frozen;
+   measure how much the numbers move against it.
 2. **Done: the rebuild of v11** (the rest of the file, from "Task: rebuild v11"): kept as the
    record of what was built and verified; its decisions still hold for the faithful v11.
 
@@ -25,152 +25,143 @@ Read `AGENTS.md` first, then this file in full. The file has two parts:
 - Known blemish: commit `e3ac7d0` deletes `models/core/v11_member.py` one commit early (fixed by
   `ec1b8f6`); history is not rewritten without the user's request.
 
-## Next task: v11's label-aware model steps as features (`v11_fs`), measured against `v11`
+## Next task: `v11_fs`, the living line of v11 (label-aware features, generic models)
+
+These decisions of the user supersede the earlier proposal of this section and the amendments of
+commit `240499c` (the `learners.py` approach, the `v11fs_*` names): do not reopen them.
 
 ### Goal
 
-Today two steps of every v11 member need particular columns and learn from the labels inside
-the model (decision 7 of the rebuild):
+Port v11 cleanly onto a **new living line**, on which every future change is made, and measure
+how much the numbers move against the faithful v11:
 
-- **bag logit** (`stack0`, boosters only): `StackedLogit(prefixes=("bs_", "bh_", "bm_"),
-  C=0.01)` replaces the ~520 bag columns with `stack_logit_0`, cross-fitted by a
-  `StratifiedKFold(5, shuffle=True, random_state=42)` inside `fit_transform`;
-- **team effect** (`team`): `TeamEffect(a=1, p2, link, pair, soft, raw)` replaces the `k_` key
-  columns with `tm, tm_n1, tm_n2, tm_pair, tm_npair, tm_soft, tm_nsoft, tm_raw1, tm_raw2`, the
-  shrunk residuals of each team against a **base logit** of the same member (`stack_logit_full`:
-  for the boosters the logistic regression of every non-key column, C=0.003; for the spline
-  member its own spline base, C=0.0007, dropped afterwards), cross-fitted the same way.
+- the two steps that today learn from the labels inside the v11 members (the bag logit `stack0`
+  and the team effect `TeamEffect`) become label-aware features of the feature layer;
+- the models become generic: no column name or prefix, no tie to a feature set;
+- the faithful v11 (feature set `v11`, models `v11_*`, the v11 addon, `tools/v11_check.py`) is a
+  **frozen** historical reference: never modified again, not even to move code.
 
-Move both into the feature layer, as `features/core/pool.py` does with `TeamRating`
-(`uses_labels = True`, out-of-fold training rows from `FeatureSet.fit_transform`'s grouped inner
-folds), so that the members become fully generic ("stacked logit + booster" on any table), and
-**measure how much this changes the results against the faithful v11**. The faithful `v11` set,
-the `v11_*` models, the v11 addon and `tools/v11_check.py` stay exactly as they are (rule 5).
+### Decisions
 
-Expected direction (not a target): the numbers move by more than noise only if the inner folds
-matter. Three things change at once, and the report must separate them where possible: the inner
-folds (grouped by duplicates in the feature set vs stratified, ungrouped in the model), one shared
-base logit for the team effect instead of each member's own, and, inside `evaluate`, the label
-aware features refitted on each outer training fold (unchanged in spirit: the members already
-refit them per fold).
-
-### Amendments of the user (override the decisions below where they differ)
-
-- **Shared module `learners.py`** (top level, outside the layers like `stats_tables.py`): the
-  logic of `TeamEffect` (fitting and encoding, `TeamScores`) and the logistic pipeline of
-  `StackedLogit` (`SimpleImputer(median) → StandardScaler → LogisticRegression`,
-  `logit_pipeline`) moved there unchanged; it imports only numpy, pandas, scipy and scikit-learn,
-  never a repository module (rule in `tests/test_architecture.py`). `models/core/v11_team.py`
-  and `v11_stacking.py` import them without changing logic (`v11_check --stages models cv`
-  bitwise and the golden check before the commit); `features/core/v11/label_aware.py` uses them.
-- **Decision 2 corrected**: the base logit of `V11TeamEffect` is the regression (C=0.003) of
-  **every non-key column of `v11`, bags included** (computed inside the feature), as the
-  boosters' original `stack_full`, which excludes only `k_`.
-- **The `v11fs_*` members name no column or prefix**:
-  - the spline expansion of the 25 keys of `LR_SPLINE` becomes a label-free feature of `v11_fs`,
-    `V11Splines` (`SimpleImputer(median)` + `SplineTransformer(n_knots=4, degree=3)` fitted on
-    the training battles, columns `spl_<key>_<k>`); `v11fs_lr_spline` is
-    `imputer → scaler → LogisticRegression(C=0.0007)` on any table;
-  - `v11fs_xgb` / `lgbm` / `cat`: `StackedLogit()` without selectors (every column, kept, C=0.003)
-    → booster; no `PrefixScale`, no `exclude`;
-  - every member sees the same `v11_fs` table (part of what is measured; reported).
-- **Timing**: the label-free inputs of the two label-aware features (groups and forecast) are
-  fitted once and reused by the inner-fold copies, only if the requested battles are a subset of
-  those the cache was built on (the set of battle keys is stored); otherwise they are refitted.
-  Test: a feature cloned from a fitted one and refitted on other battles does not reuse the cache.
-- Allowed in addition: `learners.py`, the moves in `models/core/v11_team.py` /
-  `v11_stacking.py`, its rule in `tests/test_architecture.py`, the layer diagram of `AGENTS.md`.
-
-### Proposed decisions (confirmed; amended above)
-
-1. **New names, nothing renamed.** Feature set `v11_fs` (`features/v11_fs.py`); members
-   `v11fs_lr_spline`, `v11fs_xgb`, `v11fs_lgbm`, `v11fs_cat` and blend `v11fs_blend`, same
-   hyper-parameters, seeds and blend weights as `v11_*` (no re-tuning: the comparison isolates the
-   move). Registered in `models/v11_fs.py`.
-2. **`v11_fs` = `v11` with the bags and keys replaced by label-aware features**, in the same
-   order otherwise: the label-free groups of `v11` (`V11Static` … `V11Sleep`, `V11Duel` …
-   `V11Condition`, `V11Forecast`, reused as they are) plus
-   - `V11BagLogit` (`stack_logit_0`): the bag columns computed internally (the `Vocab` of
-     `V11Bags`), the same `SimpleImputer → StandardScaler → LogisticRegression(C=0.01)` fitted on
-     the training battles; output the decision function (logit), as `stack_logit_0` today;
-   - `V11TeamEffect` (the nine `tm*` columns): the key columns computed internally
-     (`team_keys`), `TeamEffect`'s fitting and encoding logic reused (move or import its pure
-     parts; do not fork the formulas), against **one base logit fitted inside the feature**: the
-     logistic regression of every non-key, non-bag column of `v11` (C=0.003, the boosters' base),
-     itself cross-fitted on the feature's training battles (inner `StratifiedKFold(5, 42)` over
-     them, as the original's base), so the residuals of a training battle never use its own label.
-   No `bs_ bh_ bm_ k_` column is output (the boosters never read them raw: `stack0` and `team`
-   replaced them).
-3. **Members of `v11_fs`**: boosters `stack_full → booster` (the `stack_full` step stays in the
-   model: it is generic, any table); the spline member `spline_lr` on the table as it comes
-   (`SplineLogit` with the same keys; no `team_base`, the base is in the feature). The steps
-   `stack0` / `team` are simply absent from the `v11fs_*` pipelines.
-4. **Folds.** Training rows of `V11BagLogit` / `V11TeamEffect` are out of fold through
-   `FeatureSet.fit_transform` (grouped inner folds, `DEFAULT_INNER_FOLDS = 5`, seed 0): rule 2
-   then holds for these steps too (the declared exception stays only for the faithful v11).
-   `inner_oof` stays True.
-5. **Repair**: `--repair v11=results/addons/knockouts_v11/v1` for every run, as the faithful v11.
-6. **`--test` refused** with `v11_fs` too (extend the guard of `usecases.py` to the base names
+1. **Faithful v11 frozen.** Never touch `features/v11.py`, `features/core/v11/*`,
+   `models/v11.py`, `models/core/v11_*.py`, `models/ko_v11.py`, `addons/knockouts_v11.py`,
+   `tools/v11_check.py`. `python tools/v11_check.py check --stages models cv` gives max |diff| 0
+   after every commit.
+2. **Earlier uncommitted work** (the `learners.py` approach): the changes to
+   `models/core/v11_team.py`, `models/core/v11_stacking.py` and `tests/test_architecture.py` are
+   reverted, `learners.py` is deleted; what is useful of the draft label-aware features, the
+   `v11_fs` set, the `usecases.py` guard and the `features/sets.py` line is moved into the
+   structure below.
+3. **Naming.** "v11" stays only in the feature set's name: `v11_fs` (`features/v11_fs.py`),
+   package `features/core/v11_fs/`. The models do not mention v11:
+   - `stack_xgboost`, `stack_lightgbm`, `stack_catboost`: a generic `StackedLogit` (every column,
+     `keep=True`, C=0.003, `StratifiedKFold(5, shuffle=True, random_state=42)` as today) →
+     booster, with the hyper-parameters, seeds and threads of `v11_xgb`, `v11_lgbm`, `v11_cat`;
+   - `logreg_l2`: `SimpleImputer(median) → StandardScaler → LogisticRegression(C=0.0007,
+     max_iter=5000)`;
+   - `stack_blend`: weighted mean of the four logits with the weights of `blend_v11` (keys per
+     member: `logreg_l2`, `stack_xgboost`, `stack_lightgbm`, `stack_catboost`), no
+     renormalisation.
+   Code in `models/stacked.py` (one import line in `models/__init__.py`); a new `LogitBlend` in
+   `models/core/logit_blend.py` (the faithful v11 keeps its own); a new generic `StackedLogit`
+   in `models/core/stacking.py` (the logic of v11's, without selectors or splines): no import
+   from `models/core/v11_*.py`. Twins: `logreg_l2` ↔ `v11_lr_spline`, `stack_xgboost` ↔
+   `v11_xgb`, `stack_lightgbm` ↔ `v11_lgbm`, `stack_catboost` ↔ `v11_cat`, `stack_blend` ↔
+   `v11_blend`.
+4. **The living line owns all its code**: `features/core/v11_fs/` starts as a copy of `battle`,
+   `state`, `static`, `active`, `events`, `matchup`, `sleep`, `bags`, `team`, `team_model`,
+   `simulation`, `simulation2`, `switching`, `condition`, `forecast`, `groups`, `moves` of
+   `features/core/v11/` (internal imports rewritten to `v11_fs`; no import from
+   `features/core/v11/`). It uses the domain modules (timeline, expected damage, switches).
+5. **Feature set `v11_fs`**, in this order: the label-free groups (Static, State, Active,
+   Events, Matchup, WinConditions, Sleep, Duel, Behaviour, Simulation, Condition, Forecast, from
+   the `v11_fs` package), then
+   - `V11Splines` (label-free): the spline expansion of the 25 keys of `LR_SPLINE`
+     (`SimpleImputer(median)` + `SplineTransformer(n_knots=4, degree=3)` fitted on the training
+     battles), columns `spl_<key>_<k>`;
+   - `V11BagLogit` (label-aware, `stack_logit_0`): the bags computed internally (`Vocab` as
+     `V11Bags`), `SimpleImputer(median) → StandardScaler → LogisticRegression(C=0.01)` fitted on
+     the training battles; output its decision function;
+   - `V11TeamEffect` (label-aware, `tm, tm_n1, tm_n2, tm_pair, tm_npair, tm_soft, tm_nsoft,
+     tm_raw1, tm_raw2`): keys computed internally (`team_keys`), the fitting and encoding logic of
+     `TeamEffect` ported here (a=1, p2, link, pair, soft, raw as today), against an internal base
+     logit: the regression (C=0.003) of every non-key column of `v11`, bags included (as the
+     boosters' original `stack_full`), cross-fitted with `StratifiedKFold(5, shuffle=True,
+     random_state=42)` on the feature's training battles.
+   No raw `bs_ bh_ bm_ k_` column is output. Every model sees the same `v11_fs` table (part of
+   what is measured; reported). The package lives in the feature layer: the logistic pipeline is
+   built there with scikit-learn, no import from `models/`.
+6. **Folds and leakage** (rules 2 and 3): `V11BagLogit` and `V11TeamEffect` have
+   `uses_labels = True`, `inner_oof = True`; training rows out of fold through the grouped inner
+   folds of `FeatureSet.fit_transform`; never fitted on unlabelled battles; no read of
+   `player_won`.
+7. **Timing**: the label-free inputs of the two label-aware features (groups and forecast) are
+   fitted once and the inner-fold copies reuse them, **only** if the requested battles are a
+   subset of those the cache was built on (the set of `(battle_id, fingerprint)` keys is
+   stored); otherwise they are refitted.
+8. **Repair** `--repair v11=results/addons/knockouts_v11/v1` for every run. `train` and
+   `evaluate` refuse `--test` with `v11_fs` too (the guard of `usecases.py` covers the base names
    `v11` and `v11_fs`).
 
-### Hard constraints
+### Allowed files
 
-- Do not change the faithful v11 (`features/v11.py`, `features/core/v11/*` logic,
-  `models/v11.py`, `models/core/v11_*.py` logic, `addons/knockouts_v11.py`) nor anything listed
-  in the rebuild's hard constraints. Moving a pure helper of `TeamEffect` into a shared function
-  is allowed only if `python tools/v11_check.py check --stages models cv` still passes bit for
-  bit (and the golden check passes).
-- Allowed changes: new `features/v11_fs.py` (registered with `@feature_set`) and one line in
-  `features/sets.py` (its import, like every set); new `features/core/v11/label_aware.py` (the
-  two features); new `models/v11_fs.py` and one line in `models/__init__.py` (its import); the
-  guard in `usecases.py`; new tests `tests/features/test_v11_fs.py`,
-  `tests/models/test_v11_fs_models.py`, one entry in `tests/features/test_feature_contract.py`;
-  `README.md`, `AGENTS.md`, this file.
-- Label-aware features: `uses_labels = True`, fitted only on labelled training battles, never on
-  `unlabeled`; values of their training rows only out of fold (rule 3); no feature reads
-  `player_won` from the record (contract test).
-- One change per commit after golden check, `pytest`, ruff, pyright, and the v11 check stages
-  `models cv` (they prove the faithful v11 did not move). Messages `feat(v11): …`, `docs: …`.
-- At most two heavy processes; sleeps ≤ 5 min; stop only for the blockers of the rebuild's list.
+New: `features/core/v11_fs/*`, `features/v11_fs.py`, `models/stacked.py`,
+`models/core/logit_blend.py`, `models/core/stacking.py`, `tests/features/test_v11_fs.py`,
+`tests/models/test_stacked.py`. Changes: one import line in `features/sets.py` and in
+`models/__init__.py`, the guard in `usecases.py`, one entry in
+`tests/features/test_feature_contract.py`, `README.md`, `AGENTS.md`, this file. Nothing else.
+Never touch the original repository in `~/Downloads`; never delete `results/v11_alignment/`.
 
 ### Steps
 
-1. **Features** `V11BagLogit`, `V11TeamEffect` and the set `v11_fs`; tests on the fixtures
-   (columns, out-of-fold training rows: a training battle's value equals the value of a copy
-   fitted without its inner fold; labels flipped on other battles change it, flipped on itself do
-   not; save / load; works with `none` / `rule` repairs; hash-seed contract entry).
-   Commit `feat(v11): bag logit and team effect as label-aware features (v11_fs)`.
-2. **Members** `v11fs_*` and `v11fs_blend`; tests (fit / predict / clone / save-load, members on
-   a non-v11 table). Commit `feat(v11): generic members of v11_fs`.
-3. **Quick check (~1 h)**: `evaluate --features v11 v11_fs --models v11_blend v11fs_blend
-   --seeds 33 --repair v11=…`; if the difference is far beyond noise (|Δ log loss| > 0.01),
-   look for a bug before the long run (column order, leakage, base logit in sample).
-4. **Measurement (several hours)**: `python main.py evaluate --features v11_fs --models
-   v11fs_lr_spline v11fs_xgb v11fs_lgbm v11fs_cat v11fs_blend --seeds 33 66 133 --repair
-   v11=results/addons/knockouts_v11/v1 --out results/evaluations/models_v11_fs`; merge with
-   `results/evaluations/models_v11` (`results/logs/compare.py`, add the run) and report every
-   member and the blend against its `v11_*` twin with the **corrected t-test**
-   (`stats_tables.corrected_ttest`, same 15 folds; check that the validation battles match).
-5. **Decomposition (optional, only if step 4 moves beyond noise)**: give `V11BagLogit` and
-   `V11TeamEffect` a parameter `grouped_inner` (default True). With it False the features build
-   their training rows with the original's ungrouped `StratifiedKFold(5, shuffle=True,
-   random_state=42)` over the training battles instead of the feature set's grouped inner folds
-   (set `inner_oof = False` and cross-fit inside `_fit`, as `V11Forecast` does). One seed:
-   `v11fs_blend` grouped vs ungrouped attributes the change to the folds; what is left is the
-   shared base logit and the refits. Report both.
-6. **End to end**: `train` + `predict` of `v11fs_blend` with the v11 repair; label differences
-   against `results/submissions/submission_v11_blend.csv` and the dump.
-7. **Docs**: README rows ("v11_fs" under "v11", with Δ against `v11_blend`), `AGENTS.md`
-   (commands, the remaining exception to rule 2 now only for the faithful v11). Commit `docs: …`.
+0. This file and `AGENTS.md` (the faithful v11 frozen; future changes on `v11_fs` and the
+   generic models). Commit `docs: …`.
+1. Package `features/core/v11_fs/`, `V11Splines`, `V11BagLogit`, `V11TeamEffect`, set `v11_fs`.
+   Tests on the fixtures: initial copy (with the same repair, the label-free group columns of
+   `v11_fs` equal those of `v11` bit for bit); port (on a synthetic table, the team effect and
+   bag logit logic of `v11_fs`, same base and folds, equal the frozen `TeamEffect` /
+   `StackedLogit` of `models/core/`); out-of-fold training rows (a training battle's value is
+   that of a copy fitted without its inner fold; labels flipped on other battles change it, on
+   itself do not); save / load; `none` / `rule` repairs; the cache (a feature cloned from a
+   fitted one and refitted on other battles does not reuse it); the hash-seed contract entry.
+   Commit `feat(v11_fs): label-aware bag logit and team effect, splines, own feature package`.
+2. Generic models; tests (fit / predict / clone / save-load, any table without v11 columns, no
+   column name in the parameters). Commit `feat(models): generic stacked members and logit
+   blend`.
+3. Quick check (~1 h): `python main.py evaluate --features v11 v11_fs --models v11_blend
+   stack_blend --seeds 33 --repair v11=results/addons/knockouts_v11/v1 --out
+   results/evaluations/v11_fs_quick` (the mixed combinations ignored); if |Δ log loss| of
+   `v11_fs / stack_blend` against `v11 / v11_blend` exceeds 0.01, look for a bug first.
+4. Measurement: `python main.py evaluate --features v11_fs --models logreg_l2 stack_xgboost
+   stack_lightgbm stack_catboost stack_blend --seeds 33 66 133 --repair
+   v11=results/addons/knockouts_v11/v1 --out results/evaluations/models_v11_fs`; merged with
+   `models_v11` (`results/logs/compare.py`, same validation battles), every model against its twin
+   with the corrected t-test (same 15 folds).
+5. Decomposition (only if step 4 moves beyond noise): `grouped_inner` (default True) on
+   `V11BagLogit` / `V11TeamEffect`; False uses the original's ungrouped `StratifiedKFold(5,
+   shuffle=True, random_state=42)` (`inner_oof = False`, cross-fit inside `_fit`). One seed.
+6. End to end: `train` + `predict` of `stack_blend` on `v11_fs` with the v11 repair; label
+   differences against `results/submissions/submission_v11_blend.csv` and the dump.
+7. Docs: `README.md` rows (v11 section), `AGENTS.md` (commands, the exception to rule 2 only for
+   the faithful v11). Commit `docs(readme): …`.
+8. Report.
+
+### Hard constraints
+
+Stop and ask only if the golden check or `v11_check --stages models cv` fails and cannot be fixed
+within the allowed files; a decision turns out impossible; an error can only be fixed outside the
+allowed files; data or artifacts are missing and cannot be rebuilt with the documented commands;
+the environment fails. Anything else: fix it and continue. At most two heavy processes; sleeps
+≤ 5 min. Every commit after the golden check, `pytest`, ruff (check and format), `pyright`,
+`v11_check --stages models cv`; explicit paths, no push, no history rewrite.
 
 ### Report
 
-- File map; the two features (columns, folds, base logit) and the member pipelines.
-- `v11_check.py --stages models cv` after each commit (bitwise, the faithful v11 unchanged).
-- Step 3 and step 4 tables: accuracy, log loss, ROC AUC, Brier of each `v11fs_*` next to its
-  `v11_*` twin, with Δ and corrected p; fold-to-fold and seed-to-seed std.
-- Step 5 if run; step 6 label differences; what moved and why (folds, shared base, refits).
-- End with `git log --oneline -10` and `git status`.
+What was reverted and reused; the file map; the label-aware features (columns, folds, base logit,
+cache) and the model pipelines; `v11_check` after each commit and the copy / port tests; the
+tables of steps 3 and 4 (accuracy, log loss, ROC AUC, Brier of each generic model next to its
+twin, Δ, corrected p, fold and seed std); step 5 if run; step 6 label differences; what moved and
+why; `git log --oneline -10` and `git status`.
 
 ---
 
