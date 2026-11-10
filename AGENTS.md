@@ -27,9 +27,15 @@ code's behaviour wins: note the conflict and ask.
   own protocol). v11's code must match them bit for bit when fed the original's detector
   probabilities (`tools/v11_check.py`); with v11's own repair (standard folds for the detector)
   the numbers are within noise of them. Never delete it.
-- Next planned task: "Next task" at the top of `V20_SUB.md` (v11's bag logit and team effect as
-  label-aware features in a new set `v11_fs`, measured against the faithful `v11`). Its proposed
-  decisions are confirmed with the user before starting.
+- **The faithful v11 is frozen** (a historical reference): `features/v11.py`,
+  `features/core/v11/*`, `models/v11.py`, `models/core/v11_*.py`, `models/ko_v11.py`,
+  `addons/knockouts_v11.py`, `tools/v11_check.py` are never modified again, not even to move
+  code. Every future change to v11 is made on the living line: the feature set `v11_fs`
+  (`features/v11_fs.py`, its own package `features/core/v11_fs/`, which never imports
+  `features/core/v11/`) and the generic models (`models/stacked.py`: `logreg_l2`,
+  `stack_xgboost`, `stack_lightgbm`, `stack_catboost`, `stack_blend`).
+- Current task: "Next task" at the top of `V20_SUB.md` (`v11_fs` and the generic models,
+  measured against the faithful `v11`); its decisions are confirmed by the user.
 
 ## Architecture
 Layers (enforced on the imports by `tests/test_architecture.py`):
@@ -57,9 +63,11 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   (`detector train`, `detector train-v11`) under `results/addons/<kind>/<version>/`.
 - `features/`: one file per feature set (`features/<set>.py`, registered with `@feature_set`
   and imported by `features/sets.py`), feature families in `features/core/`, the detector's
-  sets in `features/transitions/`. v11: one `Feature` per group in `features/core/v11/`,
-  computed from `BattleContext` (record, the repository's Pokédex, the repair's
-  probabilities); they work with any repair. Never import `models`, `addons` or the application.
+  sets in `features/transitions/`. v11: one `Feature` per group in `features/core/v11/`
+  (frozen) and in `features/core/v11_fs/` (the living copy, plus the label-aware bag logit and
+  team effect and the splines), computed from `BattleContext` (record, the repository's
+  Pokédex, the repair's probabilities); they work with any repair. Never import `models`,
+  `addons` or the application.
 - `models/`: one file per model (`@model` / `@ensemble` in `registry.py`), shared pieces in
   `models/core/`; a model sees a `DataFrame` and labels only (no `domain`, no `features`).
   A model is never tied to one feature set: steps that need particular columns (the v11
