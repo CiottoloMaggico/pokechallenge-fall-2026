@@ -40,9 +40,28 @@ jobs:
           set -o pipefail
           .env/bin/pytest -v --durations=15 2>&1 | tee pytest.log
       - name: Pytest log tail
-        # the end of the log (failures, or the stacks of a test stopped by the timeout) as an
-        # annotation, readable in the run summary without opening the log
+        # the test that was running and the end of the log without pytest's own frames, as
+        # annotations of the run summary (readable without opening the log; 4 KB each)
         if: failure()
-        run: >
-          tail -n 80 pytest.log | python3 -c "import sys; t = sys.stdin.read();
-          print('::error title=pytest::' + t.replace('%', '%25').replace('\r', '').replace('\n', '%0A'))"
+        run: |
+          python3 - <<'EOF'
+          import re
+          lines = open("pytest.log").read().splitlines()
+          tests = [line for line in lines if "::" in line and line.startswith("tests/")]
+          kept, skip = [], False
+          for line in lines:
+              if skip:
+                  skip = False
+                  continue
+              if re.search(r"site-packages/(_pytest|pluggy)/", line):
+                  skip = True
+                  continue
+              kept.append(line)
+
+          def annotate(title, text):
+              text = text[-3800:].replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+              print(f"::error title={title}::{text}")
+
+          annotate("last tests", "\n".join(tests[-3:]))
+          annotate("end of the pytest log", "\n".join(kept))
+          EOF
