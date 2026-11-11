@@ -4,16 +4,23 @@ on:
   push:
   pull_request:
 
+# a newer push makes the running checks of the same branch useless
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   checks:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       # the tests read only tests/fixtures, so the LFS data files are not fetched
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements.txt
       - name: Install
         # pyproject.toml points pyright at the virtual environment .env
         run: |
@@ -26,4 +33,7 @@ jobs:
       - name: Pyright
         run: .env/bin/pyright
       - name: Pytest
-        run: .env/bin/pytest -q
+        # one line per test and the slowest ones, so a slow or hanging test is named in the
+        # log; pyproject.toml stops any single test after 300 s
+        timeout-minutes: 35
+        run: .env/bin/pytest -v --durations=15

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -17,6 +20,7 @@ from interfaces import Feature, FitContext, LabelledBattles, Model
 
 N = 60
 PLAN = FoldPlan(3, (1, 2))
+CLEAN_PROCESS = "GYM_TEST_CLEAN_PROCESS"
 
 
 class Noisy(Feature[float]):
@@ -158,6 +162,16 @@ def test_unlabeled_battles_reach_label_free_features(data: LabelledBattles) -> N
 
 
 def test_seeds_in_parallel_give_the_same_tables(data: LabelledBattles) -> None:
+    """The gym forks its workers. Earlier tests load LightGBM, XGBoost or CatBoost in the test
+    process, after which a fork can hang (AGENTS.md, rule 6), so the comparison reruns this
+    test alone in a fresh interpreter."""
+    if os.environ.get(CLEAN_PROCESS) != "1":
+        node = f"{__file__}::test_seeds_in_parallel_give_the_same_tables"
+        command = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", node]
+        env = {**os.environ, CLEAN_PROCESS: "1"}
+        done = subprocess.run(command, env=env, capture_output=True, text=True, timeout=240)
+        assert done.returncode == 0, done.stdout[-3000:]
+        return
     sequence = Gym([MeanModel()], [stateless()], PLAN).evaluate(data)
     parallel = Gym([MeanModel()], [stateless()], PLAN, jobs=2).evaluate(data)
     pd.testing.assert_frame_equal(sequence.predictions, parallel.predictions)

@@ -29,3 +29,6 @@ venv = ".env"
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+# a test that hangs fails with the stacks of every thread instead of blocking the run (CI)
+timeout = 300
+timeout_method = "thread"

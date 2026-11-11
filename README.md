@@ -185,12 +185,15 @@ duplicates in the same fold, out-of-fold label-aware features, …) are in `AGEN
 ## Tests and checks
 
 ```sh
-pytest                                         # ~4 min, reads only tests/fixtures/
+pytest                                         # ~9 min, reads only tests/fixtures/
 ruff check . && ruff format --check .
 pyright
 ```
 
-CI (`.github/workflows/ci.yml`) runs the three on every push.
+CI (`.github/workflows/ci.yml`) runs the three on every push (a newer push of the same branch
+cancels the running checks). Any single test that runs longer than 300 s fails with the stacks
+of every thread (`pytest-timeout`, `pyproject.toml`), and the CI log lists every test and the
+slowest ones, so a hang names its test instead of stopping the job at its time limit.
 
 ## Evaluation
 

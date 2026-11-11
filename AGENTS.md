@@ -96,7 +96,9 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   scripts in the pinned environment.
 
 ## Commands
-- Tests: `pytest` (no test reads `input/` or `results/`); lint:
+- Tests: `pytest` (no test reads `input/` or `results/`; any test over 300 s fails with the
+  stacks of its threads, `pytest-timeout` in `pyproject.toml`; a test that forks runs in a fresh
+  interpreter, as `test_seeds_in_parallel_give_the_same_tables`, rule 6); lint:
   `ruff check . && ruff format --check .`; types: `pyright`. CI
   (`.github/workflows/ci.yml`) runs the three.
 - Golden check (any change that must not move the results, ~10 min; needs the `v3`
