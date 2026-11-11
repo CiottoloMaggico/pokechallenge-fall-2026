@@ -32,8 +32,8 @@ code's behaviour wins: note the conflict and ask.
   `addons/knockouts_v11.py`, `tools/v11_check.py` are never modified again, not even to move
   code. Every future change to v11 is made on the living line: the feature set `v11_fs`
   (`features/v11_fs.py`, its own package `features/core/v11_fs/`, which never imports
-  `features/core/v11/`) and the generic models (`models/stacked.py`: `logreg_l2`,
-  `stack_xgboost`, `stack_lightgbm`, `stack_catboost`, `stack_blend`).
+  `features/core/v11/`) and the generic models (`models/boosted.py`: `logreg_l2`,
+  `boost_xgboost`, `boost_lightgbm`, `boost_catboost`, `boost_blend`).
 - `V20_SUB.md` records the rebuild of v11 and the `v11_fs` task (both done); no task is pending.
 
 ## Architecture
@@ -69,10 +69,11 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
 - `staged_feature_set.py` (features layer): `StagedFeatureSet`, a set in two stages: a
   `FeatureSet` of battle features, then `TableFeature`s that read its table (and may consume
   some of its columns). Use it for transformations that learn on columns already computed (a
-  regression of a block of columns, splines, a team effect against a base logit): the first
+  regression of a block of columns, a team effect against a base logit): the first
   stage runs once and only the cheap learned part is refitted in the inner folds (same grouped
   inner folds and leakage rules as `FeatureSet`). `v11_fs` is one: the v11 groups, then
-  `V11Splines`, `V11BagLogit` (label-aware) and `V11TeamEffect` (label-aware).
+  `V11BagLogit` (`stack_logit_0`) and `V11TeamEffect` (`stack_logit_full`, `tm*`), both
+  label-aware: the table of the original's boosters.
 - Groups without fitted state that several features compute on the same battle are remembered
   on the context (`context.cached((<set>, <group>), ...)`, e.g. `features/core/v11_fs/
   stateless.py`); never remember anything that depends on fitted state.
@@ -118,10 +119,10 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   battles only).
 - v11_fs, the living line (~11 min per fold of features on 8,000 battles, about 75 min per seed
   of `evaluate` with the five generic models):
-  `python main.py evaluate --features v11_fs --models logreg_l2 stack_xgboost stack_lightgbm stack_catboost stack_blend --seeds <seed> --repair v11=results/addons/knockouts_v11/v1 --out results/evaluations/models_v11_fs_s<seed>`
-  `python main.py train --features v11_fs --models stack_blend --repair v11=results/addons/knockouts_v11/v1 --out results/runs/v11_fs`
-  `python main.py predict --run results/runs/v11_fs/v11_fs__stack_blend --test input/test.jsonl --repair v11=results/addons/knockouts_v11/v1 --out results/submissions/submission_v11_fs_stack_blend.csv`
-  (~18 min train + predict.) Results: `results/evaluations/models_v11_fs` (README, "v11"),
+  `python main.py evaluate --features v11_fs --models logreg_l2 boost_xgboost boost_lightgbm boost_catboost boost_blend --seeds <seed> --repair v11=results/addons/knockouts_v11/v1 --out results/evaluations/models_v11_fs_s<seed>`
+  `python main.py train --features v11_fs --models boost_blend --repair v11=results/addons/knockouts_v11/v1 --out results/runs/v11_fs`
+  `python main.py predict --run results/runs/v11_fs/v11_fs__boost_blend --test input/test.jsonl --repair v11=results/addons/knockouts_v11/v1 --out results/submissions/submission_v11_fs_boost_blend.csv`
+  (~18 min train + predict.) Results: `results/evaluations/models_v11_fs_closeness` (README, "v11"),
   every generic model within noise of its frozen twin. `train` / `evaluate` refuse `--test`.
   Long evaluations: one process per seed (at most two at a time; `--jobs` is ignored with the
   boosters, rule 6), each with its own `--out`, then merged with `GymResult.load` +
@@ -147,8 +148,8 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
    duplicates, as in the original. (v11's detector artifact uses the standard grouped
    `FoldPlan`.) In `v11_fs` the training rows of the label-aware features (bag logit, team
    effect) are out of fold on the grouped inner folds, so the rule holds for them; the
-   cross-fits kept from v11 by decision stay ungrouped: the base logit inside `V11TeamEffect`,
-   the forecast's `KFold` and the inner folds of the generic `StackedLogit` (`stack_*`).
+   cross-fits kept from v11 by decision stay ungrouped: the base logit inside `V11TeamEffect`
+   and the forecast's `KFold`.
 3. Label-aware features give out-of-fold values on their training rows
    (grouped inner folds) or NaN (`inner_oof = False`). Never in-sample values.
 4. The knockout repair is applied to every battle before any feature. Addons

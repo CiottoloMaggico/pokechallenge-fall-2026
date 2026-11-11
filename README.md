@@ -100,14 +100,14 @@ Other commands:
 Feature sets: `hp30` (HP difference only), `material`, `hazards`, `switch`, `core` (the three
 together), `compact` … `compact_v5` (successive selections, each with an `_orig` variant),
 `compact_ko`, `compact_plus`, `selection_pool` (every candidate column), `v11` (frozen) and
-`v11_fs` (the living line of v11, a two-stage set: v11's groups, then splines, bag logit and
-team effect as features; about 11 min of features per fold of 8,000 battles). Models:
+`v11_fs` (the living line of v11, a two-stage set: v11's groups, then bag logit, full logit
+and team effect as features; about 11 min of features per fold of 8,000 battles). Models:
 `logreg`, `hgb`, `lightgbm`, `xgboost`, `catboost`, the `*_lr` boosters (`gb_lr`, `lightgbm_lr`,
 `xgboost_lr`, `catboost_lr`), the averages `ensemble` (logreg + hgb), `ensemble_boost`,
 `ensemble_all`, `ensemble_from_lr` (the four `*_lr`), the v11 members `v11_lr_spline`,
 `v11_xgb`, `v11_lgbm`, `v11_cat` and their blend `v11_blend` (frozen), the generic models of
-`v11_fs` `logreg_l2`, `stack_xgboost`, `stack_lightgbm`, `stack_catboost` and their blend
-`stack_blend`.
+`v11_fs` `logreg_l2`, `boost_xgboost`, `boost_lightgbm`, `boost_catboost` and their blend
+`boost_blend`.
 
 ## Repository layout
 
@@ -247,24 +247,26 @@ same 819 columns.
 | logreg | 0.7072 | 0.0058 | 0.0017 | 0.5553 | 0.7851 | 0.1889 | −0.0119 (0.002) | +0.0143 (<0.001) |
 | hgb | 0.7071 | 0.0057 | 0.0017 | 0.5542 | 0.7860 | 0.1886 | −0.0121 (0.01) | +0.0133 (<0.001) |
 
-`v11_fs`, the living line of v11 (`results/evaluations/models_v11_fs`, same seeds, folds and
-repair): the bag logit and the team effect are label-aware features of a two-stage set (out of
-fold on grouped inner folds; one base logit for the team effect, the regression of every non-key
-column), the spline expansion is a feature, and the generic models name no column. Δ against each
-model's frozen twin on the same 15 folds (corrected t-test):
+`v11_fs`, the living line of v11 (`results/evaluations/models_v11_fs_closeness`, same seeds,
+folds and repair): the bag logit, the logit of every non-key column and the team effect against
+it are label-aware features of a two-stage set (out of fold on grouped inner folds), which gives
+every member the table of the original's boosters; the generic models name no column and the
+boosters run alone. Δ against each model's frozen twin on the same 15 folds (corrected t-test);
+"apart" is the share of out-of-fold labels that differ from the twin's:
 
-| model (twin) | accuracy | ± fold | ± seed | log loss | ROC AUC | Brier | Δ accuracy (p) | Δ log loss (p) |
-|---|---|---|---|---|---|---|---|---|
-| stack_catboost (v11_cat) | 0.7180 | 0.0050 | 0.0015 | 0.5429 | 0.7974 | 0.1837 | −0.0005 (0.87) | +0.0008 (0.54) |
-| stack_xgboost (v11_xgb) | 0.7179 | 0.0054 | 0.0019 | 0.5437 | 0.7966 | 0.1840 | −0.0000 (1.00) | +0.0005 (0.74) |
-| stack_blend (v11_blend) | 0.7175 | 0.0044 | 0.0008 | 0.5416 | 0.7980 | 0.1833 | −0.0016 (0.42) | +0.0006 (0.56) |
-| stack_lightgbm (v11_lgbm) | 0.7169 | 0.0057 | 0.0025 | 0.5430 | 0.7968 | 0.1838 | −0.0024 (0.26) | +0.0007 (0.61) |
-| logreg_l2 (v11_lr_spline) | 0.7146 | 0.0070 | 0.0009 | 0.5469 | 0.7926 | 0.1856 | −0.0009 (0.77) | +0.0002 (0.88) |
+| model (twin) | accuracy | ± fold | ± seed | log loss | ROC AUC | Brier | Δ accuracy (p) | Δ log loss (p) | apart |
+|---|---|---|---|---|---|---|---|---|---|
+| boost_blend (v11_blend) | 0.7186 | 0.0044 | 0.0012 | 0.5407 | 0.7987 | 0.1829 | −0.0005 (0.75) | −0.0002 (0.76) | 2.5 % |
+| boost_catboost (v11_cat) | 0.7177 | 0.0045 | 0.0020 | 0.5421 | 0.7980 | 0.1834 | −0.0008 (0.78) | −0.0001 (0.93) | 3.1 % |
+| boost_xgboost (v11_xgb) | 0.7176 | 0.0061 | 0.0005 | 0.5430 | 0.7971 | 0.1838 | −0.0003 (0.89) | −0.0002 (0.88) | 3.3 % |
+| boost_lightgbm (v11_lgbm) | 0.7172 | 0.0063 | 0.0002 | 0.5424 | 0.7972 | 0.1837 | −0.0020 (0.41) | +0.0000 (0.97) | 3.3 % |
+| logreg_l2 (v11_lr_spline) | 0.7136 | 0.0077 | 0.0010 | 0.5472 | 0.7927 | 0.1856 | −0.0020 (0.57) | +0.0005 (0.64) | 5.1 % |
 
-- Every generic model is within noise of its twin (all p ≥ 0.26): moving the label-aware steps
-  into the features (other inner folds, one shared base logit, every model on the same table)
-  does not change the results. On the test file `stack_blend` and `v11_blend` give 217 different
-  labels (mean |Δp| 0.025).
+- Every generic model is within noise of its twin (all p ≥ 0.41). The boosters are as close to
+  their twins as the twins are to themselves when only the seed of their inner folds changes
+  (seed 33: 2.9–3.3 % of the labels apart, blend 2.0 %); `logreg_l2` is not (the original's
+  logistic member reads the raw bags and splines of 25 columns, not this table). On the test
+  file `boost_blend` and `v11_blend` give 122 different labels (mean |Δp| 0.014).
 
 - Against the best `compact_v5` models on the same 15 folds (merged comparison): `v11_blend`
   ties `compact_v5` / `logreg` (Δ accuracy +0.0001, p 0.99; Δ log loss −0.0017, p 0.50) and

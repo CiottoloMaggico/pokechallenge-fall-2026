@@ -35,6 +35,12 @@ noise of its twin (`stack_blend` 0.7175 / 0.5416 / 0.7980 / 0.1833 vs `v11_blend
 so step 5 was not run. Step 6: 217 test labels apart from `submission_v11_blend.csv`, 227 from
 the dump. README, "v11".
 
+**Later alignment** (commits `be92611`, `968b19a`; it supersedes decisions 3 and 5 below where
+they differ): `V11TeamEffect` also outputs its base logit `stack_logit_full`, `V11Splines` and
+the generic `StackedLogit` are gone, the models are `boost_xgboost`, `boost_lightgbm`,
+`boost_catboost`, `boost_blend` (`models/boosted.py`) and `logreg_l2`. Out-of-fold labels apart
+from `v11_blend`: 4.1 % → 2.5 % (`results/evaluations/models_v11_fs_closeness`; README, "v11").
+
 These decisions of the user supersede the earlier proposal of this section and the amendments of
 commit `240499c` (the `learners.py` approach, the `v11fs_*` names): do not reopen them.
 
