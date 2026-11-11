@@ -1,0 +1,16 @@
+v11 group,prefix,columns,what the group holds,compact_v5 features,closest v11 columns
+static,s_,40,"P1's team stats, levels, items and weaknesses; P2's lead; the lead matchup",—,—
+state,f_,52,"faints (hidden P2 ones from the detector), HP left, status counts of both teams","smat_hp, p2_fainted, p2_hidden_ko_unsure, material_healthy","f_p1_hp_sum, f_p2_hp_sum_opt / _hard; f_p2_fainted, f_p2_fainted_hard; f_p2_pf_uncertain; f_p*_n_slp / par / tox / psn / brn / frz"
+trajectory,t_,25,"faint and HP differences at turns 5–25, their mean, range and slope",hpw_spd_t20 (a turn-20 snapshot),"t_hd_20, t_fd_20 (same idea, other quantity)"
+active,a_,81,"the two active Pokémon: HP, status, boosts, effects, speed order, damage and turns-to-KO both ways","bst_sum, eff_substitute","a_a1 / a2_boost_pos, _boost_neg; a_a1 / a2_e_substitute"
+events,e_,126,"what each player did: move classes, effectiveness, switches, damage dealt, hazards, weather","spikes_on_field, switch_excess_all, b_stat_diff","e_*_spikes_on_opp; e_*_switches; e_*_status_moves"
+matchup,m_,13,"matchup matrix of the Pokémon still alive: coverage, sweepers, walls, one-hit KOs",sim_seen_left (in part),m_win_mean
+win conditions,w_,25,"spinners, set-up, phazers, healers, boomers, sleepers, Spikes, trapping",spikes_on_field,"w_spikes_on_p1, w_spikes_on_p2, w_spikes_adv"
+sleep,x_,9,"longest current sleep, Rest and induced sleepers of each player",—,—
+bags,"bs_, bh_, bm_",≈360,"one column per species (present, HP left) and per revealed move, over the training vocabulary; the members replace them with one stacked logit","tr_p1, tr_p2 (in part)",bs_* (team composition)
+team keys,k_,27,"ids of teams, sub-teams and species; the members replace them with the team effect tm* (9 columns)","tr_p1, tr_p2, te_pair_mean","tm, tm_raw1, tm_raw2; tm_pair"
+duel,d_,6,"duel of the actives and a chain of duels, with the typical moves of the training battles",sim_seen_left,d_sim_left_seen
+behaviour,v_,5,"switch probabilities and switching in excess of the training rates, Substitute, trapping","p_switch_diff, switch_excess_all, eff_substitute","v_p_switch_diff; v_switch_excess; v_sub_diff"
+simulation,z_,5,"rest-of-battle simulation, with P2's unrevealed Pokémon guessed from team models","sim_seen_left, hidden_bst (in part)","z_sim_seen_left, z_sim_seen_hp; z_sim_full_left, z_sim_full_hp"
+condition,c_,7,"Spikes, boosts, healthy and statused shares, Snorlax, bulk left","material_healthy, spikes_on_field, bst_sum, snorlax_diff, phpw_spd, hpw_spd_t20","c_healthy, c_statused; c_spikes; c_boosts; c_snorlax; c_bulk_spd"
+forecast,q_,6,"learned forecast of the faint and HP differences 5 and 10 turns ahead",—,—

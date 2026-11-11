@@ -1,0 +1,18 @@
+{
+  "model": "lightgbm_lr",
+  "feature_set": "compact_v5",
+  "params": {
+    "n_estimators": 500,
+    "num_leaves": 3,
+    "learning_rate": 0.020711424127425753,
+    "min_child_samples": 88,
+    "reg_lambda": 0.05996619928762692,
+    "c": 0.010895495777467673
+  },
+  "metric": "log_loss",
+  "value": 0.5398219588653566,
+  "accuracy": 0.7199,
+  "accuracy_std": 0.00830301150185882,
+  "trials": 50,
+  "saved": "2026-11-05T12:26:39"
+}

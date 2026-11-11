@@ -1,0 +1,18 @@
+{
+  "model": "gb_lr",
+  "feature_set": "compact_v5",
+  "params": {
+    "n_estimators": 325,
+    "max_depth": 2,
+    "learning_rate": 0.020842111910934047,
+    "min_samples_leaf": 22,
+    "subsample": 0.8622834616319407,
+    "c": 0.023528792795949775
+  },
+  "metric": "log_loss",
+  "value": 0.5392262340477808,
+  "accuracy": 0.7197,
+  "accuracy_std": 0.007366138744281174,
+  "trials": 50,
+  "saved": "2026-11-05T12:46:52"
+}

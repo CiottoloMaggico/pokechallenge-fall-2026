@@ -85,6 +85,11 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
 - `interfaces.py` (`Feature`, `Model`, …), `feature_set.py` (`FeatureSet`),
   `staged_feature_set.py` (`StagedFeatureSet`, `TableFeature`), `registry.py`.
 - `main.py` only parses arguments, builds `Settings` and calls one function of `usecases.py`.
+- `docs/notebook/pokechallenge.ipynb` (the Kaggle notebook of the three submissions) and
+  `docs/evaluation/` (its scripts, tuned parameters, tables and figures; application-level
+  scripts like `tools/`). `docs/evaluation/plots.py` imports only pandas, numpy and matplotlib:
+  the notebook's kernel reads tables and draws, everything else runs through `main.py` and the
+  scripts in the pinned environment.
 
 ## Commands
 - Tests: `pytest` (no test reads `input/` or `results/`); lint:

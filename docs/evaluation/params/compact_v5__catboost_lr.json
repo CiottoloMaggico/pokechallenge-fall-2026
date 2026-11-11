@@ -1,0 +1,17 @@
+{
+  "model": "catboost_lr",
+  "feature_set": "compact_v5",
+  "params": {
+    "iterations": 232,
+    "depth": 2,
+    "learning_rate": 0.08223685776733002,
+    "l2_leaf_reg": 1.4130600506976725,
+    "c": 0.012792670849945668
+  },
+  "metric": "log_loss",
+  "value": 0.5393517849437052,
+  "accuracy": 0.7207000000000001,
+  "accuracy_std": 0.0074067536748564965,
+  "trials": 50,
+  "saved": "2026-11-05T12:17:32"
+}

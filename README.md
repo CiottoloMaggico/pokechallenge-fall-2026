@@ -142,6 +142,16 @@ To redo the search: `python main.py tune --features compact_v5 --model logreg --
 and, for `<m>` in `logreg` (100 trials), `xgboost`, `lightgbm`, `catboost` (30 trials each),
 `python main.py tune --features v11_fs --model <m> --trials <N> --repair $R`.
 
+### Kaggle notebook
+
+`docs/notebook/pokechallenge.ipynb` clones this repository, creates the pinned environment and
+rebuilds the three submissions of the challenge — `compact_v5` / tuned `ensemble_from_lr`, `v11`
+/ `v11_blend` and the 50/50 blend of their logits — then shows their experimental evaluation
+(metrics, ROC curves, accuracy by last turn seen, convergence of the log loss, the mapping
+between v11's feature groups and the `compact_v5` features). Its scripts, parameters, tables
+and figures are in `docs/evaluation/` (see its `README.md`); `RUN_EVALUATION = True` in the
+notebook recomputes the tables instead of reading them.
+
 ## Repository layout
 
 ```

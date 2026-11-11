@@ -1,0 +1,18 @@
+{
+  "model": "xgboost_lr",
+  "feature_set": "compact_v5",
+  "params": {
+    "n_estimators": 208,
+    "max_depth": 3,
+    "learning_rate": 0.029358391455435028,
+    "min_child_weight": 7.136377133696267,
+    "reg_lambda": 2.8286130025955187,
+    "c": 0.011446472049752862
+  },
+  "metric": "log_loss",
+  "value": 0.5395423660857158,
+  "accuracy": 0.7182999999999999,
+  "accuracy_std": 0.008298192574289919,
+  "trials": 50,
+  "saved": "2026-11-05T12:25:25"
+}
