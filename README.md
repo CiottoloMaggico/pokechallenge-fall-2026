@@ -185,7 +185,7 @@ duplicates in the same fold, out-of-fold label-aware features, …) are in `AGEN
 ## Tests and checks
 
 ```sh
-pytest                                         # ~9 min, reads only tests/fixtures/
+pytest                                         # ~10 min, reads only tests/fixtures/
 ruff check . && ruff format --check .
 pyright
 ```

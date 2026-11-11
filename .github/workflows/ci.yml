@@ -33,12 +33,12 @@ jobs:
       - name: Pyright
         run: .env/bin/pyright
       - name: Pytest
-        # one line per test and the slowest ones, so a slow or hanging test is named in the
-        # log; pyproject.toml stops any single test after 300 s
+        # one line per test (--verbosity, since addopts has -q) and the slowest ones, so a slow or
+        # hanging test is named in the log; pyproject.toml stops any single test after 300 s
         timeout-minutes: 35
         run: |
           set -o pipefail
-          .env/bin/pytest -v --durations=15 2>&1 | tee pytest.log
+          .env/bin/pytest --verbosity=1 --durations=15 2>&1 | tee pytest.log
       - name: Pytest log tail
         # the test that was running and the end of the log without pytest's own frames, as
         # annotations of the run summary (readable without opening the log; 4 KB each)
