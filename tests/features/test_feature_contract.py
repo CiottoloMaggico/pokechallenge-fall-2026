@@ -12,6 +12,7 @@ fixed when a process starts, so comparing two seeds takes two processes.
 from __future__ import annotations
 
 import dataclasses
+import faulthandler
 import json
 import os
 import pickle
@@ -47,6 +48,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "fixtures" / "battles.jsonl"
 CHART = feature_sets.type_chart()
 HASH_SEEDS = ("0", "1")
+WORKER_SECONDS = 420  # one run of every feature; a slower one dumps its stacks and fails
 DETECTOR_TREES = 30  # enough to score every switch; the real detector takes minutes
 LABEL_CHECK_BATTLES = 20
 
@@ -177,20 +179,20 @@ def staged_outputs(name: str) -> dict[str, list[Row]]:
 
 @pytest.fixture(scope="module")
 def outputs_by_hash_seed(tmp_path_factory: pytest.TempPathFactory) -> list[dict[str, list[Row]]]:
+    """Every output under each hash seed, one process after the other: two at once share the
+    few CPUs of a CI runner, where their LightGBM threads (``n_jobs=4`` each) spin against each
+    other and the pair can take many times longer than both in sequence."""
     folder = tmp_path_factory.mktemp("hash_seeds")
     paths = [folder / f"{seed}.json" for seed in HASH_SEEDS]
-    workers = [
-        subprocess.Popen(
-            [sys.executable, __file__, str(path)],
-            env={**os.environ, "PYTHONHASHSEED": seed, "PYTHONPATH": str(ROOT)},
-            cwd=ROOT,
-        )
-        for seed, path in zip(HASH_SEEDS, paths, strict=True)
-    ]
-    assert [worker.wait() for worker in workers] == [0, 0]
+    for seed, path in zip(HASH_SEEDS, paths, strict=True):
+        env = {**os.environ, "PYTHONHASHSEED": seed, "PYTHONPATH": str(ROOT)}
+        command = [sys.executable, __file__, str(path)]
+        subprocess.run(command, env=env, cwd=ROOT, check=True, timeout=WORKER_SECONDS + 30)
     return [json.loads(path.read_text()) for path in paths]
 
 
+# the first of these tests also builds outputs_by_hash_seed (two full runs of every feature)
+@pytest.mark.timeout(900)
 @pytest.mark.parametrize("key", KEYS)
 def test_identical_under_two_hash_seeds(
     key: str, outputs_by_hash_seed: list[dict[str, list[Row]]]
@@ -287,6 +289,7 @@ def test_every_family_of_features_is_checked() -> None:
 
 
 if __name__ == "__main__":
+    faulthandler.dump_traceback_later(WORKER_SECONDS, exit=True)
     all_outputs = {key: outputs(fitted(key)) for key in KEYS}
     all_outputs |= {f"transitions:{name}": transition_outputs(name) for name in TRANSITION_KEYS}
     all_outputs["transitions:ko_v11"] = v11_switch_outputs()

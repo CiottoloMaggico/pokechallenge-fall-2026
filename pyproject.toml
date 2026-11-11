@@ -13,6 +13,11 @@ extend-exclude = [".env", "results", "runs", "input", "tools/golden.py", "*.md"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# the notebook's shell commands (!...) read better on one line, and ruff does not see the
+# variables they use ({name}), so their loop variables look unused
+"docs/notebook/*.ipynb" = ["E501", "B007"]
+
 [tool.pyright]
 typeCheckingMode = "basic"
 strict = [
