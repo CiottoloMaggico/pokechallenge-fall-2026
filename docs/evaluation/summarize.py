@@ -99,7 +99,7 @@ def models(args: argparse.Namespace) -> None:
 def turns(args: argparse.Namespace) -> None:
     names = ["accuracy", "log_loss", "roc_auc", "brier"]
     parts = []
-    for folder in sorted(args.runs.glob("t*"), key=lambda path: int(path.name[1:])):
+    for folder in sorted(args.runs.glob("t[0-9]*/"), key=lambda path: int(path.name[1:])):
         parts.append(pd.read_csv(folder / "folds.csv").assign(turn=int(folder.name[1:])))
     full = pd.read_csv(args.full / "folds.csv")
     full = full[(full["model"] == args.model) & (full["seed"] == args.seed)]

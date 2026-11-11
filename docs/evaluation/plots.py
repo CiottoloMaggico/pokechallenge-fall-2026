@@ -42,7 +42,7 @@ def apple_style() -> None:
             "axes.labelcolor": SECONDARY,
             "axes.edgecolor": GRID,
             "axes.titlesize": 14,
-            "axes.titleweight": "semibold",
+            "axes.titleweight": "bold",
             "axes.titlelocation": "left",
             "axes.titlepad": 14,
             "axes.spines.top": False,
@@ -143,17 +143,21 @@ def curve_stats(curve: pd.DataFrame, model: str, split: str) -> Any:
 def plot_loss_convergence(curve: pd.DataFrame, folder: Path | None = None) -> Figure:
     """Validation log loss of the three models as the training battles grow."""
     fig, ax = plt.subplots(figsize=(8.2, 4.8))
+    last = {}
     for model, name in MODELS.items():
         table = curve_stats(curve, model, "valid")
         band(ax, table, COLORS[model], name)
         ax.scatter(table.index, table["mean"], color=COLORS[model], s=14, zorder=3)
-        ax.annotate(f"{table['mean'].iloc[-1]:.3f}", (table.index[-1], table["mean"].iloc[-1]),
-                    xytext=(8, 0), textcoords="offset points", va="center", fontsize=10,
-                    color=COLORS[model])  # fmt: skip
+        last[model] = (table.index[-1], table["mean"].iloc[-1])
+    # final values, spread so that close ones stay readable
+    for rank, model in enumerate(sorted(last, key=lambda m: -last[m][1])):
+        x, value = last[model]
+        ax.annotate(f"{value:.4f}", (x, value), xytext=(10, 14 - 14 * rank), va="center",
+                    textcoords="offset points", fontsize=10, color=COLORS[model])  # fmt: skip
     ax.set(xlabel="Training battles", ylabel="Validation log loss")
     ax.set_title("Convergence of the validation log loss")
     ax.xaxis.set_major_formatter(lambda value, _: f"{value:,.0f}")
-    ax.set_xlim(0, 8700)
+    ax.set_xlim(0, 8900)
     ax.legend(loc="upper right")
     return save(fig, folder, "loss_convergence")
 
@@ -170,10 +174,10 @@ def plot_generalization_gap(curve: pd.DataFrame, folder: Path | None = None) -> 
         ax.set_title(f"{name}  ·  gap {gap:.3f}", fontsize=12)
         ax.set_xlabel("Training battles")
         ax.xaxis.set_major_formatter(lambda value, _: f"{value:,.0f}")
-        ax.legend(loc="center right")
+        ax.legend(loc="lower right")
     axes[0].set_ylabel("Log loss")
     fig.suptitle("Training and validation log loss", x=0.01, ha="left", fontsize=14,
-                 fontweight="semibold")  # fmt: skip
+                 fontweight="bold")  # fmt: skip
     return save(fig, folder, "generalization_gap")
 
 
