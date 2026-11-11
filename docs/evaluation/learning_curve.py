@@ -1,7 +1,7 @@
 """Learning curve: predictions of one feature set's models trained on growing parts of a fold.
 
     python docs/evaluation/learning_curve.py --features compact_v5 --models ensemble_from_lr \\
-        --params docs/evaluation/params/*.json --out results/evaluation/curve_compact_v5.csv
+        --params assets/params/compact_v5__*_lr.json --out results/evaluation/curve_compact_v5.csv
     python docs/evaluation/learning_curve.py --features v11 --models v11_blend \\
         --repair v11=results/addons/knockouts_v11/v1 --out results/evaluation/curve_v11.csv
 

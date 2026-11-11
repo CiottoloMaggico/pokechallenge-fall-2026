@@ -9,8 +9,13 @@ code's behaviour wins: note the conflict and ask.
   command.
 - Data: `input/train.jsonl`, `input/test.jsonl`, stored with Git LFS. Never modify or re-commit
   them.
-- Outputs only under `results/` (git-ignored, paths in `storage.ResultsLayout`). The
-  evaluations behind the tables of `README.md` are in `results/evaluations/`.
+- Outputs only under `results/` (git-ignored, never committed; paths in
+  `storage.ResultsLayout`). The evaluations behind the tables of `README.md` are in
+  `results/evaluations/`. Two kinds of result are tracked, as copies: the tuned
+  hyper-parameters in `assets/params/<set>__<model>.json` (copied from `results/tuning/` once a
+  search is adopted) and the small tables and figures of the notebook in
+  `docs/evaluation/data/` and `docs/evaluation/figures/` (rebuilt with the scripts of
+  `docs/evaluation/`).
 - Knockout detector: a versioned artifact in `results/addons/knockouts/<version>/`, loaded by
   every command (`--repair`, default `model=results/addons/knockouts/v3`). If `v3` is missing,
   rebuild it with `python main.py detector train --version v3 --seeds 42 1 2` (~2 min, same
@@ -33,7 +38,7 @@ code's behaviour wins: note the conflict and ask.
   code. Every future change to v11 is made on the living line: the feature set `v11_fs`
   (`features/v11_fs.py`, its own package `features/core/v11_fs/`, which never imports
   `features/core/v11/`) read by the standard models with tuned parameters
-  (`--params results/tuning/v11_fs__<model>.json`; blend: `ensemble_boost`).
+  (`--params assets/params/v11_fs__<model>.json`; blend: `ensemble_boost`).
 
 ## Architecture
 Layers (enforced on the imports by `tests/test_architecture.py`):
@@ -85,7 +90,7 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   `staged_feature_set.py` (`StagedFeatureSet`, `TableFeature`), `registry.py`.
 - `main.py` only parses arguments, builds `Settings` and calls one function of `usecases.py`.
 - `docs/notebook/pokechallenge.ipynb` (the Kaggle notebook of the three submissions) and
-  `docs/evaluation/` (its scripts, tuned parameters, tables and figures; application-level
+  `docs/evaluation/` (its scripts, tables and figures; application-level
   scripts like `tools/`). `docs/evaluation/plots.py` imports only pandas, numpy and matplotlib:
   the notebook's kernel reads tables and draws, everything else runs through `main.py` and the
   scripts in the pinned environment.
@@ -123,7 +128,7 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   battles only).
 - v11_fs, the living line (~11 min per fold of features on 8,000 battles, about 60 min per seed
   of `evaluate`), with `R=v11=results/addons/knockouts_v11/v1` and `P` = the four files
-  `results/tuning/v11_fs__{logreg,xgboost,lightgbm,catboost}.json`:
+  `assets/params/v11_fs__{logreg,xgboost,lightgbm,catboost}.json`:
   `python main.py tune --features v11_fs --model <model> --trials N --repair $R`
   `python main.py evaluate --features v11_fs --models logreg xgboost lightgbm catboost ensemble_boost --params $P --seeds <seed> --repair $R --out results/evaluations/<name>_s<seed>`
   `python main.py train --features v11_fs --models ensemble_boost --params $P --repair $R --out results/runs/tuned`

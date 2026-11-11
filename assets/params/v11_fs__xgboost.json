@@ -1,0 +1,19 @@
+{
+  "model": "xgboost",
+  "feature_set": "v11_fs",
+  "params": {
+    "learning_rate": 0.053796747303971396,
+    "n_estimators": 150,
+    "max_depth": 3,
+    "min_child_weight": 7.1365282932149094,
+    "reg_lambda": 0.08938394685326476,
+    "colsample_bytree": 0.691636844496182,
+    "subsample": 0.993037386295488
+  },
+  "metric": "log_loss",
+  "value": 0.5424088236716869,
+  "accuracy": 0.7178000000000001,
+  "accuracy_std": 0.004456455991031458,
+  "trials": 30,
+  "saved": "2026-11-11T02:48:06"
+}

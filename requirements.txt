@@ -10,6 +10,9 @@ xgboost==3.4.1
 catboost==1.2.10
 optuna==5.0.0
 
+# figures of the notebook (docs/evaluation/plots.py)
+matplotlib==3.11.2
+
 # development: tests, lint, types
 pytest==9.2.0
 ruff==0.17.3

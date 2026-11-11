@@ -1,0 +1,17 @@
+{
+  "model": "catboost",
+  "feature_set": "v11_fs",
+  "params": {
+    "learning_rate": 0.009770057410283346,
+    "iterations": 1617,
+    "depth": 6,
+    "l2_leaf_reg": 25.35498990754938,
+    "rsm": 0.9970087422487164
+  },
+  "metric": "log_loss",
+  "value": 0.5420353525074854,
+  "accuracy": 0.7175,
+  "accuracy_std": 0.003633180424916978,
+  "trials": 30,
+  "saved": "2026-11-11T02:57:26"
+}

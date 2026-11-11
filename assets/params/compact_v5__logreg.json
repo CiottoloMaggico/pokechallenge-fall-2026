@@ -1,0 +1,14 @@
+{
+  "model": "logreg",
+  "feature_set": "compact_v5",
+  "params": {
+    "C": 0.027535141542853362,
+    "l1_ratio": 0.0
+  },
+  "metric": "log_loss",
+  "value": 0.5430560495360632,
+  "accuracy": 0.7181,
+  "accuracy_std": 0.005102940328869222,
+  "trials": 100,
+  "saved": "2026-11-11T01:29:46"
+}

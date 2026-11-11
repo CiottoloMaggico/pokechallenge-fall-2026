@@ -1,0 +1,14 @@
+{
+  "model": "logreg",
+  "feature_set": "v11_fs",
+  "params": {
+    "C": 0.021583589628947325,
+    "l1_ratio": 1.0
+  },
+  "metric": "log_loss",
+  "value": 0.5445234281759166,
+  "accuracy": 0.7137,
+  "accuracy_std": 0.002976575213227451,
+  "trials": 100,
+  "saved": "2026-11-11T02:38:15"
+}

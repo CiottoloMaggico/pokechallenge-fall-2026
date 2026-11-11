@@ -1,0 +1,19 @@
+{
+  "model": "lightgbm",
+  "feature_set": "v11_fs",
+  "params": {
+    "learning_rate": 0.015353530306927066,
+    "n_estimators": 356,
+    "num_leaves": 15,
+    "min_child_samples": 17,
+    "reg_lambda": 0.0013823784662387953,
+    "colsample_bytree": 0.49408553596066057,
+    "subsample": 0.8445924917196777
+  },
+  "metric": "log_loss",
+  "value": 0.5417653210460848,
+  "accuracy": 0.7194999999999999,
+  "accuracy_std": 0.00606630035524124,
+  "trials": 30,
+  "saved": "2026-11-11T03:00:21"
+}

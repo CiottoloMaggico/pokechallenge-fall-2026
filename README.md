@@ -110,37 +110,42 @@ standard models with tuned parameters (`--params`, see "Reproducing the submissi
 
 ### Reproducing the submissions
 
-The hyper-parameters come from `python main.py tune` (Optuna, log loss, folds seeded 2027) and
-are in `results/tuning/<set>__<model>.json`; the detectors are the artifacts above, never
-retuned. `train` saves `<out>/<set>__<model>-tuned`; `predict` needs the same `--repair`.
+The three submissions of the challenge are `compact_v5` / tuned `ensemble_from_lr`, `v11` /
+`v11_blend` and the 50/50 blend of their logits. The tuned hyper-parameters (`python main.py
+tune`: Optuna, log loss, folds seeded 2027) are tracked in `assets/params/<set>__<model>.json`;
+the detectors are the artifacts above, never retuned. `train` saves `<out>/<set>__<model>`
+(`-tuned` with `--params`); `predict` needs the same `--repair`.
 
 ```sh
-# compact_v5 (default repair, results/addons/knockouts/v3): tuned logreg and ensemble_from_lr
-T=results/tuning
-python main.py train --features compact_v5 --models logreg ensemble_from_lr \
-    --params $T/compact_v5__logreg.json $T/compact_v5__gb_lr.json \
-    $T/compact_v5__catboost_lr.json $T/compact_v5__lightgbm_lr.json \
-    $T/compact_v5__xgboost_lr.json --out results/runs/tuned
-for m in logreg ensemble_from_lr; do
-  python main.py predict --run results/runs/tuned/compact_v5__$m-tuned \
-      --test input/test.jsonl --out results/submissions/submission_compact_v5_$m.csv
-done
-
-# v11_fs (v11 repair): the four tuned models and their average (~20 min of features, once)
+P=assets/params
 R=v11=results/addons/knockouts_v11/v1
-python main.py train --features v11_fs \
-    --models logreg xgboost lightgbm catboost ensemble_boost --repair $R \
-    --params $T/v11_fs__logreg.json $T/v11_fs__xgboost.json $T/v11_fs__lightgbm.json \
-    $T/v11_fs__catboost.json --out results/runs/tuned
-for m in logreg xgboost lightgbm catboost ensemble_boost; do
-  python main.py predict --run results/runs/tuned/v11_fs__$m-tuned --repair $R \
-      --test input/test.jsonl --out results/submissions/submission_v11_fs_$m.csv
-done
+S=results/submissions
+# 1. compact_v5 (default repair, results/addons/knockouts/v3)
+python main.py train --features compact_v5 --models ensemble_from_lr \
+    --params $P/compact_v5__gb_lr.json $P/compact_v5__catboost_lr.json \
+    $P/compact_v5__lightgbm_lr.json $P/compact_v5__xgboost_lr.json --out results/runs/final
+python main.py predict --run results/runs/final/compact_v5__ensemble_from_lr-tuned \
+    --test input/test.jsonl --out $S/submission_compact_v5.csv --proba $S/proba_compact_v5.csv
+# 2. v11 (its own repair; ~15 min)
+python main.py train --features v11 --models v11_blend --repair $R --out results/runs/final
+python main.py predict --run results/runs/final/v11__v11_blend --repair $R \
+    --test input/test.jsonl --out $S/submission_v11.csv --proba $S/proba_v11.csv
+# 3. the blend of the two
+python docs/evaluation/blend.py $S/proba_compact_v5.csv $S/proba_v11.csv \
+    --out $S/submission_blend.csv
 ```
 
-To redo the search: `python main.py tune --features compact_v5 --model logreg --trials 100`
-and, for `<m>` in `logreg` (100 trials), `xgboost`, `lightgbm`, `catboost` (30 trials each),
-`python main.py tune --features v11_fs --model <m> --trials <N> --repair $R`.
+On one fold assignment (seed 33, 5 folds, `docs/evaluation/data/metrics.csv`) the blend reaches
+accuracy 0.7232, log loss 0.5355 and ROC AUC 0.8034 against 0.7184 / 0.5407 / 0.7982 of
+`compact_v5` and 0.7175 / 0.5417 / 0.7979 of `v11`: log loss, ROC AUC and Brier score are
+significantly better than either model's (corrected p ≤ 0.012), the accuracy is within noise.
+
+The other tuned models use the same folder: `--params $P/compact_v5__logreg.json` with
+`--models logreg` on `compact_v5`, and on `v11_fs` (with `--repair $R`)
+`--models logreg xgboost lightgbm catboost ensemble_boost --params $P/v11_fs__logreg.json
+$P/v11_fs__xgboost.json $P/v11_fs__lightgbm.json $P/v11_fs__catboost.json`. To redo a search:
+`python main.py tune --features <set> --model <m> --trials <N> [--repair $R]` (100 trials for
+`logreg`, 30 for the boosters of `v11_fs`); it writes `results/tuning/<set>__<m>.json`.
 
 ### Kaggle notebook
 
@@ -148,8 +153,8 @@ and, for `<m>` in `logreg` (100 trials), `xgboost`, `lightgbm`, `catboost` (30 t
 rebuilds the three submissions of the challenge — `compact_v5` / tuned `ensemble_from_lr`, `v11`
 / `v11_blend` and the 50/50 blend of their logits — then shows their experimental evaluation
 (metrics, ROC curves, accuracy by last turn seen, convergence of the log loss, the mapping
-between v11's feature groups and the `compact_v5` features). Its scripts, parameters, tables
-and figures are in `docs/evaluation/` (see its `README.md`); `RUN_EVALUATION = True` in the
+between v11's feature groups and the `compact_v5` features). Its scripts, tables and figures
+are in `docs/evaluation/` (see its `README.md`); `RUN_EVALUATION = True` in the
 notebook recomputes the tables instead of reading them.
 
 ## Repository layout
@@ -167,6 +172,9 @@ staged_feature_set.py   two-stage feature sets: battle features, then features o
 models/            one file per model; shared pieces in models/core/
 tuning/ selection.py stats_tables.py   Optuna search, column selection, corrected t-test
 tests/             unit, contract and end-to-end tests on tests/fixtures/ (200 battles)
+assets/            the Gen 2 type chart and the tuned hyper-parameters (assets/params/)
+docs/notebook/     the Kaggle notebook of the three submissions and their evaluation
+docs/evaluation/   its scripts, tables and figures
 tools/golden.py    regression check: frozen outputs of the pipeline
 tools/v11_check.py v11 regression check against the original's outputs (bit for bit)
 ```
@@ -295,7 +303,7 @@ same 819 columns.
 `v11_fs`, the living line of v11: the bag logit, the logit of every non-key column and the team
 effect against it are label-aware features of a two-stage set (out of fold on grouped inner
 folds), the table of the original's boosters (411 columns). The standard models read it with
-parameters tuned by Optuna on log loss (`results/tuning/v11_fs__<model>.json`: `logreg` 100
+parameters tuned by Optuna on log loss (`assets/params/v11_fs__<model>.json`: `logreg` 100
 trials, the boosters 30 each); their blend is `ensemble_boost`, the probability average of the
 four. One fold assignment only (seed 33, 5 folds; `results/evaluations/tuned_v11_fs_s33`,
 `untuned_v11_fs_s33`); Δ and p against the same model with its default parameters, and against
