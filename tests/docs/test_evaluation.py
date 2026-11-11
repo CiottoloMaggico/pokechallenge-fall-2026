@@ -74,3 +74,47 @@ def test_the_roc_points_of_the_figures_are_scikit_learns() -> None:
     fpr, tpr = plots.roc_points(y, p)
     expected_fpr, expected_tpr, _ = roc_curve(y, p, drop_intermediate=False)
     assert np.allclose(fpr, expected_fpr) and np.allclose(tpr, expected_tpr)
+
+
+def oof_table(y: list[int], compact: list[float], v11: list[float]) -> pd.DataFrame:
+    """A small out-of-fold table of the three models (the blend from the two)."""
+    table = pd.DataFrame({"y_true": y, "compact_v5": compact, "v11": v11})
+    return table.assign(blend=blend(table["compact_v5"].to_numpy(), table["v11"].to_numpy()))
+
+
+def test_the_calibration_table_bins_p_and_weights_the_ece_by_battles(tmp_path: Path) -> None:
+    plots = pytest.importorskip("plots", reason="matplotlib is not installed")
+    p = [0.25, 0.25, 0.25, 0.25, 0.95, 0.95]  # observed 1/4 in the first bin, 2/2 in the second
+    table = plots.calibration_table(oof_table([1, 0, 0, 0, 1, 1], p, p), tmp_path)
+    compact = table[table["model"] == "compact_v5"].set_index("bin")
+    assert compact.loc[2, ["n", "mean_p", "observed"]].tolist() == pytest.approx([4, 0.25, 0.25])
+    assert compact.loc[9, ["n", "observed"]].tolist() == pytest.approx([2, 1.0])
+    assert compact["ece"].iloc[0] == pytest.approx(0.05 * 2 / 6)
+    assert compact["few"].all() and compact["n"].sum() == 6
+    assert len(pd.read_csv(tmp_path / "calibration.csv")) == 30
+
+
+def test_the_confidence_table_starts_with_every_battle_and_stops_when_few_remain() -> None:
+    plots = pytest.importorskip("plots", reason="matplotlib is not installed")
+    rng = np.random.default_rng(0)
+    p = rng.uniform(0, 1, 400)
+    y = (rng.uniform(0, 1, 400) < p).astype(int).tolist()
+    table = plots.confidence_table(oof_table(y, p.tolist(), p.tolist()), least=50)
+    for _, part in table.groupby("model"):
+        first = part.iloc[0]
+        assert first["threshold"] == 0.5 and first["coverage"] == 1.0
+        assert first["accuracy"] == pytest.approx(np.mean((p > 0.5) == np.array(y)))
+        assert part["coverage"].is_monotonic_decreasing and part["n"].min() >= 50
+
+
+def test_the_disagreement_table_splits_by_the_predicted_classes_of_the_two_models() -> None:
+    plots = pytest.importorskip("plots", reason="matplotlib is not installed")
+    compact = [0.9, 0.8, 0.2, 0.7, 0.6, 0.45]
+    v11 = [0.7, 0.6, 0.1, 0.3, 0.2, 0.9]  # agree on the first three battles
+    table = plots.disagreement_table(oof_table([1, 0, 0, 1, 0, 1], compact, v11), resamples=200)
+    accuracy = table.set_index(["group", "model"])["accuracy"]
+    assert table.groupby("group")["n"].first().to_dict() == {"agreement": 3, "disagreement": 3}
+    assert accuracy["agreement"].nunique() == 1  # the blend follows two models that agree
+    assert accuracy["disagreement", "compact_v5"] + accuracy["disagreement", "v11"] == 1
+    assert (table["ci_low"] <= table["accuracy"]).all()
+    assert (table["accuracy"] <= table["ci_high"]).all()
