@@ -17,9 +17,8 @@ The pipeline:
    feature is computed. v11 has its own detector, also a repair addon with a versioned artifact
    (`results/addons/knockouts_v11/`).
 3. **Features** (`features/`): named feature sets, from a single HP difference (`hp30`) to the
-   selected `compact_v5` (18 columns) and `v11` (819 columns, the `blend_v11` model of the FDS
-   course repository rebuilt on this repository's constructs: same logic, with team effects,
-   simulations and a learned forecast of the next turns).
+   selected `compact_v5` (18 columns) and `v11` (819 columns, with team effects, simulations and a
+   learned forecast of the next turns).
 4. **Models** (`models/`): logistic regression, gradient boosting (scikit-learn, LightGBM,
    XGBoost, CatBoost), boosting started from the logistic regression's log-odds, probability
    averages, and the four v11 pipelines with their fixed logit blend.
@@ -68,9 +67,7 @@ python main.py predict --run results/runs/compact_v5__ensemble_from_lr \
     --proba results/submissions/submission_proba.csv
 ```
 
-The v11 model (`v11` features, `v11_blend` model) reproduces the `blend_v11` model of the
-original FDS repository (same feature and model logic; its detector is cross-fitted with this
-repository's folds, which moves the numbers only within noise). It needs its detector artifact
+The v11 model (`v11` features, `v11_blend` model) needs its detector artifact
 (about 6 minutes, once), then trains in about 15 minutes and predicts the test set in about
 a minute:
 
