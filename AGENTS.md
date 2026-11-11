@@ -93,7 +93,9 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   `docs/evaluation/` (its scripts, tables and figures; application-level
   scripts like `tools/`). `docs/evaluation/plots.py` imports only pandas, numpy and matplotlib:
   the notebook's kernel reads tables and draws, everything else runs through `main.py` and the
-  scripts in the pinned environment.
+  scripts in the pinned environment. The notebook clones the tag `notebook-submission`, the
+  submitted version: never move or delete it; a new submission gets a new tag (and the notebook
+  its name).
 
 ## Commands
 - Tests: `pytest` (no test reads `input/` or `results/`; any test over 300 s fails with the

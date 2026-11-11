@@ -149,8 +149,9 @@ $P/v11_fs__xgboost.json $P/v11_fs__lightgbm.json $P/v11_fs__catboost.json`. To r
 
 ### Kaggle notebook
 
-`docs/notebook/pokechallenge.ipynb` clones this repository, creates the pinned environment and
-rebuilds the three submissions of the challenge — `compact_v5` / tuned `ensemble_from_lr`, `v11`
+`docs/notebook/pokechallenge.ipynb` clones this repository at the tag `notebook-submission` (the
+version of the submissions, never moved), creates the pinned environment, runs the repository's
+commands as shell commands (`!python main.py …`) and rebuilds the three submissions of the challenge — `compact_v5` / tuned `ensemble_from_lr`, `v11`
 / `v11_blend` and the 50/50 blend of their logits — then shows their experimental evaluation
 (metrics, ROC curves, accuracy by last turn seen, convergence of the log loss, the mapping
 between v11's feature groups and the `compact_v5` features). Its scripts, tables and figures
