@@ -32,8 +32,8 @@ code's behaviour wins: note the conflict and ask.
   `addons/knockouts_v11.py`, `tools/v11_check.py` are never modified again, not even to move
   code. Every future change to v11 is made on the living line: the feature set `v11_fs`
   (`features/v11_fs.py`, its own package `features/core/v11_fs/`, which never imports
-  `features/core/v11/`) and the generic models (`models/boosted.py`: `logreg_l2`,
-  `boost_xgboost`, `boost_lightgbm`, `boost_catboost`, `boost_blend`).
+  `features/core/v11/`) read by the standard models with tuned parameters
+  (`--params results/tuning/v11_fs__<model>.json`; blend: `ensemble_boost`).
 - `V20_SUB.md` records the rebuild of v11 and the `v11_fs` task (both done); no task is pending.
 
 ## Architecture
@@ -117,13 +117,17 @@ main.py (CLI) ──► application: usecases, gym, folds, detector, tuning/, se
   `.env` differs by 97 labels from `results/v11_ref/sub20_blend_v11.csv` (library versions).
   `train` / `evaluate` refuse `--test` with v11 (its label-free features fit on the training
   battles only).
-- v11_fs, the living line (~11 min per fold of features on 8,000 battles, about 75 min per seed
-  of `evaluate` with the five generic models):
-  `python main.py evaluate --features v11_fs --models logreg_l2 boost_xgboost boost_lightgbm boost_catboost boost_blend --seeds <seed> --repair v11=results/addons/knockouts_v11/v1 --out results/evaluations/models_v11_fs_s<seed>`
-  `python main.py train --features v11_fs --models boost_blend --repair v11=results/addons/knockouts_v11/v1 --out results/runs/v11_fs`
-  `python main.py predict --run results/runs/v11_fs/v11_fs__boost_blend --test input/test.jsonl --repair v11=results/addons/knockouts_v11/v1 --out results/submissions/submission_v11_fs_boost_blend.csv`
-  (~18 min train + predict.) Results: `results/evaluations/models_v11_fs_closeness` (README, "v11"),
-  every generic model within noise of its frozen twin. `train` / `evaluate` refuse `--test`.
+- v11_fs, the living line (~11 min per fold of features on 8,000 battles, about 60 min per seed
+  of `evaluate`), with `R=v11=results/addons/knockouts_v11/v1` and `P` = the four files
+  `results/tuning/v11_fs__{logreg,xgboost,lightgbm,catboost}.json`:
+  `python main.py tune --features v11_fs --model <model> --trials N --repair $R`
+  `python main.py evaluate --features v11_fs --models logreg xgboost lightgbm catboost ensemble_boost --params $P --seeds <seed> --repair $R --out results/evaluations/<name>_s<seed>`
+  `python main.py train --features v11_fs --models ensemble_boost --params $P --repair $R --out results/runs/tuned`
+  `python main.py predict --run results/runs/tuned/v11_fs__ensemble_boost-tuned --test input/test.jsonl --repair $R --out results/submissions/submission_v11_fs_ensemble_boost.csv`
+  Results: `results/evaluations/tuned_v11_fs_s33` (README, "v11"; one seed), the blend within
+  noise of `v11_blend`. `train` / `evaluate` refuse `--test`. The fold tables of `tune`
+  (`results/cache/folds`) are keyed by the set's name, not by the repair or the code: pass
+  `--refresh` after changing either.
   Long evaluations: one process per seed (at most two at a time; `--jobs` is ignored with the
   boosters, rule 6), each with its own `--out`, then merged with `GymResult.load` +
   `GymResult.combine` (and `export`) before the comparisons.

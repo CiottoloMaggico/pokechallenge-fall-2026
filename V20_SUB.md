@@ -40,6 +40,9 @@ they differ): `V11TeamEffect` also outputs its base logit `stack_logit_full`, `V
 the generic `StackedLogit` are gone, the models are `boost_xgboost`, `boost_lightgbm`,
 `boost_catboost`, `boost_blend` (`models/boosted.py`) and `logreg_l2`. Out-of-fold labels apart
 from `v11_blend`: 4.1 % → 2.5 % (`results/evaluations/models_v11_fs_closeness`; README, "v11").
+**Later still** (commit `884cf0e`): those generic models and `LogitBlend` are deleted; `v11_fs`
+is read by the standard models with tuned parameters (`results/tuning/v11_fs__<model>.json`) and
+blended by `ensemble_boost` (README, "Reproducing the submissions").
 
 These decisions of the user supersede the earlier proposal of this section and the amendments of
 commit `240499c` (the `learners.py` approach, the `v11fs_*` names): do not reopen them.

@@ -105,9 +105,42 @@ and team effect as features; about 11 min of features per fold of 8,000 battles)
 `logreg`, `hgb`, `lightgbm`, `xgboost`, `catboost`, the `*_lr` boosters (`gb_lr`, `lightgbm_lr`,
 `xgboost_lr`, `catboost_lr`), the averages `ensemble` (logreg + hgb), `ensemble_boost`,
 `ensemble_all`, `ensemble_from_lr` (the four `*_lr`), the v11 members `v11_lr_spline`,
-`v11_xgb`, `v11_lgbm`, `v11_cat` and their blend `v11_blend` (frozen), the generic models of
-`v11_fs` `logreg_l2`, `boost_xgboost`, `boost_lightgbm`, `boost_catboost` and their blend
-`boost_blend`.
+`v11_xgb`, `v11_lgbm`, `v11_cat` and their blend `v11_blend` (frozen). `v11_fs` is read by the
+standard models with tuned parameters (`--params`, see "Reproducing the submissions").
+
+### Reproducing the submissions
+
+The hyper-parameters come from `python main.py tune` (Optuna, log loss, folds seeded 2027) and
+are in `results/tuning/<set>__<model>.json`; the detectors are the artifacts above, never
+retuned. `train` saves `<out>/<set>__<model>-tuned`; `predict` needs the same `--repair`.
+
+```sh
+# compact_v5 (default repair, results/addons/knockouts/v3): tuned logreg and ensemble_from_lr
+T=results/tuning
+python main.py train --features compact_v5 --models logreg ensemble_from_lr \
+    --params $T/compact_v5__logreg.json $T/compact_v5__gb_lr.json \
+    $T/compact_v5__catboost_lr.json $T/compact_v5__lightgbm_lr.json \
+    $T/compact_v5__xgboost_lr.json --out results/runs/tuned
+for m in logreg ensemble_from_lr; do
+  python main.py predict --run results/runs/tuned/compact_v5__$m-tuned \
+      --test input/test.jsonl --out results/submissions/submission_compact_v5_$m.csv
+done
+
+# v11_fs (v11 repair): the four tuned models and their average (~20 min of features, once)
+R=v11=results/addons/knockouts_v11/v1
+python main.py train --features v11_fs \
+    --models logreg xgboost lightgbm catboost ensemble_boost --repair $R \
+    --params $T/v11_fs__logreg.json $T/v11_fs__xgboost.json $T/v11_fs__lightgbm.json \
+    $T/v11_fs__catboost.json --out results/runs/tuned
+for m in logreg xgboost lightgbm catboost ensemble_boost; do
+  python main.py predict --run results/runs/tuned/v11_fs__$m-tuned --repair $R \
+      --test input/test.jsonl --out results/submissions/submission_v11_fs_$m.csv
+done
+```
+
+To redo the search: `python main.py tune --features compact_v5 --model logreg --trials 100`
+and, for `<m>` in `logreg` (100 trials), `xgboost`, `lightgbm`, `catboost` (30 trials each),
+`python main.py tune --features v11_fs --model <m> --trials <N> --repair $R`.
 
 ## Repository layout
 
@@ -182,6 +215,8 @@ Reference for Δ: `logreg`. For log loss, a negative Δ is better.
 - Plain gradient boosting from scratch is worse than the linear model on these few, smooth
   columns; CatBoost with default settings is significantly worse (p = 0.02 on accuracy).
 - Tuning the members (`ensemble_from_lr-tuned`, Optuna on log loss) moves nothing beyond noise.
+  The same holds for `logreg` (100 trials, C 0.0275 with L2; seed 33 only: accuracy 0.7179,
+  log loss 0.5424 against 0.7179 / 0.5428, p 1.00 / 0.24).
 
 ### Feature sets with `logreg`
 
@@ -247,26 +282,32 @@ same 819 columns.
 | logreg | 0.7072 | 0.0058 | 0.0017 | 0.5553 | 0.7851 | 0.1889 | −0.0119 (0.002) | +0.0143 (<0.001) |
 | hgb | 0.7071 | 0.0057 | 0.0017 | 0.5542 | 0.7860 | 0.1886 | −0.0121 (0.01) | +0.0133 (<0.001) |
 
-`v11_fs`, the living line of v11 (`results/evaluations/models_v11_fs_closeness`, same seeds,
-folds and repair): the bag logit, the logit of every non-key column and the team effect against
-it are label-aware features of a two-stage set (out of fold on grouped inner folds), which gives
-every member the table of the original's boosters; the generic models name no column and the
-boosters run alone. Δ against each model's frozen twin on the same 15 folds (corrected t-test);
-"apart" is the share of out-of-fold labels that differ from the twin's:
+`v11_fs`, the living line of v11: the bag logit, the logit of every non-key column and the team
+effect against it are label-aware features of a two-stage set (out of fold on grouped inner
+folds), the table of the original's boosters (411 columns). The standard models read it with
+parameters tuned by Optuna on log loss (`results/tuning/v11_fs__<model>.json`: `logreg` 100
+trials, the boosters 30 each); their blend is `ensemble_boost`, the probability average of the
+four. One fold assignment only (seed 33, 5 folds; `results/evaluations/tuned_v11_fs_s33`,
+`untuned_v11_fs_s33`); Δ and p against the same model with its default parameters, and against
+`v11` / `v11_blend` (0.7175 / 0.5417 on these folds):
 
-| model (twin) | accuracy | ± fold | ± seed | log loss | ROC AUC | Brier | Δ accuracy (p) | Δ log loss (p) | apart |
-|---|---|---|---|---|---|---|---|---|---|
-| boost_blend (v11_blend) | 0.7186 | 0.0044 | 0.0012 | 0.5407 | 0.7987 | 0.1829 | −0.0005 (0.75) | −0.0002 (0.76) | 2.5 % |
-| boost_catboost (v11_cat) | 0.7177 | 0.0045 | 0.0020 | 0.5421 | 0.7980 | 0.1834 | −0.0008 (0.78) | −0.0001 (0.93) | 3.1 % |
-| boost_xgboost (v11_xgb) | 0.7176 | 0.0061 | 0.0005 | 0.5430 | 0.7971 | 0.1838 | −0.0003 (0.89) | −0.0002 (0.88) | 3.3 % |
-| boost_lightgbm (v11_lgbm) | 0.7172 | 0.0063 | 0.0002 | 0.5424 | 0.7972 | 0.1837 | −0.0020 (0.41) | +0.0000 (0.97) | 3.3 % |
-| logreg_l2 (v11_lr_spline) | 0.7136 | 0.0077 | 0.0010 | 0.5472 | 0.7927 | 0.1856 | −0.0020 (0.57) | +0.0005 (0.64) | 5.1 % |
+| model | accuracy | ± fold | log loss | ROC AUC | Brier | Δ log loss vs default (p) | Δ accuracy vs v11_blend (p) | Δ log loss vs v11_blend (p) |
+|---|---|---|---|---|---|---|---|---|
+| lightgbm-tuned | 0.7187 | 0.0037 | 0.5444 | 0.7959 | 0.1842 | −0.0026 (0.31) | +0.0012 (0.79) | +0.0028 (0.30) |
+| catboost-tuned | 0.7174 | 0.0067 | 0.5436 | 0.7971 | 0.1838 | −0.0121 (0.006) | −0.0001 (0.98) | +0.0019 (0.09) |
+| ensemble_boost-tuned | 0.7173 | 0.0058 | 0.5427 | 0.7973 | 0.1836 | −0.0011 (0.40) | −0.0002 (0.97) | +0.0011 (0.50) |
+| xgboost-tuned | 0.7155 | 0.0058 | 0.5455 | 0.7948 | 0.1847 | +0.0004 (0.72) | −0.0020 (0.69) | +0.0039 (0.17) |
+| logreg-tuned | 0.7124 | 0.0015 | 0.5459 | 0.7938 | 0.1850 | −0.0027 (0.02) | −0.0051 (0.09) | +0.0043 (0.05) |
 
-- Every generic model is within noise of its twin (all p ≥ 0.41). The boosters are as close to
-  their twins as the twins are to themselves when only the seed of their inner folds changes
-  (seed 33: 2.9–3.3 % of the labels apart, blend 2.0 %); `logreg_l2` is not (the original's
-  logistic member reads the raw bags and splines of 25 columns, not this table). On the test
-  file `boost_blend` and `v11_blend` give 122 different labels (mean |Δp| 0.014).
+- The blend of the tuned models is within noise of `v11_blend` (paired differences within one
+  standard deviation), so no logit blend with fitted weights is kept. Tuning helps `catboost`
+  and `logreg` in log loss, not the others; no accuracy moves beyond noise.
+- The parameters are tuned on the same training battles (folds seeded 2027, not the evaluation
+  folds), so these numbers keep a residual optimism, as for `ensemble_from_lr-tuned`.
+- Before the tuning, `v11_fs` was aligned with the original on models carrying the frozen
+  hyper-parameters (since removed): their blend was 2.5 % of the out-of-fold labels apart from
+  `v11_blend`, the boosters as close to their twins as the twins are to themselves when only
+  the seed of their inner folds changes (`results/evaluations/models_v11_fs_closeness`).
 
 - Against the best `compact_v5` models on the same 15 folds (merged comparison): `v11_blend`
   ties `compact_v5` / `logreg` (Δ accuracy +0.0001, p 0.99; Δ log loss −0.0017, p 0.50) and
