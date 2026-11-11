@@ -34,7 +34,6 @@ code's behaviour wins: note the conflict and ask.
   (`features/v11_fs.py`, its own package `features/core/v11_fs/`, which never imports
   `features/core/v11/`) read by the standard models with tuned parameters
   (`--params results/tuning/v11_fs__<model>.json`; blend: `ensemble_boost`).
-- `V20_SUB.md` records the rebuild of v11 and the `v11_fs` task (both done); no task is pending.
 
 ## Architecture
 Layers (enforced on the imports by `tests/test_architecture.py`):
