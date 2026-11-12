@@ -1,0 +1,10 @@
+team,model,public_rank,private_rank,public,private
+ours,compact_v5,2,1,,0.7008
+ours,v11,2,1,,0.7054
+ours,blend,2,1,,
+second,second_five_views,7,2,0.70466,0.69371
+second,second_teams,7,2,0.70200,0.69514
+second,second,7,2,0.70000,0.70200
+third,third_ensemble,3,8,0.70333,0.68542
+third,third_catboost,3,8,0.70400,0.68657
+third,third,3,8,0.69866,0.68771
