@@ -10,7 +10,8 @@ rebuilt here from their code and scored on our folds:
 | 8th place (`third*`) | Fantastic Four | `FDS-Challenge-2026`, commit `1a3ef2d` | 3 | 8 |
 
 **The analysis is in [`comparison.ipynb`](comparison.ipynb)**; this file says how its tables
-were produced.
+were produced. The notebook also runs on Kaggle: there it clones this repository (Internet
+access on, no competition data needed) and reads the tables of `data/`.
 
 | file | what it does | environment |
 |---|---|---|
@@ -51,7 +52,7 @@ All out of fold on our seed-33 stratified grouped 5 folds (those of `../data/oof
 | `estimates.csv` | accuracy and log loss with each team's own validation, on our folds, and on our folds refitted | `stability.py` |
 | `split_simulation.csv` | accuracy on the 1,500 "public" and 3,500 "private" battles of 5,000 resampled test sets | `stability.py` |
 | `calibration.csv`, `accuracy_vs_confidence.csv`, `disagreement.csv` | computed from `oof.csv` alone | `draw.py` (the notebook) |
-| `leaderboard.csv` | public and private scores as reported by the teams (empty where we do not have them: our public scores, the private score of `blend`) | written by hand |
+| `leaderboard.csv` | public and private scores: ours from Kaggle, the others as reported in their repositories | written by hand |
 
 ## How the other teams' models were rebuilt
 
