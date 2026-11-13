@@ -22,6 +22,7 @@ access on, no competition data needed) and reads the tables of `data/`.
 | `knockouts.py` | the hidden P2 knockouts found by each team, exit by exit, and their tables | `.env` |
 | `knockout_swap.py` | `compact_v5` with each team's knockouts in place of our detector's; tables of both exchanges | `.env` |
 | `draw_knockouts.py` | the tables and the figure of the notebook's section on hidden knockouts | pandas, numpy, matplotlib |
+| `touch_grass.py` | the closing animation of the notebook | numpy, matplotlib |
 | `second_place.py` | 2nd place: their models on our folds (`cv`, `stage`), on the subsets of our learning curve (`curve`), with their own protocol (`test`); the scores of their knockout model (`knockouts`); their models with another detector's scores (`cv --knockouts`) | theirs (Python 3.12) |
 | `predictive_spikes.py` | 9th place: their Kaggle notebook with its own and our folds (`run`), refitted with each of our folds as test set (`deploy`), on the subsets of our learning curve (`curve`); the calls of their knockout rule (`knockouts`) | theirs (Python 3.13) |
 | `curve_subsets.py` | the nested training subsets of `../learning_curve.py` (fold 0) | `.env` |
