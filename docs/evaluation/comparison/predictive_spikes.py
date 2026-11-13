@@ -1,25 +1,31 @@
-"""The notebooks of team Fantastic Four (3rd public, 8th private), run without changing them.
+"""The Kaggle notebook of team predictive spikes (1st public, 9th private), run without changing it.
 
-Runs in *their* environment (Python 3.13 and the versions their notebooks print), not in ``.env``:
+Runs in *their* environment (Python 3.13 and the versions their Kaggle run prints), not in
+``.env``:
 
-    PY=<their venv>/bin/python REPO=~/Downloads/FDS-Challenge-2026
-    $PY docs/evaluation/comparison/fantastic_four.py run --notebook "$REPO/submission 8 - ..." \
-        --data D --output O [--cv own ours]
-    $PY docs/evaluation/comparison/fantastic_four.py deploy --notebook ... --data D --output O
-    $PY docs/evaluation/comparison/fantastic_four.py curve --notebook ... --data D --output O \
+    PY=<their venv>/bin/python REPO=~/Downloads/predictive-spikes-main
+    $PY docs/evaluation/comparison/predictive_spikes.py run --repo $REPO --data D --output O \
+        [--ours]
+    $PY docs/evaluation/comparison/predictive_spikes.py deploy --repo $REPO --data D --output O
+    $PY docs/evaluation/comparison/predictive_spikes.py curve --repo $REPO --data D --output O \
         --subsets <curve_subsets.csv>
 
-A notebook is executed cell by cell in one namespace, in memory: the only change to its text is
-the path of the competition data. ``run``: the definitions at the top of its validation cell
-always run; with ``--cv own`` the whole cell runs as written (their ``StratifiedKFold``, seed 42:
-``own_oof.csv``); with ``--cv ours`` the same cell runs on our seed-33 folds
-(``cv.split(X_train, y)`` replaced by our partition: ``ours_oof.csv``); then its test cell writes
-``submission.csv`` and ``test_proba.csv``.
+Their notebook (``FDS-github.ipynb``, the one that ran on Kaggle) is executed cell by cell in one
+namespace, in memory, up to its training cell; the two cells after it only draw the feature
+importance and write the binary submission (also into their repository), so they are skipped.
+Its text is never changed: the data folder is given through ``POKEMON_DATA_DIR``, which their
+loader reads, and the working folder is their repository, where the notebook looks for ``src``.
+
+``run``: the training cell as written (their ``StratifiedKFold``, seed 42, with early stopping
+on the held-out fold: ``own_oof.csv``) and the test probabilities of every member and of their
+blend, the mean of the five fold models (``test_proba.csv``); with ``--ours`` the same cell
+runs again on our seed-33 folds (their ``get_cv_splits`` call replaced by our partition:
+``ours_oof.csv``).
 
 ``deploy``: the whole notebook once per fold of ours, with the training folds as ``train.jsonl``
-and the held-out fold, without labels, as ``test.jsonl`` (``<output>/data_<fold>``). Every table
-is then built as at submission time, from the training battles only, whereas their validation
-cell reuses tables built on all 10,000 battles. Writes ``deploy_oof.csv``.
+and the held-out fold, without labels, as ``test.jsonl`` (``<output>/data_<fold>``): the held-out
+battles are predicted as the test set was, by models that never saw them, not even for early
+stopping. Writes ``deploy_oof.csv``.
 
 ``curve``: the same with the nested subsets of our learning curve (``curve_subsets.py``) as
 train and our fold 0 as test. Writes ``curve.csv``.
@@ -43,59 +49,62 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from second_place import our_folds  # noqa: E402
 
-KAGGLE = "Path('/kaggle/input/competitions/fds-pokemon-battles-prediction-2026')"
-CV_LINE = "cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)"
-CV_SPLIT = "cv.split(X_train, y)"
+NOTEBOOK = "FDS-github.ipynb"
+SPLIT = "cv_splits = get_cv_splits(train_battles, y, n_splits=FINAL_FOLDS, seed=RANDOM_SEED, "
+TRAINING = "blended_test_probs ="
 
 
-def code_cells(notebook: Path, data: Path) -> list[str]:
-    """The code cells of a notebook, with the data folder in place of Kaggle's."""
+def code_cells(repo: Path) -> list[str]:
+    """The code cells of their notebook up to its training cell, which must be unique."""
     cells = [
         "".join(cell["source"])
-        for cell in json.loads(notebook.read_text())["cells"]
+        for cell in json.loads((repo / NOTEBOOK).read_text())["cells"]
         if cell["cell_type"] == "code"
     ]
-    assert sum(KAGGLE in cell for cell in cells) == 1
-    return [cell.replace(KAGGLE, f"Path({str(data)!r})") for cell in cells]
+    (last,) = [k for k, cell in enumerate(cells) if TRAINING in cell]
+    assert cells[last].count(SPLIT) == 1
+    return cells[: last + 1]
 
 
-def oof_table(ns: dict[str, Any], folds: list[tuple[np.ndarray, np.ndarray]]) -> pd.DataFrame:
-    """The out-of-fold probabilities left in ``oof`` by their validation cell."""
+def probabilities(ns: dict[str, Any], kind: str) -> pd.DataFrame:
+    """The probabilities of every member and of their blend left by the training cell, out of
+    fold (``kind="oof"``) or on the test set (``"test"``)."""
+    members = ns["oof_probs_map"] if kind == "oof" else ns["test_probs_map"]
+    blend = ns["blended_oof_probs"] if kind == "oof" else ns["blended_test_probs"]
+    return pd.DataFrame({**members, "blend": blend})
+
+
+def oof_table(ns: dict[str, Any]) -> pd.DataFrame:
+    """The out-of-fold probabilities of the training cell, with the fold of every battle."""
     fold = np.full(len(ns["y"]), -1)
-    for k, (_, valid) in enumerate(folds):
+    for k, (_, valid) in enumerate(ns["cv_splits"]):
         fold[valid] = k
-    return pd.DataFrame({"row": range(len(fold)), "fold": fold, "y_true": ns["y"], "p": ns["oof"]})
+    table = pd.DataFrame({"row": range(len(fold)), "fold": fold, "y_true": ns["y"]})
+    return pd.concat([table, probabilities(ns, "oof")], axis=1)
 
 
 def run(args: argparse.Namespace) -> None:
     args.output.mkdir(parents=True, exist_ok=True)
+    os.environ["POKEMON_DATA_DIR"] = str(args.data)
+    os.chdir(args.repo)  # their setup cell finds the repository in the working folder
     ns: dict[str, Any] = {"__name__": "__main__"}
-    for cell in code_cells(args.notebook, args.data):
-        if CV_LINE in cell:
-            assert cell.count(CV_SPLIT) == 1
-            exec(cell[: cell.index(CV_LINE)], ns)  # definitions the test cell needs too
-            if "own" in args.cv:
-                exec(cell, ns)
-                own = list(ns["StratifiedKFold"](5, shuffle=True, random_state=42).split(
-                    ns["X_train"], ns["y"]))  # fmt: skip
-                oof_table(ns, own).to_csv(args.output / "own_oof.csv", index=False)
-            if "ours" in args.cv:
-                fold = our_folds()
-                ns["__our_folds__"] = [
-                    (np.flatnonzero(fold != k), np.flatnonzero(fold == k))
-                    for k in sorted(set(fold))
-                ]
-                exec(cell.replace(CV_SPLIT, "__our_folds__"), ns)
-                table = oof_table(ns, ns["__our_folds__"])
-                table.to_csv(args.output / "ours_oof.csv", index=False)
-            continue
-        if "test.jsonl" in cell:
-            os.chdir(args.output)  # their test cell writes submission.csv in the working folder
+    cells = code_cells(args.repo)
+    for cell in cells[:-1]:
         exec(cell, ns)
-    ids = ns["test_df"]["battle_id"].astype(int).to_numpy()
-    pd.DataFrame({"battle_id": ids, "p": ns["p_test"]}).to_csv(
-        args.output / "test_proba.csv", index=False
-    )
+    training = cells[-1]
+    if args.ours:
+        fold = our_folds()
+        ns["__our_folds__"] = [
+            (np.flatnonzero(fold != k), np.flatnonzero(fold == k)) for k in sorted(set(fold))
+        ]
+        line = training[training.index(SPLIT) :].splitlines()[0]
+        exec(training.replace(line, "cv_splits = __our_folds__"), ns)
+        oof_table(ns).to_csv(args.output / "ours_oof.csv", index=False)
+    exec(training, ns)
+    oof_table(ns).to_csv(args.output / "own_oof.csv", index=False)
+    test = probabilities(ns, "test")
+    test.insert(0, "battle_id", np.asarray(ns["test_ids"]).astype(int))
+    test.to_csv(args.output / "test_proba.csv", index=False)
     print(f"{args.output}: done", flush=True)
 
 
@@ -126,7 +135,7 @@ def run_notebooks(args: argparse.Namespace, jobs: dict[str, Path]) -> None:
     def one(name: str) -> None:
         output = args.output / f"run_{name}"
         output.mkdir(parents=True, exist_ok=True)
-        command = [sys.executable, __file__, "run", "--notebook", str(args.notebook),
+        command = [sys.executable, __file__, "run", "--repo", str(args.repo),
                    "--data", str(jobs[name]), "--output", str(output)]  # fmt: skip
         with (output / "log.txt").open("w") as log:
             subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True)
@@ -137,13 +146,13 @@ def run_notebooks(args: argparse.Namespace, jobs: dict[str, Path]) -> None:
 
 
 def predictions(args: argparse.Namespace, name: str) -> pd.DataFrame:
-    """The probabilities of the run ``name``, with the row and label of each battle."""
+    """The test probabilities of the run ``name``, with the row and label of each battle."""
     battles = [json.loads(line) for line in (args.data / "train.jsonl").read_text().splitlines()]
     row = {battle["battle_id"]: r for r, battle in enumerate(battles)}
     table = pd.read_csv(args.output / f"run_{name}" / "test_proba.csv")
     table.insert(0, "row", [row[i] for i in table["battle_id"]])
-    table["y_true"] = [int(battles[r]["player_won"]) for r in table["row"]]
-    return table
+    table.insert(1, "y_true", [int(battles[r]["player_won"]) for r in table["row"]])
+    return table.drop(columns="battle_id")
 
 
 def deploy(args: argparse.Namespace) -> None:
@@ -154,9 +163,9 @@ def deploy(args: argparse.Namespace) -> None:
         for k in folds
     }
     run_notebooks(args, jobs)
-    table = pd.concat([predictions(args, str(k)).assign(fold=k) for k in folds]).sort_values("row")
-    assert (table["fold"].to_numpy() == fold[table["row"].to_numpy()]).all()
-    table[["row", "fold", "y_true", "p"]].to_csv(args.output / "deploy_oof.csv", index=False)
+    table = pd.concat([predictions(args, str(k)) for k in folds]).sort_values("row")
+    table.insert(1, "fold", fold[table["row"].to_numpy()])
+    table.to_csv(args.output / "deploy_oof.csv", index=False)
     print(f"wrote {args.output / 'deploy_oof.csv'}")
 
 
@@ -172,7 +181,8 @@ def curve(args: argparse.Namespace) -> None:
     parts = []
     for size in sizes:
         n_train = int((subsets["size"] == size).sum())
-        parts.append(predictions(args, str(size)).assign(size=size, n_train=n_train))
+        part = predictions(args, str(size))
+        parts.append(part.assign(p=part["blend"], size=size, n_train=n_train))
     table = pd.concat(parts)[["size", "n_train", "row", "y_true", "p"]]
     table.to_csv(args.output / "curve.csv", index=False)
     print(f"wrote {args.output / 'curve.csv'}")
@@ -180,20 +190,20 @@ def curve(args: argparse.Namespace) -> None:
 
 def main() -> None:
     """One sub-command per step."""
-    root = argparse.ArgumentParser(description="the notebooks of team Fantastic Four")
+    root = argparse.ArgumentParser(description="the Kaggle notebook of team predictive spikes")
     commands = root.add_subparsers(dest="command", required=True)
     for name, handler in (("run", run), ("deploy", deploy), ("curve", curve)):
         sub = commands.add_parser(name)
-        sub.add_argument("--notebook", type=Path, required=True)
+        sub.add_argument("--repo", type=Path, required=True, help="their repository")
         sub.add_argument("--data", type=Path, required=True, help="the four competition files")
         sub.add_argument("--output", type=Path, required=True)
         sub.set_defaults(handler=handler)
-    commands.choices["run"].add_argument("--cv", nargs="*", default=[], choices=["own", "ours"])
+    commands.choices["run"].add_argument("--ours", action="store_true")
     for name in ("deploy", "curve"):
         commands.choices[name].add_argument("--jobs", type=int, default=3)
     commands.choices["curve"].add_argument("--subsets", type=Path, required=True)
     args = root.parse_args()
-    for name in ("notebook", "data", "output"):
+    for name in ("repo", "data", "output"):
         setattr(args, name, getattr(args, name).expanduser().resolve())
     args.handler(args)
 

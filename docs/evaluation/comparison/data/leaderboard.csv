@@ -5,6 +5,4 @@ ours,blend,2,1,0.71333,0.70400
 second,second_five_views,7,2,0.70466,0.69371
 second,second_teams,7,2,0.70200,0.69514
 second,second,7,2,0.70000,0.70200
-third,third_ensemble,3,8,0.70333,0.68542
-third,third_catboost,3,8,0.70400,0.68657
-third,third,3,8,0.69866,0.68771
+spikes,spikes,1,9,0.71866,0.68685

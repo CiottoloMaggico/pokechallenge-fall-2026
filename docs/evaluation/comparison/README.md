@@ -7,7 +7,7 @@ rebuilt here from their code and scored on our folds:
 |---|---|---|---:|---:|
 | ours | | this one | 2 | 1 |
 | 2nd place (`second*`) | | `FDS-Pokemon-Challenge-2026-2027`, commit `8479064` | 7 | 2 |
-| 8th place (`third*`) | Fantastic Four | `FDS-Challenge-2026`, commit `1a3ef2d` | 3 | 8 |
+| 9th place (`spikes*`) | predictive spikes | `predictive-spikes`, branch `main` (archive downloaded after the challenge) | 1 | 9 |
 
 **The analysis is in [`comparison.ipynb`](comparison.ipynb)**; this file says how its tables
 were produced. The notebook also runs on Kaggle: there it clones this repository (Internet
@@ -20,11 +20,11 @@ access on, no competition data needed) and reads the tables of `data/`.
 | `compare.py` | the tables of `data/` from every team's predictions | `.env` |
 | `stability.py` | validation estimates under three protocols, simulated leaderboards | `.env` |
 | `second_place.py` | 2nd place: their models on our folds (`cv`, `stage`), on the subsets of our learning curve (`curve`), with their own protocol (`test`) | theirs (Python 3.12) |
-| `fantastic_four.py` | 8th place: a notebook with its own and our folds (`run`), refitted with each of our folds as test set (`deploy`), on the subsets of our learning curve (`curve`) | theirs (Python 3.13) |
+| `predictive_spikes.py` | 9th place: their Kaggle notebook with its own and our folds (`run`), refitted with each of our folds as test set (`deploy`), on the subsets of our learning curve (`curve`) | theirs (Python 3.13) |
 | `curve_subsets.py` | the nested training subsets of `../learning_curve.py` (fold 0) | `.env` |
 
 The other teams' repositories are never modified: the scripts import the 2nd place's `src`
-package and call its own worker, and execute the 8th place's notebooks cell by cell in memory.
+package and call its own worker, and execute the 9th place's Kaggle notebook cell by cell in memory.
 Every number comes from models rebuilt in this environment, except the leaderboard scores.
 
 ## Models compared
@@ -35,9 +35,13 @@ Every number comes from models rebuilt in this environment, except the leaderboa
 | `second_five_views` | `matched_core_summary` | mean of five feature views (LightGBM + XGBoost) |
 | `second_teams` | `team_similarity` | five views (with their `--feature-fixes`), then a logistic regression with similar-team win rates |
 | `second` | `tactical_team_spikes` | their tactical view, then the logistic regression with similar teams and Spikes: their best private score |
-| `third_ensemble` | notebook 6 | (2 × XGBoost / LightGBM / HistGB + 2 × CatBoost + logistic regression) / 5 |
-| `third_catboost` | notebook 7 | CatBoost |
-| `third` | notebook 8 | (3 × XGBoost / LightGBM / HistGB + logistic regression) / 4: their best private score |
+| `spikes_compact` | submission 1, `model4_compact_top140_te` | XGBoost on 140 selected features and 12 target encodings |
+| `spikes_conservative` | submission 2, `model2_conservative_depth4_pruned_te` | XGBoost of depth 4 on 511 features and the target encodings |
+| `spikes` | submission 3, the output of `FDS-github.ipynb` | 0.15 / 0.35 / 0.10 / 0.40 blend of their four XGBoost models (the two above, one tuned with Optuna, one without target encodings) |
+
+Every 9th-place model is the mean of five fold models, each early-stopped on its held-out fold.
+These are the three final submissions listed in their README; only the third is written by their
+notebook, and which files they actually sent to Kaggle is not known.
 
 ## Tables of `data/`
 
@@ -52,14 +56,14 @@ All out of fold on our seed-33 stratified grouped 5 folds (those of `../data/oof
 | `estimates.csv` | accuracy and log loss with each team's own validation, on our folds, and on our folds refitted | `stability.py` |
 | `split_simulation.csv` | accuracy on the 1,500 "public" and 3,500 "private" battles of 5,000 resampled test sets | `stability.py` |
 | `calibration.csv`, `accuracy_vs_confidence.csv`, `disagreement.csv` | computed from `oof.csv` alone | `draw.py` (the notebook) |
-| `leaderboard.csv` | public and private scores: ours from Kaggle, the others as reported in their repositories | written by hand |
+| `leaderboard.csv` | public and private scores: ours from Kaggle, the 2nd place's as reported in its repository, and for the 9th place one row with its best public and best private scores on Kaggle (the files are not known; the row uses the cross-validation of `spikes`) | written by hand |
 
 ## How the other teams' models were rebuilt
 
 **Environments**, outside every repository (`uv`): Python 3.12.14 and the 2nd place's
-`requirements.txt`; Python 3.13 with numpy 2.1.3, pandas 2.3.3, scikit-learn 1.6.1, xgboost 3.4.1,
-lightgbm 4.6.0, catboost 1.2.10 (the versions the 8th place's notebooks print). A third one runs
-the notebook (pandas, numpy, matplotlib, jinja2, nbconvert).
+`requirements.txt`; Python 3.13 with numpy 2.1.3, pandas 2.3.3, xgboost 3.4.1 (the versions the
+9th place's Kaggle notebook prints), scikit-learn 1.6.1, scipy 1.15.3, pyyaml, pytest. A third one
+runs the notebook (pandas, numpy, matplotlib, jinja2, nbconvert).
 
 **Data**: `results/comparison/data/` with links to `input/train.jsonl`, `input/test.jsonl`,
 `assets/type_chart_gen2.csv` and a `sample_submission.csv` with the ids of `test.jsonl`.
@@ -72,7 +76,10 @@ the notebook (pandas, numpy, matplotlib, jinja2, nbconvert).
 | 2nd place: `team_similarity`, accuracy with their validation (mean of 3 partitions / pooled) | 0.7077 / 0.7106 | 0.7080 / 0.7118 (their Kaggle rebuild: 0.7106) |
 | 2nd place: `tactical_team_spikes`, same | 0.7072 / 0.7085 | 0.7077 / 0.7085 |
 | 2nd place: test labels equal to the submitted files | 4,964 and 4,922 of 5,000 | their Kaggle rebuild: 4,964 and 4,922 |
-| 8th place: accuracy and AUC of every fold, notebooks 6 / 7 / 8 | 0.7003 / 0.6968 / 0.6984, every fold equal | 0.7003 / 0.6968 / 0.6984 |
+| 9th place: unit tests | 7 / 7 pass | |
+| 9th place: accuracy (mean of folds) of their four models, with their validation | 0.7004 / 0.6991 / 0.6953 / 0.6998 | the same, printed in their Kaggle notebook |
+| 9th place: blend, accuracy / ROC AUC / log loss with their validation | 0.7009 / 0.7761 / 0.5642 | the same (their README, from another computer: 0.7030 / 0.7767 / 0.5636) |
+| 9th place: test labels of the blend | 2,596 wins of P1 | 2,596, printed in their Kaggle notebook |
 
 **On our folds.**
 
@@ -82,18 +89,26 @@ the notebook (pandas, numpy, matplotlib, jinja2, nbconvert).
   assertion stops the worker. Their last step (the logistic regression) is fitted on our four
   training folds and applied to the fifth. Their pipeline is deterministic (a second run gives
   identical probabilities).
-* *8th place.* `run --cv ours` runs their validation cell with our partition; their lookup
-  tables are then built on all the training battles, as in their notebook. `deploy` runs the
-  whole notebook once per fold, with the training folds as `train.jsonl` and the held-out fold,
-  without labels, as `test.jsonl`: these are the `third*` columns of `oof.csv`.
+* *9th place.* `run --ours` runs their training cell with our partition in place of their
+  `StratifiedKFold`; every model is then early-stopped on the fold it predicts, as in their
+  validation. `deploy` runs the whole notebook once per fold, with the training folds as
+  `train.jsonl` and the held-out fold, without labels, as `test.jsonl`: the held-out battles are
+  predicted as their test set was (the mean of five models early-stopped on folds of the
+  training battles); these are the `spikes*` columns of `oof.csv`. Their feature subsets and
+  hyper-parameters (`configs/experiments.yaml`, chosen by their `train.py` on all the training
+  battles) are used as they are. Their notebook only reads the data, through `POKEMON_DATA_DIR`;
+  its last two cells (feature importance, and the binary submission, also copied into their
+  repository) are not run. Their pipeline is deterministic (the 8,000-battle point of the curve,
+  a separate process, equals fold 0 of `deploy` bit for bit). Their folds do not group the 14
+  pairs of duplicated battles (11 are split), a negligible effect.
 * *Learning curve.* Both teams' models are refitted on the nested subsets of our own curve
   (fold 0). The 2nd place's line is their tactical view without the last step, which needs
-  out-of-fold rows of every battle. For both teams the 8,000-battle point equals fold 0 of the
-  runs above bit for bit.
+  out-of-fold rows of every battle; the 9th place's line is their blend. For both teams the
+  8,000-battle point equals fold 0 of the runs above bit for bit.
 
 ## Commands
 
-`PY2` / `PY3`: the Python of the 2nd / 8th place's environment; `REPO2` / `REPO3`: their
+`PY2` / `PY9`: the Python of the 2nd / 9th place's environment; `REPO2` / `REPO9`: their
 repositories; `R=$PWD/results/comparison`. Set
 `export PYTHONDONTWRITEBYTECODE=1 PYTHONHASHSEED=0` first.
 
@@ -117,14 +132,13 @@ $PY2 docs/evaluation/comparison/second_place.py stage --repo $REPO2 --data $R/da
 $PY2 docs/evaluation/comparison/second_place.py curve --repo $REPO2 --data $R/data --output $R/curve --subsets $R/curve_subsets.csv --jobs 5 --feature-fixes
 ```
 
-8th place (~20–50 min per notebook and step):
+9th place (~4 min for `run`, ~15 min for `deploy` and for `curve` with 2 jobs):
 
 ```bash
-for n in 6 7 8; do nb=$(ls "$REPO3"/submission\ $n\ *.ipynb)
-  $PY3 docs/evaluation/comparison/fantastic_four.py run --notebook "$nb" --data $R/data --output $R/third/nb$n --cv own ours
-  $PY3 docs/evaluation/comparison/fantastic_four.py deploy --notebook "$nb" --data $R/data --output $R/third/deploy_nb$n --jobs 2
-done
-$PY3 docs/evaluation/comparison/fantastic_four.py curve --notebook "$(ls "$REPO3"/submission\ 8\ *.ipynb)" --data $R/data --output $R/third/curve_nb8 --subsets $R/curve_subsets.csv
+POKEMON_DATA_DIR=$R/data $PY9 -m pytest -p no:cacheprovider $REPO9/tests
+$PY9 docs/evaluation/comparison/predictive_spikes.py run --repo $REPO9 --data $R/data --output $R/spikes/run --ours
+$PY9 docs/evaluation/comparison/predictive_spikes.py deploy --repo $REPO9 --data $R/data --output $R/spikes/deploy --jobs 2
+$PY9 docs/evaluation/comparison/predictive_spikes.py curve --repo $REPO9 --data $R/data --output $R/spikes/curve --subsets $R/curve_subsets.csv --jobs 2
 ```
 
 Our test probabilities (rebuilt from the notebook's runs), then the tables and the notebook:

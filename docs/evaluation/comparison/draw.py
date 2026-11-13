@@ -4,7 +4,8 @@
 
 Only pandas, numpy and matplotlib, with the style and helpers of the notebook's evaluation
 (``docs/evaluation/plots.py``). The figures compare one model per team: ``blend`` (ours), the
-2nd-placed team's and the 8th-placed team's (Fantastic Four) best private submissions.
+2nd-placed team's best private submission and the 9th-placed team's (predictive spikes) blend,
+the submission of its published notebook.
 """
 
 from __future__ import annotations
@@ -28,17 +29,20 @@ import plots  # noqa: E402
 from plots import GRAY, GRID, INDIGO, LABEL, apple_style, roc_points, save, save_table  # noqa: E402
 
 GREEN, ORANGE = "#34C759", "#FF9500"
-MODELS = {"blend": "blend", "second": "2nd place", "third": "8th place"}
-COLORS = {"blend": INDIGO, "second": GREEN, "third": ORANGE}
-TEAMS = {"ours": "ours", "second": "2nd place", "third": "8th place"}
-TEAM_COLORS = {"ours": INDIGO, "second": GREEN, "third": ORANGE}
+MODELS = {"blend": "blend", "second": "2nd place", "spikes": "9th place"}
+COLORS = {"blend": INDIGO, "second": GREEN, "spikes": ORANGE}
+TEAMS = {"ours": "ours", "second": "2nd place", "spikes": "9th place"}
+TEAM_COLORS = {"ours": INDIGO, "second": GREEN, "spikes": ORANGE}
 NAMES = {  # every model of the tables
     "compact_v5": "compact_v5", "v11": "v11", "blend": "blend",
     "second_five_views": "2nd: five views", "second_teams": "2nd: five views + teams",
     "second": "2nd: tactical + teams",
-    "third_ensemble": "8th: boosters + CatBoost + LR", "third_catboost": "8th: CatBoost",
-    "third": "8th: boosters + LR",
+    "spikes_compact": "9th: XGBoost, 140 features", "spikes_conservative": "9th: XGBoost, depth 4",
+    "spikes": "9th: blend of four XGBoost",
 }  # fmt: skip
+# the 9th place's row of leaderboard.csv holds its best public and best private scores, whose
+# files are unknown; its cross-validation is that of the blend of its notebook
+BOARD_NAMES = {**NAMES, "spikes": "9th: best scores (CV: blend)"}
 DASHED = (0, (2, 3))
 
 
@@ -97,7 +101,7 @@ def disagreement_table(
     right = {model: (oof[model].to_numpy() > 0.5) == y for model in MODELS}
     rng = np.random.default_rng(seed)
     rows = []
-    for other in ("second", "third"):
+    for other in ("second", "spikes"):
         same = (oof["blend"] > 0.5).to_numpy() == (oof[other] > 0.5).to_numpy()
         for group, members in (("agreement", same), ("disagreement", ~same)):
             battles = np.flatnonzero(members)
@@ -117,7 +121,7 @@ def plot_disagreement(table: pd.DataFrame, folder: Path | None = None) -> Figure
     """Accuracy where ``blend`` and another team agree and disagree, one panel per team."""
     fig, axes = plt.subplots(1, 2, figsize=(10, 4.2), sharey=True)
     groups = ["agreement", "disagreement"]
-    for ax, other in zip(axes, ("second", "third"), strict=True):
+    for ax, other in zip(axes, ("second", "spikes"), strict=True):
         part: Any = table[table["other"] == other]
         sizes = part.drop_duplicates("group").set_index("group")["n"]
         for k, model in enumerate(("blend", other)):
@@ -152,7 +156,7 @@ def plot_leaderboard(
     board: pd.DataFrame, metrics: pd.DataFrame, folder: Path | None = None
 ) -> Figure:
     """Per submission: accuracy in cross-validation on our folds, and on the public and private
-    leaderboards (as reported by the teams; a missing score is not drawn)."""
+    leaderboards (one row for the 9th place: its best public and best private scores)."""
     cv = metrics.set_index("model")["accuracy"]
     fig, ax = plt.subplots(figsize=(8.4, 4.6))
     labels, y = [], 0.0
@@ -165,7 +169,7 @@ def plot_leaderboard(
             ax.scatter([cv[model]], [y], marker="D", s=30, facecolor="white", edgecolor=color)
             ax.scatter([public], [y], marker="o", s=34, facecolor="white", edgecolor=color)
             ax.scatter([private], [y], marker="o", s=34, color=color)
-            labels.append((y, NAMES[model]))
+            labels.append((y, BOARD_NAMES[model]))
             y += 1
         y += 0.6
     ax.set_yticks([position for position, _ in labels], [name for _, name in labels])
@@ -177,7 +181,7 @@ def plot_leaderboard(
     ax.xaxis.set_major_formatter(lambda value, _: f"{value:.1%}")
     ax.set_xlabel("Accuracy")
     ax.set_title("Cross-validation, public and private accuracy")
-    ax.legend(loc="lower right")
+    ax.legend(loc="upper left")
     return save(fig, folder, "leaderboard")
 
 
@@ -195,8 +199,9 @@ def plot_swing(sim: pd.DataFrame, board: pd.DataFrame, folder: Path | None = Non
         rows = real[real["team"] == team]
         values = (rows["private"] - rows["public"]) * 100
         height = np.full(len(values), top * (0.06 + 0.07 * k))
+        label = f"{TEAMS[team]}, " + ("best private − best public" if team == "spikes" else "real")
         ax.scatter(values, height, marker="v", s=36, color=TEAM_COLORS[team], zorder=3,
-                   label=f"{TEAMS[team]}, real")  # fmt: skip
+                   label=label)  # fmt: skip
     ax.axvline(0, color=GRAY, linestyle=DASHED, linewidth=1)
     ax.set(xlabel="Private − public accuracy (points)", ylabel="Simulated leaderboards")
     ax.set_title("Private − public accuracy")
@@ -210,13 +215,13 @@ def gap_table(board: pd.DataFrame, metrics: pd.DataFrame, sim: pd.DataFrame) -> 
     such a gap over the simulated leaderboards."""
     cv = metrics.set_index("model")["accuracy"]
     best: Any = board.loc[board.groupby("team")["private"].idxmax()].set_index("team")
-    simulated = {"ours": "blend", "second": "second", "third": "third"}
+    simulated = {"ours": "blend", "second": "second", "spikes": "spikes"}
     wide = {p: sim.pivot(index="draw", columns="team", values=p) for p in ("public", "private")}
     rows = []
-    for a, b in (("ours", "second"), ("ours", "third"), ("second", "third")):
+    for a, b in (("ours", "second"), ("ours", "spikes"), ("second", "spikes")):
         noise = {p: (wide[p][simulated[a]] - wide[p][simulated[b]]).std() for p in wide}
         rows.append({
-            "Gap": f"{NAMES[best.loc[a, 'model']]} − {NAMES[best.loc[b, 'model']]}",
+            "Gap": f"{BOARD_NAMES[best.loc[a, 'model']]} − {BOARD_NAMES[best.loc[b, 'model']]}",
             "Cross-validation": (cv[best.loc[a, "model"]] - cv[best.loc[b, "model"]]) * 100,
             "Public": (best.loc[a, "public"] - best.loc[b, "public"]) * 100,
             "± chance": noise["public"] * 100,
@@ -266,7 +271,7 @@ def leaderboard_table(board: pd.DataFrame, metrics: pd.DataFrame) -> Any:
     cv = metrics.set_index("model")["accuracy"]
     table = pd.DataFrame({
         "Team": [TEAMS[team] for team in board["team"]],
-        "Submission": [NAMES[model] for model in board["model"]],
+        "Submission": [BOARD_NAMES[model] for model in board["model"]],
         "Cross-validation": [cv[model] for model in board["model"]],
         "Public": board["public"],
         "Private": board["private"],

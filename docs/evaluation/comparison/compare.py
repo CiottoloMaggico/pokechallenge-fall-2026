@@ -4,7 +4,7 @@
 
 Reads our out-of-fold probabilities (``docs/evaluation/data/oof.csv``, seed-33 folds) and, under
 ``--results``, the other teams' models rebuilt on the same folds (``second_place.py``,
-``fantastic_four.py``; the layout is in the README). Writes to ``data/``:
+``predictive_spikes.py``; the layout is in the README). Writes to ``data/``:
 
 * ``oof.csv``: every model's out-of-fold probability per battle;
 * ``folds.csv``, ``metrics.csv``: metrics per fold and their mean;
@@ -33,11 +33,15 @@ from stats_tables import corrected_ttest  # noqa: E402
 OURS = ["compact_v5", "v11", "blend"]
 # the 2nd-placed team: column of second_oof.csv / second_test.csv -> name here
 SECOND = {"team_similarity": "second_teams", "tactical_team_spikes": "second"}
-# Fantastic Four (8th): notebook -> name here
-THIRD = {"nb6": "third_ensemble", "nb7": "third_catboost", "nb8": "third"}
-MODELS = [*OURS, "second_five_views", *SECOND.values(), *THIRD.values()]
-PAIRS = [("blend", "second"), ("blend", "third"), ("second", "third"), ("compact_v5", "second"),
-         ("v11", "second"), ("compact_v5", "third"), ("v11", "third")]  # fmt: skip
+# predictive spikes (9th): column of their notebook's probabilities -> name here
+SPIKES = {
+    "model4_compact_top140_te": "spikes_compact",
+    "model2_conservative_depth4_pruned_te": "spikes_conservative",
+    "blend": "spikes",
+}
+MODELS = [*OURS, "second_five_views", *SECOND.values(), *SPIKES.values()]
+PAIRS = [("blend", "second"), ("blend", "spikes"), ("second", "spikes"), ("compact_v5", "second"),
+         ("v11", "second"), ("compact_v5", "spikes"), ("v11", "spikes")]  # fmt: skip
 METRICS = {
     "accuracy": lambda y, p: accuracy_score(y, p >= 0.5),
     "log_loss": lambda y, p: log_loss(y, p, labels=[0, 1]),
@@ -64,9 +68,8 @@ def oof_table(results: Path) -> pd.DataFrame:
     add(table, original, {"second_five_views": lambda part: part[FIVE_VIEWS].mean(axis=1)})
     fixed = pd.read_csv(results / "our_folds" / "fixed" / "second_oof.csv")
     add(table, fixed, {name: lambda part, c=column: part[c] for column, name in SECOND.items()})
-    for notebook, name in THIRD.items():
-        refitted = pd.read_csv(results / "third" / f"deploy_{notebook}" / "deploy_oof.csv")
-        add(table, refitted, {name: lambda part: part["p"]})
+    refitted = pd.read_csv(results / "spikes" / "deploy" / "deploy_oof.csv")
+    add(table, refitted, {name: lambda part, c=column: part[c] for column, name in SPIKES.items()})
     return table.sort_values(["fold", "row"]).reset_index(drop=True)
 
 
@@ -98,12 +101,12 @@ def paired_table(folds: pd.DataFrame, n_folds: int) -> pd.DataFrame:
 def curve_table(results: Path) -> pd.DataFrame:
     """Validation log loss on fold 0 by training size: ``blend``, the 2nd team's tactical view
     (its second stage needs out-of-fold rows of every battle, so it has no curve) and
-    Fantastic Four's notebook 8."""
+    predictive spikes' blend."""
     ours: Any = pd.read_csv(HERE.parent / "data" / "loss_curve.csv")
     ours = ours[(ours["split"] == "valid") & (ours["model"] == "blend")]
     sources = {
         "second": (results / "curve" / "curve.csv", "tactical"),
-        "third": (results / "third" / "curve_nb8" / "curve.csv", "p"),
+        "spikes": (results / "spikes" / "curve" / "curve.csv", "p"),
     }
     rows = []
     for model, (path, column) in sources.items():
@@ -125,15 +128,15 @@ def test_table(results: Path) -> pd.DataFrame:
     theirs = theirs.set_index("battle_id")
     for column, name in SECOND.items():
         table[name] = theirs[column]
-    for notebook, name in THIRD.items():
-        proba = pd.read_csv(results / "third" / notebook / "test_proba.csv")
-        table[name] = proba.set_index("battle_id")["p"]
+    proba = pd.read_csv(results / "spikes" / "run" / "test_proba.csv").set_index("battle_id")
+    for column, name in SPIKES.items():
+        table[name] = proba[column]
     return table
 
 
 def agreement(oof: pd.DataFrame, test: pd.DataFrame) -> pd.DataFrame:
     """Share of battles with the same predicted winner, out of fold and on the test set."""
-    pairs = [("compact_v5", "v11"), ("blend", "second"), ("blend", "third"), ("second", "third")]
+    pairs = [("compact_v5", "v11"), ("blend", "second"), ("blend", "spikes"), ("second", "spikes")]
     rows = []
     for a, b in pairs:
         same = [float(np.mean((t[a] >= 0.5).to_numpy() == (t[b] >= 0.5).to_numpy()))

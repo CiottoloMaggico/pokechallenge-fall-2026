@@ -5,15 +5,19 @@
 ``estimates.csv``: accuracy and log loss of each team's best private model under
 
 * the team's own validation (ours: the seed-33 grouped folds; the 2nd team: the mean of its
-  three partitions, ``second_place.py test``; Fantastic Four: its notebook's ``StratifiedKFold``);
-* our folds, validated the way the team does (for Fantastic Four: its validation cell, whose
-  lookup tables are built on all the training battles);
+  three partitions, ``second_place.py test``; predictive spikes: its notebook's
+  ``StratifiedKFold``, with early stopping on the held-out fold);
+* our folds, validated the way the team does (for predictive spikes: its training cell, early
+  stopping on the held-out fold included);
 * our folds with everything fitted on the training folds only, as for the real test set
-  (``oof.csv`` of ``compare.py``; for us and the 2nd team this is the previous protocol).
+  (``oof.csv`` of ``compare.py``; for us and the 2nd team this is the previous protocol; for
+  predictive spikes the held-out fold is predicted as their test set, by the mean of five models
+  early-stopped on folds of the training battles).
 
 ``split_simulation.csv``: the leaderboard drawn again many times from the out-of-fold
 predictions: 5,000 battles without replacement, the first 1,500 "public" and the other 3,500
-"private" (the competition's 30 / 70 split), accuracy of each team's model on each part.
+"private" (the competition's 30 / 70 split), accuracy of each team's model on each part (for
+predictive spikes, of each of its three submissions).
 """
 
 from __future__ import annotations
@@ -27,8 +31,10 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, log_loss
 
 HERE = Path(__file__).resolve().parent
-TEAMS = ("blend", "second", "third")
-THIRD = {"third": "nb8", "third_catboost": "nb7", "third_ensemble": "nb6"}
+TEAMS = ("blend", "second", "spikes", "spikes_compact", "spikes_conservative")
+# predictive spikes: name here -> column of their notebook's probabilities
+SPIKES = {"spikes": "blend", "spikes_compact": "model4_compact_top140_te",
+          "spikes_conservative": "model2_conservative_depth4_pruned_te"}  # fmt: skip
 TEST, PUBLIC = 5000, 1500
 
 
@@ -57,10 +63,10 @@ def estimates(oof: pd.DataFrame, results: Path) -> pd.DataFrame:
     ours = fold_mean(oof, "blend")
     second = fold_mean(oof, "second")
     rows = [("blend", ours, ours, ours), ("second", second_own(results), second, second)]
-    for model, notebook in THIRD.items():
-        folder = results / "third" / notebook
-        own = fold_mean(pd.read_csv(folder / "own_oof.csv"), "p")
-        cell = fold_mean(pd.read_csv(folder / "ours_oof.csv"), "p")
+    folder = results / "spikes" / "run"
+    own_folds, our_folds = (pd.read_csv(folder / f"{name}_oof.csv") for name in ("own", "ours"))
+    for model, column in SPIKES.items():
+        own, cell = fold_mean(own_folds, column), fold_mean(our_folds, column)
         rows.append((model, own, cell, fold_mean(oof, model)))
     names = ("own validation", "our folds", "our folds, refitted")
     return pd.DataFrame(

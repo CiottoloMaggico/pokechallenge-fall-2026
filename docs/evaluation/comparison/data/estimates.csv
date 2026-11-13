@@ -5,12 +5,12 @@ blend,"our folds, refitted",0.7232000000000001,0.5355098446501414
 second,own validation,0.7071999999999999,0.5536093273157127
 second,our folds,0.7083999999999999,0.5546157411214386
 second,"our folds, refitted",0.7083999999999999,0.5546157411214386
-third,own validation,0.6983999999999999,0.5680211091044836
-third,our folds,0.6955,0.5700369128982421
-third,"our folds, refitted",0.6948000000000001,0.5716088187834633
-third_catboost,own validation,0.6968,0.5672908463126191
-third_catboost,our folds,0.6973999999999999,0.5693954931608466
-third_catboost,"our folds, refitted",0.6977,0.5713263707693808
-third_ensemble,own validation,0.7002999999999999,0.5657999791257711
-third_ensemble,our folds,0.6939,0.568600525667905
-third_ensemble,"our folds, refitted",0.6941,0.5698132394049387
+spikes,own validation,0.7009,0.5641889245379894
+spikes,our folds,0.6978,0.567335972467139
+spikes,"our folds, refitted",0.6914,0.5685620418007395
+spikes_compact,own validation,0.6998,0.5654906376734498
+spikes_compact,our folds,0.6968,0.5683044629142766
+spikes_compact,"our folds, refitted",0.6934,0.567875073879021
+spikes_conservative,own validation,0.6991,0.5669936433244931
+spikes_conservative,our folds,0.6949,0.5704689166791294
+spikes_conservative,"our folds, refitted",0.6889000000000001,0.5709695710489109
