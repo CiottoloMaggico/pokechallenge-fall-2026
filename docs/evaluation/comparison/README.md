@@ -19,8 +19,11 @@ access on, no competition data needed) and reads the tables of `data/`.
 | `draw.py` | the figures and tables of the notebook | pandas, numpy, matplotlib |
 | `compare.py` | the tables of `data/` from every team's predictions | `.env` |
 | `stability.py` | validation estimates under three protocols, simulated leaderboards | `.env` |
-| `second_place.py` | 2nd place: their models on our folds (`cv`, `stage`), on the subsets of our learning curve (`curve`), with their own protocol (`test`) | theirs (Python 3.12) |
-| `predictive_spikes.py` | 9th place: their Kaggle notebook with its own and our folds (`run`), refitted with each of our folds as test set (`deploy`), on the subsets of our learning curve (`curve`) | theirs (Python 3.13) |
+| `knockouts.py` | the hidden P2 knockouts found by each team, exit by exit, and their tables | `.env` |
+| `knockout_swap.py` | `compact_v5` with each team's knockouts in place of our detector's; tables of both exchanges | `.env` |
+| `draw_knockouts.py` | the tables and the figure of the notebook's section on hidden knockouts | pandas, numpy, matplotlib |
+| `second_place.py` | 2nd place: their models on our folds (`cv`, `stage`), on the subsets of our learning curve (`curve`), with their own protocol (`test`); the scores of their knockout model (`knockouts`); their models with another detector's scores (`cv --knockouts`) | theirs (Python 3.12) |
+| `predictive_spikes.py` | 9th place: their Kaggle notebook with its own and our folds (`run`), refitted with each of our folds as test set (`deploy`), on the subsets of our learning curve (`curve`); the calls of their knockout rule (`knockouts`) | theirs (Python 3.13) |
 | `curve_subsets.py` | the nested training subsets of `../learning_curve.py` (fold 0) | `.env` |
 
 The other teams' repositories are never modified: the scripts import the 2nd place's `src`
@@ -56,6 +59,10 @@ All out of fold on our seed-33 stratified grouped 5 folds (those of `../data/oof
 | `estimates.csv` | accuracy and log loss with each team's own validation, on our folds, and on our folds refitted | `stability.py` |
 | `split_simulation.csv` | accuracy on the 1,500 "public" and 3,500 "private" battles of 5,000 resampled test sets | `stability.py` |
 | `calibration.csv`, `accuracy_vs_confidence.csv`, `disagreement.csv` | computed from `oof.csv` alone | `draw.py` (the notebook) |
+| `knockout_counts.csv`, `knockout_agreement.csv`, `knockout_votes.csv`, `knockout_situations.csv` | P2's 39,204 last exits: knockouts called per detector, agreement of every pair, exits by number of teams that call them, share called by situation | `knockouts.py` |
+| `knockout_outcome.csv` | ROC AUC of "P2's knockouts minus P1's" for the winner with each detector's knockouts (bootstrap over battles) | `knockouts.py` |
+| `knockout_swap.csv` | `compact_v5` (`logreg`, `ensemble_from_lr`, seeds 33 / 66 / 133) with each detector's knockouts, paired with our detector's | `knockout_swap.py` |
+| `knockout_reverse.csv` | the 2nd place's models on our seed-33 folds with their knockout scores and with ours, paired | `knockout_swap.py` |
 | `leaderboard.csv` | public and private scores: ours from Kaggle, the 2nd place's as reported in its repository, and for the 9th place one row with its best public and best private scores on Kaggle (the files are not known; the row uses the cross-validation of `spikes`) | written by hand |
 
 ## How the other teams' models were rebuilt
@@ -106,6 +113,35 @@ runs the notebook (pandas, numpy, matplotlib, jinja2, nbconvert).
   out-of-fold rows of every battle; the 9th place's line is their blend. For both teams the
   8,000-battle point equals fold 0 of the runs above bit for bit.
 
+## Hidden knockouts
+
+Every team estimates which of P2's *last exits* (a Pokémon that leaves the field and is not seen
+again) hide a knockout the record does not show. The detectors compared, by their name in
+`data/`: `v3` and `v11` (our two artifacts), `rule` (our `--repair rule`, used by no
+submission), `second` (the 2nd place's `knockout_scores`, with `--feature-fixes`) and `spikes`
+(the 9th place's `reconstruct_battle_history`).
+
+* **Same events.** The three codebases list the same 39,204 last exits in the whole battles
+  (and 34,995 in their first 20 turns); `knockouts.py` stops if they differ.
+* **A call.** A score of at least 0.5; for `spikes`, membership of their
+  `p2_inferred_kos_strict`, the Pokémon their `adj` features count as fainted (scores of 0.85
+  and above; no other exit has more than 0.65).
+* **Fitted once, without the outcome**, like our artifacts (rule 4 of `AGENTS.md`): `second` is
+  their function on all the training battles (a whole battle is scored by the model of the other
+  half of their two inner folds, a 20-turn prefix by the mean of the two); `spikes` learns
+  nothing. No truth exists for P2, so nothing here measures how many calls are right.
+* **Our models with their knockouts** (`knockout_swap.py run`): a repair that reads a team's
+  column of `results/comparison/knockouts/events.csv` (score = probability, calls = faints of
+  the replay; `compact_v5` asks for the whole battle and its first 20 turns). Checks: on 1,500
+  battles and both lengths the table of `v3` returns exactly what `--repair model=.../v3`
+  returns; the arm `v3` reproduces the regression values of `AGENTS.md` (ensemble_from_lr
+  0.7207 / 0.5402, logreg 0.7191 / 0.5426).
+* **Their models with our knockouts** (`second_place.py cv --knockouts`): each fold runs their
+  `fit_fold` with `features.knockout_scores` wrapped in memory, so that the scores of P2's exits
+  are those of `v3`; their features of those scores, and the rest, are unchanged. Check: their
+  one view that does not read the scores (`raw_summary`) is identical to the last digit. The
+  9th place's rule is inside its feature code, so this exchange is not possible for them.
+
 ## Commands
 
 `PY2` / `PY9`: the Python of the 2nd / 9th place's environment; `REPO2` / `REPO9`: their
@@ -139,6 +175,21 @@ POKEMON_DATA_DIR=$R/data $PY9 -m pytest -p no:cacheprovider $REPO9/tests
 $PY9 docs/evaluation/comparison/predictive_spikes.py run --repo $REPO9 --data $R/data --output $R/spikes/run --ours
 $PY9 docs/evaluation/comparison/predictive_spikes.py deploy --repo $REPO9 --data $R/data --output $R/spikes/deploy --jobs 2
 $PY9 docs/evaluation/comparison/predictive_spikes.py curve --repo $REPO9 --data $R/data --output $R/spikes/curve --subsets $R/curve_subsets.csv --jobs 2
+```
+
+Hidden knockouts (scores ~1 min each, `knockouts.py` ~9 min, an arm ~30 min, two at a time;
+the reverse exchange ~25 min with 3 jobs):
+
+```bash
+$PY9 docs/evaluation/comparison/predictive_spikes.py knockouts --repo $REPO9 --data $R/data --output $R/spikes/knockouts
+$PY2 docs/evaluation/comparison/second_place.py knockouts --repo $REPO2 --data $R/data --output $R/our_folds/fixed --feature-fixes
+python docs/evaluation/comparison/knockouts.py --results $R
+for arm in none rule v3 v11 second spikes; do
+  python docs/evaluation/comparison/knockout_swap.py run --arm $arm --results $R
+done
+$PY2 docs/evaluation/comparison/second_place.py cv --repo $REPO2 --data $R/data --output $R/our_folds/fixed_v3 --jobs 3 --feature-fixes --knockouts $R/knockouts/events.csv --detector v3
+$PY2 docs/evaluation/comparison/second_place.py stage --repo $REPO2 --data $R/data --output $R/our_folds/fixed_v3
+python docs/evaluation/comparison/knockout_swap.py tables --results $R
 ```
 
 Our test probabilities (rebuilt from the notebook's runs), then the tables and the notebook:

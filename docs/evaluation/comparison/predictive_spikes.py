@@ -29,11 +29,20 @@ stopping. Writes ``deploy_oof.csv``.
 
 ``curve``: the same with the nested subsets of our learning curve (``curve_subsets.py``) as
 train and our fold 0 as test. Writes ``curve.csv``.
+
+``knockouts``: what their hand-written rule (``reconstruct_battle_history``) says of P2's last
+exits, the switches that may hide a knockout, in every training battle and in its first
+``--prefix`` turns: ``p``, the probability it assigns (0 when no branch of the rule applies),
+and ``strict``, whether it counts the Pokémon as fainted. The rule learns nothing; the species
+catalogue is built on all the training battles, as in their notebook. Writes ``knockouts.csv``:
+``row``, ``turns`` (length of the timeline scored), ``index`` (the timeline row where the
+replacement appears), ``leaver``, ``p``, ``strict``.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import subprocess
@@ -188,11 +197,38 @@ def curve(args: argparse.Namespace) -> None:
     print(f"wrote {args.output / 'curve.csv'}")
 
 
+def knockouts(args: argparse.Namespace) -> None:
+    sys.path.insert(0, str(args.repo))
+    features, loader = (importlib.import_module(f"src.{m}") for m in ("battle_features",
+                                                                      "data_loader"))  # fmt: skip
+    battles = loader.load_jsonl(args.data / "train.jsonl")
+    catalogue = features.build_species_catalogue(battles)
+    chart = loader.load_type_chart(args.data / "type_chart_gen2.csv")
+    rows = []
+    for turns in (30, args.prefix):
+        for row, battle in enumerate(battles):
+            cut = {**battle, "battle_timeline": battle["battle_timeline"][:turns]}
+            history = features.reconstruct_battle_history(cut, catalogue, chart)
+            states = [turn["p2_pokemon_state"] for turn in cut["battle_timeline"]]
+            for i in range(1, len(states)):
+                before, name = states[i - 1], states[i - 1]["name"]
+                last_exit = states[i]["name"] != name and history["last_seen_p2"][name] == i - 1
+                if last_exit and before["status"] != "fnt" and before["hp_pct"] > 0:
+                    score = history["p2_ko_probs"].get(name, 0.0)
+                    strict = int(name in history["p2_inferred_kos_strict"])
+                    rows.append((row, turns, i, name, score, strict))
+    args.output.mkdir(parents=True, exist_ok=True)
+    table = pd.DataFrame(rows, columns=["row", "turns", "index", "leaver", "p", "strict"])
+    table.to_csv(args.output / "knockouts.csv", index=False)
+    print(f"wrote {args.output / 'knockouts.csv'}: {len(rows)} last exits of P2")
+
+
 def main() -> None:
     """One sub-command per step."""
     root = argparse.ArgumentParser(description="the Kaggle notebook of team predictive spikes")
     commands = root.add_subparsers(dest="command", required=True)
-    for name, handler in (("run", run), ("deploy", deploy), ("curve", curve)):
+    steps = (("run", run), ("deploy", deploy), ("curve", curve), ("knockouts", knockouts))
+    for name, handler in steps:
         sub = commands.add_parser(name)
         sub.add_argument("--repo", type=Path, required=True, help="their repository")
         sub.add_argument("--data", type=Path, required=True, help="the four competition files")
@@ -202,6 +238,7 @@ def main() -> None:
     for name in ("deploy", "curve"):
         commands.choices[name].add_argument("--jobs", type=int, default=3)
     commands.choices["curve"].add_argument("--subsets", type=Path, required=True)
+    commands.choices["knockouts"].add_argument("--prefix", type=int, default=20)
     args = root.parse_args()
     for name in ("repo", "data", "output"):
         setattr(args, name, getattr(args, name).expanduser().resolve())

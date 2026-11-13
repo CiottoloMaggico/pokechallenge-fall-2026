@@ -14,6 +14,9 @@ groups are identical timelines, ours whole battles: three timelines (six battles
 only in P1's team details) are split by our folds, so those battles get one group per fold, or
 their leakage assertion stops the worker. Writes ``components.csv`` (the five views,
 out-of-fold). ``--feature-fixes`` as in ``run.py`` (their two final submissions use it).
+With ``--knockouts <events.csv> --detector <column>`` (``knockouts.py``) each fold is fitted by
+``worker`` instead: their ``fit_fold`` with the scores their knockout model gives to P2's last
+exits replaced, in memory, by another detector's; everything else is theirs.
 
 ``stage``: their second stage on the same folds: the similar-team rates of
 ``similar_team_features`` (their inner folds of each outer training fold), Spikes at turn 30 and
@@ -30,6 +33,15 @@ and fold 0, in the original order) under ``<output>/data_<size>``. Writes ``curv
 protocol: three partitions, routed test battles), with the second stage fitted exactly as in
 ``second_stage.run``; checks that the labels equal ``results/submitted`` and writes
 ``second_test.csv``.
+
+``knockouts``: the score their knockout model (LightGBM fitted on P1's recorded knockouts) gives
+to P2's last exits, the switches that may hide a knockout, in every training battle and in its
+first ``--prefix`` turns. Their ``knockout_scores`` is fitted once on all the training battles
+(``--output`` is the folder of a finished ``cv``, for their groups): a whole battle gets the
+score of the model of the other half of their two inner folds, as their training rows do; a
+prefix, as their validation rows, the mean of the two models. Writes ``knockouts.csv``:
+``row``, ``turns`` (length of the timeline scored), ``index`` (the timeline row where the
+replacement appears), ``leaver``, ``p``.
 """
 
 from __future__ import annotations
@@ -100,13 +112,36 @@ def prepare(repo: Path, data: Path, output: Path, fold: np.ndarray, partition: P
 
 
 def run_worker(args: argparse.Namespace, data: Path, output: Path, fold: int) -> None:
-    """Their own worker (``run.py cv --worker``) on one fold of the partition ``SEED``."""
+    """Their own worker (``run.py cv --worker``) on one fold of the partition ``SEED``; with
+    ``--knockouts``, ``worker`` below."""
     fixes = ["--feature-fixes"] if args.feature_fixes else []
     command = [sys.executable, str(args.repo / "run.py"), "cv", "--data", str(data),
                "--output", str(output), "--worker", str(SEED), str(fold), *fixes]  # fmt: skip
+    if getattr(args, "knockouts", None):
+        command = [sys.executable, __file__, "worker", "--repo", str(args.repo), "--data",
+                   str(data), "--output", str(output), "--fold", str(fold), "--knockouts",
+                   str(args.knockouts.resolve()), "--detector", args.detector, *fixes]  # fmt: skip
     with (output / f"{SEED}_{fold}.log").open("a") as log:
         subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True)
     print(f"{output.name} fold {fold} done", flush=True)
+
+
+def worker(args: argparse.Namespace) -> None:
+    """One fold of their ``fit_fold`` with another detector's scores of P2's last exits."""
+    pipeline, features = their(args.repo, "pipeline"), their(args.repo, "features")
+    table: Any = pd.read_csv(args.knockouts)
+    table = table[table["turns"] == 30].set_index(["row", "index"])[args.detector]
+    theirs = features.knockout_scores
+
+    def replaced(events: Any, *arguments: Any) -> np.ndarray:
+        p = theirs(events, *arguments)
+        p2 = (events["side"] == "p2").to_numpy()
+        exits = pd.MultiIndex.from_arrays([events.loc[p2, "battle"], 29 - events.loc[p2, "age"]])
+        p[p2] = table.loc[exits].to_numpy()
+        return p
+
+    features.knockout_scores = replaced
+    pipeline.fit_fold(args.data, args.output, "cv", SEED, args.fold)
 
 
 def cv(args: argparse.Namespace) -> None:
@@ -278,11 +313,38 @@ def test(args: argparse.Namespace) -> None:
     print(f"wrote {args.output / 'second_test.csv'}")
 
 
+def knockouts(args: argparse.Namespace) -> None:
+    pipeline, features = their(args.repo, "pipeline"), their(args.repo, "features")
+    observations, state = their(args.repo, "observations"), their(args.repo, "state")
+    inputs = pipeline.read_pickle(args.output / "inputs.pkl.gz")
+    whole = observations.load(args.data / "train.jsonl")
+    cut = [{**b, "battle_timeline": b["battle_timeline"][: args.prefix]} for b in whole]
+    battles, n = whole + cut, len(whole)
+    views = [observations.describe(battle) for battle in battles]
+    chart, stats = pipeline.load_type_chart(args.data), state.stats_context(whole)
+    x, events = features.make_events(battles, views, stats, chart, include_entry=True)
+    y, groups = np.concatenate([inputs["y"]] * 2), np.concatenate([inputs["groups"]] * 2)
+    p = features.knockout_scores(events, x, y, groups, np.arange(n), n + np.arange(n))
+    p2 = (events["side"] == "p2").to_numpy()
+    table = pd.DataFrame({
+        "row": events.loc[p2, "battle"] % n,
+        "turns": np.where(events.loc[p2, "battle"] < n, 30, args.prefix),
+        "index": 29 - events.loc[p2, "age"],
+        "leaver": events.loc[p2, "species"],
+        "p": p[p2],
+    })  # fmt: skip
+    table = table.sort_values(["turns", "row", "index"], ascending=[False, True, True])
+    table.to_csv(args.output / "knockouts.csv", index=False, float_format="%.8f")
+    print(f"wrote {args.output / 'knockouts.csv'}: {len(table)} last exits of P2")
+
+
 def parser() -> argparse.ArgumentParser:
     """One sub-command per step."""
     root = argparse.ArgumentParser(description="the second-placed team's models on our folds")
     commands = root.add_subparsers(dest="command", required=True)
-    for name, handler in (("cv", cv), ("curve", curve), ("stage", stage), ("test", test)):
+    steps = (("cv", cv), ("curve", curve), ("stage", stage), ("test", test),
+             ("knockouts", knockouts), ("worker", worker))  # fmt: skip
+    for name, handler in steps:
         sub = commands.add_parser(name)
         sub.add_argument("--repo", type=Path, required=True, help="their repository")
         sub.add_argument("--data", type=Path, required=True, help="their four competition files")
@@ -290,9 +352,17 @@ def parser() -> argparse.ArgumentParser:
         sub.set_defaults(handler=handler)
         if name in ("cv", "curve"):
             sub.add_argument("--jobs", type=int, default=2)
+        if name in ("cv", "curve", "knockouts", "worker"):
             sub.add_argument("--feature-fixes", action="store_true")
+        if name in ("cv", "worker"):
+            sub.add_argument("--knockouts", type=Path, help="events.csv of knockouts.py")
+            sub.add_argument("--detector", default="v3", help="column of --knockouts")
+        if name == "worker":
+            sub.add_argument("--fold", type=int, required=True)
         if name == "curve":
             sub.add_argument("--subsets", type=Path, required=True, help="curve_subsets.py")
+        if name == "knockouts":
+            sub.add_argument("--prefix", type=int, default=20, help="turns of the cut battles")
     return root
 
 

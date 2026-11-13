@@ -25,6 +25,7 @@ from matplotlib.figure import Figure
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
+import draw_knockouts  # noqa: E402
 import plots  # noqa: E402
 from plots import GRAY, GRID, INDIGO, LABEL, apple_style, roc_points, save, save_table  # noqa: E402
 
@@ -294,6 +295,7 @@ def draw(data: Path, figures: Path) -> None:
     plot_loss_convergence(pd.read_csv(data / "loss_curve.csv"), figures)
     plot_leaderboard(board, metrics, figures)
     plot_swing(pd.read_csv(data / "split_simulation.csv"), board, figures)
+    draw_knockouts.plot_situations(pd.read_csv(data / "knockout_situations.csv"), figures)
     plt.close("all")
 
 
